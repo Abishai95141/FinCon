@@ -1,0 +1,16 @@
+{
+  "spec_id": "shopify-orders",
+  "source": "shopify-orders",
+  "side": "orders",
+  "authored_by": "human",
+  "currency": "INR",
+  "reader": { "kind": "csv", "encoding": ["utf-8"], "header_row": 1 },
+  "fields": [
+    { "to": "date", "source": "Created At", "parse": "date", "fmt": "YYYY-MM-DD" },
+    { "to": "amount", "source": "Total", "parse": "decimal" },
+    { "to": "reference", "source": "Order ID", "parse": "text" },
+    { "to": "key", "as_key": "payment_id", "source": "Payment Id", "parse": "text" },
+    { "to": "key", "as_key": "email", "source": "Email", "parse": "lower" }
+  ],
+  "reject": [{ "when": "row_blank", "reason": "blank_row" }]
+}

@@ -1,13 +1,260 @@
-"""The five ingestion proofs: row conservation, control total, roll-forward,
-type/domain, idempotence.
+"""The five ingestion proofs.
 
-Unimplemented. Filled in by phase P2 — see STATUS.md.
-Per CLAUDE.md rule 1: this raises rather than returning a plausible value.
+None of them needs to know the source's format or domain. They exist because an
+adapter authored from a fifty-row sample can be wrong on the tail, and the only
+defence that scales is checking what the adapter *produced* against what the
+document *asserts about itself*.
+
+A source with no control total, no balances and no internal redundancy gives
+these checks almost nothing to bite on. That is not a pass — it is
+`strength == "declared"`, and every record from it inherits a lower proof tier.
+Reporting a weak intake as verified would be exactly the shallow proxy this
+project exists to refuse.
 """
 
+from __future__ import annotations
 
-def _unbuilt(*_args, **_kwargs):
-    raise NotImplementedError(
-        "P2 — The five ingestion proofs: row conservation, control total, roll- "
-        "forward, type/domain, idempotence. "
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+from enum import StrEnum
+from itertools import pairwise
+
+from ..contracts import AdapterSpec, ProofTier, Record
+from .readers import SourceDocument
+from .spec import Interpreted, interpret
+
+ZERO = Decimal("0.00")
+
+
+class CheckStatus(StrEnum):
+    PASS = "pass"
+    FAIL = "fail"
+    SKIP = "skip"
+    """The document does not carry what this check needs. Not a pass."""
+
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    status: CheckStatus
+    detail: str = ""
+
+
+#: Checks that can actually catch a mis-mapped column. If none of these ran,
+#: the intake is unverified however many structural checks passed.
+SUBSTANTIVE = frozenset({"control_total", "balance_roll_forward"})
+
+
+@dataclass(frozen=True)
+class IntakeProof:
+    source: str
+    spec_ref: str
+    doc_hash: str
+    rows_in_file: int
+    rows_parsed: int
+    rows_rejected: int
+    checks: list[Check]
+
+    @property
+    def failed(self) -> list[Check]:
+        return [c for c in self.checks if c.status is CheckStatus.FAIL]
+
+    @property
+    def verified(self) -> bool:
+        """No check failed *and* at least one substantive check actually ran."""
+        return not self.failed and any(
+            c.name in SUBSTANTIVE and c.status is CheckStatus.PASS for c in self.checks
+        )
+
+    @property
+    def strength(self) -> str:
+        if self.failed:
+            return "failed"
+        return "verified" if self.verified else "declared"
+
+    @property
+    def provenance(self) -> ProofTier:
+        """The tier a match built on these records may claim at best."""
+        return ProofTier.P0_ARITHMETIC if self.verified else ProofTier.P3_DECLARED
+
+    def summary(self) -> str:
+        marks = " ".join(
+            f"{c.name}={c.status.value}" for c in sorted(self.checks, key=lambda c: c.name)
+        )
+        return (
+            f"{self.source} [{self.strength}] "
+            f"{self.rows_parsed}/{self.rows_in_file} parsed, "
+            f"{self.rows_rejected} rejected :: {marks}"
+        )
+
+
+def _row_conservation(doc: SourceDocument, out: Interpreted) -> Check:
+    accounted = len(out.records) + len(out.rejections)
+    if accounted != doc.rows_in_file:
+        return Check(
+            "row_conservation",
+            CheckStatus.FAIL,
+            f"{doc.rows_in_file} rows in file but {accounted} accounted for "
+            f"({len(out.records)} parsed + {len(out.rejections)} rejected) — "
+            f"{doc.rows_in_file - accounted} vanished",
+        )
+    unreasoned = [r for r in out.rejections if not r.reason]
+    if unreasoned:
+        return Check(
+            "row_conservation",
+            CheckStatus.FAIL,
+            f"{len(unreasoned)} rejection(s) carry no reason — a dropped row "
+            f"without one is a silent loss",
+        )
+    # Every row accounted for and none survived is a spec that does not match
+    # this document, not a weakly-evidenced intake. Without this, a wrong date
+    # format parses nothing and still reports "declared" — which reads as "we
+    # got data we could not fully verify" rather than "we got nothing".
+    if doc.rows_in_file > 0 and not out.records:
+        return Check(
+            "row_conservation",
+            CheckStatus.FAIL,
+            f"all {doc.rows_in_file} row(s) rejected — the spec does not match "
+            f"this document. First reason: "
+            f"{out.rejections[0].detail or out.rejections[0].reason}",
+        )
+    rate = len(out.rejections) / doc.rows_in_file if doc.rows_in_file else 0.0
+    return Check(
+        "row_conservation",
+        CheckStatus.PASS,
+        f"{doc.rows_in_file} = {len(out.records)} parsed + {len(out.rejections)} "
+        f"rejected ({rate:.0%} rejected)",
     )
+
+
+def _control_total(doc: SourceDocument, out: Interpreted) -> Check:
+    if doc.control_total is None:
+        return Check("control_total", CheckStatus.SKIP, "source states no total")
+    got = sum((r.amount for r in out.records), ZERO)
+    if got != doc.control_total:
+        return Check(
+            "control_total",
+            CheckStatus.FAIL,
+            f"parsed sum {got} != stated total {doc.control_total} "
+            f"(delta {got - doc.control_total})",
+        )
+    return Check("control_total", CheckStatus.PASS, f"sum ties to stated {doc.control_total}")
+
+
+def _roll_forward(doc: SourceDocument, out: Interpreted) -> Check:
+    """Per-row where the source carries a running balance, aggregate where it
+    states opening and closing. The per-row form is the stronger of the two: it
+    localises the first divergent row instead of reporting one end-to-end delta.
+    """
+    amounts = {r.row_ordinal: r.amount for r in out.records}
+
+    if len(out.running_balances) >= 2:
+        chain = sorted(out.running_balances)
+        for (_, prev_bal), (ordinal, stated) in pairwise(chain):
+            movement = amounts.get(ordinal)
+            if movement is None:
+                continue
+            expected = prev_bal + movement
+            if expected != stated:
+                return Check(
+                    "balance_roll_forward",
+                    CheckStatus.FAIL,
+                    f"row {ordinal}: {prev_bal} + {movement} = {expected}, "
+                    f"but the source states {stated} (delta {expected - stated})",
+                )
+        return Check(
+            "balance_roll_forward",
+            CheckStatus.PASS,
+            f"running balance chains across {len(chain)} rows",
+        )
+
+    if doc.opening_balance is not None and doc.closing_balance is not None:
+        rolled = doc.opening_balance + sum((r.amount for r in out.records), ZERO)
+        if rolled != doc.closing_balance:
+            return Check(
+                "balance_roll_forward",
+                CheckStatus.FAIL,
+                f"opening {doc.opening_balance} + movements = {rolled}, "
+                f"but closing is stated as {doc.closing_balance} "
+                f"(delta {rolled - doc.closing_balance})",
+            )
+        return Check(
+            "balance_roll_forward",
+            CheckStatus.PASS,
+            f"{doc.opening_balance} + movements = {doc.closing_balance}",
+        )
+
+    return Check("balance_roll_forward", CheckStatus.SKIP, "source carries no balances")
+
+
+def _type_domain(spec: AdapterSpec, out: Interpreted, window: tuple[date, date] | None) -> Check:
+    """Record's own validators already reject a bad currency or a non-Decimal
+    amount at construction, so this checks what they cannot: that the values are
+    *plausible*. A two-digit year pivoting to the wrong century parses cleanly
+    and is wrong by a hundred years."""
+    wrong_ccy = [r.record_id for r in out.records if r.currency != spec.currency]
+    if wrong_ccy:
+        return Check(
+            "type_domain",
+            CheckStatus.FAIL,
+            f"{len(wrong_ccy)} record(s) not in {spec.currency}: {wrong_ccy[:3]}",
+        )
+    if window is not None:
+        lo, hi = window
+        stray = [(r.record_id, r.posted_on) for r in out.records if not lo <= r.posted_on <= hi]
+        if stray:
+            return Check(
+                "type_domain",
+                CheckStatus.FAIL,
+                f"{len(stray)} date(s) outside {lo}..{hi} — check the century "
+                f"pivot on two-digit years: {stray[:3]}",
+            )
+    return Check(
+        "type_domain",
+        CheckStatus.PASS,
+        f"{len(out.records)} record(s) in {spec.currency}"
+        + (f", dates within {window[0]}..{window[1]}" if window else ""),
+    )
+
+
+def _idempotence(spec: AdapterSpec, doc: SourceDocument, out: Interpreted) -> Check:
+    """Re-interpret the same document and compare. Catches nondeterminism in the
+    interpreter itself — a set iteration, a dict ordering assumption — which
+    would make re-ingest produce different records from identical bytes."""
+    again = interpret(spec, doc)
+    first = [(r.record_id, r.posted_on, r.amount) for r in out.records]
+    second = [(r.record_id, r.posted_on, r.amount) for r in again.records]
+    if first != second:
+        return Check(
+            "idempotence",
+            CheckStatus.FAIL,
+            "re-interpreting the same bytes produced different records",
+        )
+    return Check("idempotence", CheckStatus.PASS, f"stable over {len(first)} record(s)")
+
+
+def prove(
+    spec: AdapterSpec,
+    doc: SourceDocument,
+    out: Interpreted,
+    window: tuple[date, date] | None = None,
+) -> IntakeProof:
+    return IntakeProof(
+        source=spec.source,
+        spec_ref=spec.ref,
+        doc_hash=doc.doc_hash,
+        rows_in_file=doc.rows_in_file,
+        rows_parsed=len(out.records),
+        rows_rejected=len(out.rejections),
+        checks=[
+            _row_conservation(doc, out),
+            _control_total(doc, out),
+            _roll_forward(doc, out),
+            _type_domain(spec, out, window),
+            _idempotence(spec, doc, out),
+        ],
+    )
+
+
+__all__ = ["Check", "CheckStatus", "IntakeProof", "Record", "prove"]

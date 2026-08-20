@@ -19,7 +19,11 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
+# 1.1.0 — P2 added FieldMap.sign (optional): a fixed dr/cr sign for DECIMAL,
+#         needed by exports that split debits and credits into two columns.
+#         New optional field, so minor per the bump rules above.
+# 1.0.0 — P1 initial surface.
 
 PAISE = Decimal("0.01")
 

@@ -1,0 +1,19 @@
+{
+  "spec_id": "icici-current",
+  "source": "icici-current",
+  "side": "bank",
+  "authored_by": "human",
+  "currency": "INR",
+  "reader": { "kind": "csv", "encoding": ["utf-8", "latin-1"], "header_row": 1 },
+  "fields": [
+    { "to": "date", "source": "Txn Date", "parse": "date", "fmt": "DD-MM-YY", "tz": "Asia/Kolkata" },
+    { "to": "amount", "source": "Withdrawal Amt.", "parse": "decimal", "sign": "dr", "strip": ["₹", ","] },
+    { "to": "amount", "source": "Deposit Amt.", "parse": "decimal", "sign": "cr", "strip": ["₹", ","] },
+    { "to": "running_balance", "source": "Closing Balance", "parse": "decimal", "strip": ["₹", ","] },
+    { "to": "counterparty", "source": "Narration", "parse": "text" },
+    { "to": "reference", "source": "Narration", "parse": "regex", "pattern": "/(pout_[A-Za-z0-9]+)" },
+    { "to": "key", "as_key": "gateway", "source": "Narration", "parse": "regex", "pattern": "^[A-Z]+/([A-Z]+)/" },
+    { "to": "key", "as_key": "narration", "source": "Narration", "parse": "lower" }
+  ],
+  "reject": [{ "when": "row_blank", "reason": "blank_footer" }]
+}

@@ -13,6 +13,7 @@ hole this design exists to close.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -108,6 +109,10 @@ class FieldMap(BaseModel):
     sign_when_negative: str | None = None
     """For SIGN_FROM_COLUMN: the column carrying the sign, and the value in it
     that means negative."""
+    sign: Literal["dr", "cr"] | None = None
+    """Fixed sign for DECIMAL, for exports that split debits and credits into
+    two columns: each column gets its own mapping, one "dr", one "cr". Added in
+    contract 1.1.0 — a new optional field, so a minor bump."""
 
     @model_validator(mode="after")
     def _verb_has_its_arguments(self) -> FieldMap:
@@ -126,6 +131,8 @@ class FieldMap(BaseModel):
                 raise ValueError("pattern longer than 200 chars — refused as a DoS risk")
         if self.parse is ParseVerb.SIGN_FROM_COLUMN and not self.sign_column:
             raise ValueError("SIGN_FROM_COLUMN requires `sign_column`")
+        if self.sign is not None and self.parse is not ParseVerb.DECIMAL:
+            raise ValueError("`sign` applies to DECIMAL only — elsewhere it is a silent no-op")
         if self.to is CanonicalField.KEY and not self.as_key:
             raise ValueError("mapping to KEY requires `as_key`")
         return self

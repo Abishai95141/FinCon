@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P2` — intake: parsers, spec interpreter, five proofs |
-| **Last green gate** | **P1** — 19/19. `make verify` runs P0+P1, 30 tests. |
-| **Build runs?** | Generator and ledger do. Engine and intake are still skeleton. |
+| **Current phase** | `P3` — engine T0/T1 + proof verifier + securo baseline arm |
+| **Last green gate** | **P2** — 19/19. `make verify` runs P0+P1+P2, 49 tests. |
+| **Build runs?** | Generator, ledger and intake do. Engine is still skeleton. |
 | **Last verified numbers** | batch A bank-leg ₹137,874.48 · orders-leg ₹18,700.00 (cross-checked) |
 | **Updated** | 2026-08-20 |
 
@@ -28,7 +28,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 |---|---|---|---|
 | **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | **`GREEN`** | [below](#p0--generator--ground-truth--2026-08-20) |
 | **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | **`GREEN`** | [below](#p1--contracts--ledger--2026-08-20) |
-| **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | `not started` | — |
+| **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
 | **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | `not started` | — |
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | `not started` | — |
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | `not started` | — |
@@ -55,6 +55,72 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P2 — intake · 2026-08-20
+
+```
+$ make verify
+=== gate P0 ===   11 passed      === gate P1 ===   19 passed
+=== gate P2 ===   19 passed
+
+$ .venv/bin/python -m pytest -q      49 passed in 0.26s
+$ make lint                          All checks passed! · 51 files formatted
+
+  icici-current      [verified] 26/28 parsed, 2 rejected :: roll_forward=pass control_total=skip
+                                                            idempotence=pass row_conservation=pass type_domain=pass
+  icici-camt         [verified] 26/26 parsed, 0 rejected :: roll_forward=pass ...
+  shopify-orders     [declared] 250/250 parsed          :: roll_forward=skip control_total=skip ...
+  gateway-settlement [declared] 517/517 parsed          :: roll_forward=skip control_total=skip ...
+```
+
+Four hand-written specs, no model involved. Two sources carry balances and come
+back **verified**; two carry none and come back **declared** — the honest
+degradation from the addendum, with `provenance` capped at `P3` for the latter.
+
+**The gate's core claim, demonstrated.** Point the credit amount at the
+`Closing Balance` column — a plausible mistake, both columns are money, both
+parse, and the corrupted spec produces *exactly as many records as the good one*
+(the test asserts that, so it cannot be caught trivially). Nothing about the
+output looks wrong. Roll-forward catches it and localises it:
+
+```
+row 2: 680108.64 + 709646.38 = 1389755.02, but the source states 709646.38
+       (delta 680108.64)
+```
+
+**A hole found while testing the second corruption.** A spec with a wrong date
+format parsed **zero** rows and still reported `declared`. Every check passed or
+skipped vacuously: row conservation balanced (0 parsed + 28 rejected = 28),
+roll-forward skipped for want of records, type-domain passed over an empty set.
+But "declared" means *we got data we could not fully verify* — getting nothing
+is a different thing and must not borrow that label. Row conservation now fails
+when a document has rows and none survive, and reports the first rejection
+reason. That corruption is now `failed`, not `declared`.
+
+**Contract bumped 1.0.0 → 1.1.0.** `FieldMap.sign` added so split Dr/Cr exports
+can map two columns onto one amount. A new optional field is a *minor* bump per
+the rules in `contracts/__init__.py`, and the changelog is in that file. The
+validator rejects `sign` on any verb other than `DECIMAL`, where it would be a
+silent no-op.
+
+**Cross-format agreement.** The CSV and the CAMT.053 describe the same account;
+movements tie at ₹274,577.56 across both, with equal record counts. Neither file
+alone would reveal a spec error in the other.
+
+**ADR-001 asserted structurally, not just documented.** A test walks the AST of
+every file under `src/recon/intake/` and fails on any `eval` / `exec` / `compile`
+/ `__import__` call or `.system` / `.popen` attribute. The parse registry is also
+asserted complete at *import* time, so a `ParseVerb` member added without an
+implementation breaks the build rather than surfacing on a customer's file.
+
+**P0 evidence re-checked** after ruff reformatted `proofs.py` and friends:
+`MANIFEST.json` regenerated and diffed against the commit — unchanged.
+
+**Not built:** XLSX, OFX and QIF readers raise `ReaderError` rather than
+returning an empty document. `control_total` has no source that states one yet,
+so it only ever SKIPs — it is untested against a real tie-out.
+
+---
 
 ### P1 — contracts + ledger · 2026-08-20
 
@@ -166,8 +232,10 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| `src/recon/intake/`, `engine/`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P2–P10 |
-| Contracts have no producers | `Record` (P2), `Proof` (P3), `Rule` (P7) are defined but nothing emits them yet | P2, P3, P7 |
+| `src/recon/engine/`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P3–P10 |
+| `Proof` and `Rule` have no producers | Defined and validated, but nothing emits them yet | P3, P7 |
+| XLSX / OFX / QIF readers | Not implemented — `read()` raises `ReaderError` rather than returning an empty document | when a source needs them |
+| `control_total` check never runs | No generated source states a total, so it only SKIPs. Untested against a real tie-out. | when a source carries one |
 | `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
 | Defect rates unvalidated | Counts are exact; realism vs production formats is unchecked | ongoing — needs real format samples |
 | Only 2 gateways, 1 currency | Generator is INR-only by design (ADR: FX deferred, build plan P17) | P17 decision, post-v1 |
@@ -204,21 +272,23 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P2.** Build the intake layer: readers for CSV and CAMT.053, the
-`AdapterSpec` interpreter (`intake/spec.py` + `verbs.py`), and the five ingestion
-proofs. Hand-write two specs — one for `bank_icici.csv`, one for `orders.csv` —
-with **no model involved**. The interpreter must exist before anything authors
-specs for it.
+**Start P3 — the first number on the board.** Build `engine/tiers.py` (T0 exact,
+T1 tolerant), `engine/tolerance.py` (the per-match budget), and
+`engine/verifier.py`. Then wrap securo's `transfer_detection_service` as the
+naive baseline arm.
 
-The P2 gate is not "the files parse." It is: both hand-written specs ingest
-cleanly, **and** a deliberately corrupted spec — point `amount` at the wrong
-column — is caught by the roll-forward proof rather than by someone reading the
-output. Write the corruption case first; if roll-forward doesn't catch it, the
-proof is decorative.
+**Build the verifier first, and build it to re-derive.** `Proof.residual` and the
+leg subtotals are *claims*; the verifier must recompute both from the Records and
+compare. A verifier that reads the stored residual is the single most tempting
+shallow proxy in this codebase — it would pass every test and prove nothing.
+`Proof.closes()` deliberately does not verify, and says so in its docstring.
 
-`data/batches/A/bank_icici.csv` already carries a running balance column and two
-trailing blank rows, so roll-forward and row-conservation both have real targets.
-`ParseVerb.SIGN_FROM_COLUMN` exists for its split Withdrawal/Deposit columns.
+The P3 gate is auto-match rate **and false-match rate**, ours vs the securo
+baseline, on batch A. A match rate without its false-match rate is not a result.
+
+Inputs are ready: `ingest()` produces Records for all four sources, and
+`data/batches/A/labels.json` carries `payout_membership` as ground truth — every
+payout's true rows and its bank line.
 
 ---
 
@@ -228,6 +298,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | **P2 GREEN.** Intake: CSV + CAMT readers, spec interpreter over the closed verb set, five proofs, four hand-written specs. Contract → 1.1.0. Found: zero-row specs reporting `declared` instead of `failed`. |
 | 2026-08-20 | **P1 GREEN.** Five semver'd contracts (v1.0.0) + Beancount v3 ledger. Found: `!r` lexer bug, and `tests/gates/` silently collecting zero tests. |
 | 2026-08-20 | **P0 GREEN.** Generator (`bench/generator/`, 4 modules), 10 adversarial cases, 11 gate tests. Cross-check caught and fixed a real labelling bug before any batch shipped. |
 | 2026-08-20 | Repo skeleton, CLAUDE.md, STATUS.md, ADR-001/002, Makefile, package layout. No functional code. |
