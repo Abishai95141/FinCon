@@ -20,9 +20,9 @@ from pathlib import Path
 
 from .build import build
 from .emit import emit
-from .model import Batch, ZERO, money
+from .model import ZERO, Batch, money
 
-__all__ = ["build", "emit", "check_batch", "CheckError"]
+__all__ = ["CheckError", "build", "check_batch", "emit"]
 
 DEFAULT_OUT = Path("data/batches")
 # Batch A is worked against; B is held out for the P7 lift measurement and must

@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES := 0
+GREEN_GATES := 0 1
 
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 
@@ -55,7 +55,7 @@ eval:
 	uv run python -m bench.run
 
 test:
-	uv run pytest -q tests/unit tests/property
+	uv run pytest -q tests/unit tests/property tests/gates
 
 e2e:
 	uv run pytest -q tests/e2e

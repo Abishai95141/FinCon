@@ -11,8 +11,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from .model import (
-    Batch,
+    ZERO,
     BankLine,
+    Batch,
     Charge,
     Fee,
     Gateway,
@@ -20,7 +21,6 @@ from .model import (
     Payout,
     PlantedException,
     Refund,
-    ZERO,
     money,
 )
 
@@ -82,7 +82,9 @@ def build(
         for _ in range(rng.randint(*charges_per_payout)):
             gross = money(rng.randrange(19900, 899900) / Decimal(100))
             pay_id = nid("charge", "pay_")
-            charge = Charge(nid("charge", "ch_"), pay_id, settled - timedelta(days=rng.randrange(3)), gross)
+            charge = Charge(
+                nid("charge", "ch_"), pay_id, settled - timedelta(days=rng.randrange(3)), gross
+            )
             payout.charges.append(charge)
             fee = _fee_for(gw, gross)
             payout.fees.append(Fee(nid("fee", "fee_"), charge.charge_id, fee, fee))
@@ -123,7 +125,13 @@ def build(
         variance = ZERO
         for fee in p.fees:
             charge = next(c for c in p.charges if c.charge_id == fee.charge_id)
-            billed = money(-(charge.gross * (gw.contract_pct + Decimal("0.005")) + gw.contract_fixed + money("1.00")))
+            billed = money(
+                -(
+                    charge.gross * (gw.contract_pct + Decimal("0.005"))
+                    + gw.contract_fixed
+                    + money("1.00")
+                )
+            )
             variance += fee.contract_amount - billed
             fee.amount = billed
         batch.planted.append(
@@ -183,8 +191,13 @@ def build(
                 fee = _fee_for(gw, gross)
                 p.fees.append(Fee(nid("fee", "fee_"), ch.charge_id, fee, fee))
                 batch.orders.append(
-                    Order(ch.charge_id.replace("ch_", "ord_"), settled, gross, pay_id,
-                          f"c{rng.randrange(10**6):06d}@example.in")
+                    Order(
+                        ch.charge_id.replace("ch_", "ord_"),
+                        settled,
+                        gross,
+                        pay_id,
+                        f"c{rng.randrange(10**6):06d}@example.in",
+                    )
                 )
         batch.payouts.append(p)
         ambiguous_ids.add(p.payout_id)
@@ -247,7 +260,9 @@ def build(
         )
         batch.bank.append(line)
         batch.planted.append(
-            PlantedException("E08", amount, line.line_id, "bank credit with no settlement behind it")
+            PlantedException(
+                "E08", amount, line.line_id, "bank credit with no settlement behind it"
+            )
         )
 
     # Non-gateway noise. Never gateway-shaped, so it must not be matched.

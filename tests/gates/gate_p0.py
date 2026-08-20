@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from bench.adversarial.cases import CASES
 from bench.generator import BATCHES, build, check_batch, emit
 

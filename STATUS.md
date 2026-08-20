@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P1` — contracts + canonical Record + ledger |
-| **Last green gate** | **P0** — 11/11, `make verify` |
-| **Build runs?** | Generator does. Engine is still skeleton. |
+| **Current phase** | `P2` — intake: parsers, spec interpreter, five proofs |
+| **Last green gate** | **P1** — 19/19. `make verify` runs P0+P1, 30 tests. |
+| **Build runs?** | Generator and ledger do. Engine and intake are still skeleton. |
 | **Last verified numbers** | batch A bank-leg ₹137,874.48 · orders-leg ₹18,700.00 (cross-checked) |
 | **Updated** | 2026-08-20 |
 
@@ -27,7 +27,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | Phase | Gate | Status | Evidence |
 |---|---|---|---|
 | **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | **`GREEN`** | [below](#p0--generator--ground-truth--2026-08-20) |
-| **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | `not started` | — |
+| **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | **`GREEN`** | [below](#p1--contracts--ledger--2026-08-20) |
 | **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | `not started` | — |
 | **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | `not started` | — |
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | `not started` | — |
@@ -55,6 +55,67 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P1 — contracts + ledger · 2026-08-20
+
+```
+$ make verify
+=== gate P0 ===   11 passed in 0.09s
+=== gate P1 ===   19 passed in 0.10s
+
+$ .venv/bin/python -m pytest -q
+30 passed in 0.19s
+
+$ make lint
+All checks passed!    48 files already formatted
+```
+
+The three gate behaviours, verified against the real beancount 3.2.3 loader
+rather than our own idea of what should balance:
+
+| | verdict | beancount error |
+|---|---|---|
+| balanced journal + correct closing balance | proceeds, 1 txn loaded, `entry_id`/`proof_id` survive the round trip | — |
+| entry whose postings sum to ₹10.00 | **blocked** | `ValidationError` |
+| closing balance asserted at ₹999,999.00 | **blocked** | `BalanceError` |
+
+**Balance-assertion date offset is load-bearing, and the gate proves it.**
+Beancount evaluates a `balance` directive at the *start* of its date, so an
+assertion dated `period_end` cannot see that day's postings. `assert_closing_balance`
+dates it `period_end + 1`. The test posts an entry **on** period_end and asserts
+that the naive same-day form *fails* — if someone removes the offset, that test
+goes red instead of the bug shipping silently.
+
+**Two bugs found and fixed during the build.**
+1. Journal metadata rendered with Python `!r` produced `'M-0001'` — single
+   quotes — and beancount's lexer rejected it. Only visible because the ledger
+   is round-tripped through the real loader; a self-written "does this look like
+   valid beancount" check would have passed it.
+2. `tests/gates/` collected **zero tests** on directory collection: pytest globs
+   `test_*.py`, and the gate files are `gate_p*.py`. `make gate P=N` passes an
+   explicit path so P0 was genuinely verified, but `make test` was silently
+   skipping every gate. Fixed via `python_files` in pyproject; `make test` now
+   includes `tests/gates`.
+
+Contract validators are tested for *refusal*, not just construction — a contract
+whose validators accept everything is documentation. Enforced and covered:
+money rejects `float` outright; `Record` is frozen and currency must be ISO-4217;
+a `P1` proof must name its rule, `P2` its attester, `P3` its gap; `E09` must
+carry ≥2 disjoint alternatives; a `Rule` cannot reach `PROMOTED` while its
+regression report shows a broken historical match (CLAUDE.md invariant 5, made
+unrepresentable rather than merely policy); `SUPPRESS` must state a reason;
+`AdapterSpec` rejects a verb outside the closed enum, an unbounded regex, and
+any spec that cannot produce a Record.
+
+**Ruff reformatted `emit.py` during this phase.** Since `MANIFEST.json` is P0's
+committed evidence, the manifest was regenerated and diffed against the commit:
+unchanged. P0's evidence still holds.
+
+**Not built:** nothing consumes these contracts yet. `Record` has no producer
+until P2, `Proof` no producer until P3, `Rule` no interpreter until P7. The
+contracts are frozen at `1.0.0` from here — see ADR-002 for what a change costs.
+
+---
 
 ### P0 — generator + ground truth · 2026-08-20
 
@@ -105,7 +166,9 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| `src/recon/**` | Skeleton — every module raises `NotImplementedError` naming its phase | P1–P10 |
+| `src/recon/intake/`, `engine/`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P2–P10 |
+| Contracts have no producers | `Record` (P2), `Proof` (P3), `Rule` (P7) are defined but nothing emits them yet | P2, P3, P7 |
+| `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
 | Defect rates unvalidated | Counts are exact; realism vs production formats is unchecked | ongoing — needs real format samples |
 | Only 2 gateways, 1 currency | Generator is INR-only by design (ADR: FX deferred, build plan P17) | P17 decision, post-v1 |
 | `bench/arms/`, `bench/metrics.py`, `bench/run.py` | Stubs | P6 |
@@ -141,17 +204,21 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P1.** Define the five contracts in `src/recon/contracts/` — `Record`, `Proof`,
-`Exception`, `Rule`, `AdapterSpec` — as Pydantic v2 models, semver'd from the first
-commit (ADR-002). Then wire Beancount v3 and the balance assertion.
+**Start P2.** Build the intake layer: readers for CSV and CAMT.053, the
+`AdapterSpec` interpreter (`intake/spec.py` + `verbs.py`), and the five ingestion
+proofs. Hand-write two specs — one for `bank_icici.csv`, one for `orders.csv` —
+with **no model involved**. The interpreter must exist before anything authors
+specs for it.
 
-The P1 gate is not "the models import." It is: a hand-built journal round-trips
-through Beancount, a deliberately unbalanced entry is **rejected**, and a wrong
-closing balance **blocks** the close rather than warning.
+The P2 gate is not "the files parse." It is: both hand-written specs ingest
+cleanly, **and** a deliberately corrupted spec — point `amount` at the wrong
+column — is caught by the roll-forward proof rather than by someone reading the
+output. Write the corruption case first; if roll-forward doesn't catch it, the
+proof is decorative.
 
-Design the contracts against `data/batches/A/labels.json` — it already contains
-every field the engine will need to produce, so the label schema is a working
-specification for the `Proof` and `Exception` shapes.
+`data/batches/A/bank_icici.csv` already carries a running balance column and two
+trailing blank rows, so roll-forward and row-conservation both have real targets.
+`ParseVerb.SIGN_FROM_COLUMN` exists for its split Withdrawal/Deposit columns.
 
 ---
 
@@ -161,6 +228,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | **P1 GREEN.** Five semver'd contracts (v1.0.0) + Beancount v3 ledger. Found: `!r` lexer bug, and `tests/gates/` silently collecting zero tests. |
 | 2026-08-20 | **P0 GREEN.** Generator (`bench/generator/`, 4 modules), 10 adversarial cases, 11 gate tests. Cross-check caught and fixed a real labelling bug before any batch shipped. |
 | 2026-08-20 | Repo skeleton, CLAUDE.md, STATUS.md, ADR-001/002, Makefile, package layout. No functional code. |
 | 2026-08-20 | Research → decision spec → architecture addendum → walkthrough → build plan. Docs in `docs/`. |

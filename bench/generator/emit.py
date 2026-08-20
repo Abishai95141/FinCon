@@ -43,25 +43,42 @@ def _rows_of(batch: Batch) -> list[dict[str, str]]:
         pid = "" if p.payout_id in batch.ungrouped else p.payout_id
         fee_by_charge = {f.charge_id: f for f in p.fees}
         for c in p.charges:
-            rows.append({
-                "row_id": c.charge_id, "row_type": "CHARGE", "payout_id": pid,
-                "gateway": p.gateway, "payment_id": c.payment_id,
-                "value_date": c.charge_date.isoformat(), "amount": f"{c.gross:.2f}",
-            })
+            rows.append(
+                {
+                    "row_id": c.charge_id,
+                    "row_type": "CHARGE",
+                    "payout_id": pid,
+                    "gateway": p.gateway,
+                    "payment_id": c.payment_id,
+                    "value_date": c.charge_date.isoformat(),
+                    "amount": f"{c.gross:.2f}",
+                }
+            )
             f = fee_by_charge.get(c.charge_id)
             if f is not None:
-                rows.append({
-                    "row_id": f.fee_id, "row_type": "FEE", "payout_id": pid,
-                    "gateway": p.gateway, "payment_id": c.payment_id,
-                    "value_date": c.charge_date.isoformat(), "amount": f"{f.amount:.2f}",
-                })
+                rows.append(
+                    {
+                        "row_id": f.fee_id,
+                        "row_type": "FEE",
+                        "payout_id": pid,
+                        "gateway": p.gateway,
+                        "payment_id": c.payment_id,
+                        "value_date": c.charge_date.isoformat(),
+                        "amount": f"{f.amount:.2f}",
+                    }
+                )
         for r in p.refunds:
-            rows.append({
-                "row_id": r.refund_id,
-                "row_type": "CHARGEBACK" if r.refund_id.startswith("cb_") else "REFUND",
-                "payout_id": pid, "gateway": p.gateway, "payment_id": r.payment_id,
-                "value_date": r.refund_date.isoformat(), "amount": f"{r.amount:.2f}",
-            })
+            rows.append(
+                {
+                    "row_id": r.refund_id,
+                    "row_type": "CHARGEBACK" if r.refund_id.startswith("cb_") else "REFUND",
+                    "payout_id": pid,
+                    "gateway": p.gateway,
+                    "payment_id": r.payment_id,
+                    "value_date": r.refund_date.isoformat(),
+                    "amount": f"{r.amount:.2f}",
+                }
+            )
     return rows
 
 
@@ -74,8 +91,15 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
         w = csv.writer(fh)
         w.writerow(["Order ID", "Created At", "Total", "Payment Id", "Email"])
         for o in sorted(batch.orders, key=lambda x: x.order_id):
-            w.writerow([o.order_id, o.order_date.isoformat(), f"{o.gross:.2f}",
-                        o.payment_id or "", o.email])
+            w.writerow(
+                [
+                    o.order_id,
+                    o.order_date.isoformat(),
+                    f"{o.gross:.2f}",
+                    o.payment_id or "",
+                    o.email,
+                ]
+            )
     written["orders"] = orders
 
     settlement = out / "settlement.csv"
@@ -95,8 +119,15 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
         for line in batch.bank:
             dr = _inr(-line.amount) if line.amount < 0 else ""
             cr = _inr(line.amount) if line.amount > 0 else ""
-            w.writerow([line.posted_on.strftime("%d-%m-%y"), line.narration, dr, cr,
-                        _inr(line.running_balance)])
+            w.writerow(
+                [
+                    line.posted_on.strftime("%d-%m-%y"),
+                    line.narration,
+                    dr,
+                    cr,
+                    _inr(line.running_balance),
+                ]
+            )
         w.writerow([])  # trailing blank rows, as the real export emits
         w.writerow([])
     written["bank_csv"] = bank_csv
@@ -105,8 +136,10 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
     doc = ET.Element(f"{{{CAMT_NS}}}Document")
     stmt = ET.SubElement(ET.SubElement(doc, f"{{{CAMT_NS}}}BkToCstmrStmt"), f"{{{CAMT_NS}}}Stmt")
     ET.SubElement(stmt, f"{{{CAMT_NS}}}Id").text = f"{batch.name}-icici"
-    for tag, amt in (("OPBD", batch.opening_balance),
-                     ("CLBD", batch.bank[-1].running_balance if batch.bank else batch.opening_balance)):
+    for tag, amt in (
+        ("OPBD", batch.opening_balance),
+        ("CLBD", batch.bank[-1].running_balance if batch.bank else batch.opening_balance),
+    ):
         bal = ET.SubElement(stmt, f"{{{CAMT_NS}}}Bal")
         ET.SubElement(ET.SubElement(bal, f"{{{CAMT_NS}}}Tp"), f"{{{CAMT_NS}}}Cd").text = tag
         ET.SubElement(bal, f"{{{CAMT_NS}}}Amt", Ccy="INR").text = f"{amt:.2f}"
@@ -115,10 +148,12 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
         ET.SubElement(ntry, f"{{{CAMT_NS}}}NtryRef").text = line.line_id
         ET.SubElement(ntry, f"{{{CAMT_NS}}}Amt", Ccy="INR").text = f"{abs(line.amount):.2f}"
         ET.SubElement(ntry, f"{{{CAMT_NS}}}CdtDbtInd").text = "CRDT" if line.amount > 0 else "DBIT"
-        ET.SubElement(ET.SubElement(ntry, f"{{{CAMT_NS}}}BookgDt"),
-                      f"{{{CAMT_NS}}}Dt").text = line.posted_on.isoformat()
-        ET.SubElement(ET.SubElement(ntry, f"{{{CAMT_NS}}}NtryDtls"),
-                      f"{{{CAMT_NS}}}AddtlNtryInf").text = line.narration
+        ET.SubElement(
+            ET.SubElement(ntry, f"{{{CAMT_NS}}}BookgDt"), f"{{{CAMT_NS}}}Dt"
+        ).text = line.posted_on.isoformat()
+        ET.SubElement(
+            ET.SubElement(ntry, f"{{{CAMT_NS}}}NtryDtls"), f"{{{CAMT_NS}}}AddtlNtryInf"
+        ).text = line.narration
     bank_xml = out / "bank_icici_camt053.xml"
     ET.ElementTree(doc).write(bank_xml, encoding="utf-8", xml_declaration=True)
     written["bank_camt"] = bank_xml
@@ -127,6 +162,10 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
     labels.write_text(json.dumps(_labels(batch), indent=2, sort_keys=True), encoding="utf-8")
     written["labels"] = labels
     return written
+
+
+def _leg_total(batch: Batch, leg: str) -> Decimal:
+    return money(sum((e.unreconciled for e in batch.planted if e.leg == leg), money(0)))
 
 
 def _labels(batch: Batch) -> dict:
@@ -164,8 +203,8 @@ def _labels(batch: Batch) -> dict:
             for e in sorted(batch.planted, key=lambda e: (e.code, e.subject))
         ],
         "expected_unreconciled": {
-            "bank_leg": f"{money(sum((e.unreconciled for e in batch.planted if e.leg == 'bank'), money(0))):.2f}",
-            "orders_leg": f"{money(sum((e.unreconciled for e in batch.planted if e.leg == 'orders'), money(0))):.2f}",
+            "bank_leg": f"{_leg_total(batch, 'bank'):.2f}",
+            "orders_leg": f"{_leg_total(batch, 'orders'):.2f}",
         },
         "ungrouped_payouts": sorted(batch.ungrouped),
     }

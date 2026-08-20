@@ -49,6 +49,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
+# Gate files are named gate_p*.py, not test_*.py. Without this they are
+# silently skipped on directory collection and a "green" gate rots unnoticed.
+python_files = ["test_*.py", "gate_p*.py"]
 addopts = "--strict-markers"
 markers = [
   "gate: a phase gate — green only when its output is pasted into STATUS.md",
