@@ -86,7 +86,13 @@ def interpret(spec: AdapterSpec, doc: SourceDocument) -> Interpreted:
                     break
                 continue
             if fm.to is CanonicalField.KEY:
-                keys[fm.as_key or ""] = str(value)
+                # Keys exist to be compared across sources, and two sources
+                # rarely agree on case — a gateway is "RAZORPAY" in a bank
+                # narration and "razorpay" in a settlement column. Casefolding
+                # on write makes keys comparable by construction instead of
+                # relying on every consumer to remember. Case is preserved in
+                # `raw`, which is evidence and never matched on.
+                keys[fm.as_key or ""] = str(value).casefold()
             elif fm.to is CanonicalField.RAW:
                 raw[fm.source or fm.as_key or "raw"] = str(value)
             elif fm.to is CanonicalField.RUNNING_BALANCE:

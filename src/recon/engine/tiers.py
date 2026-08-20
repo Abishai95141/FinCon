@@ -1,11 +1,217 @@
-"""Match tiers T0 exact / T1 tolerant / T2 subset-sum / T3 unmatched
+"""Match tiers T0 (exact) and T1 (tolerant).
 
-Unimplemented. Filled in by phase P3 — see STATUS.md.
-Per CLAUDE.md rule 1: this raises rather than returning a plausible value.
+T2 subset-sum is P5; groups the source did not declare are left untouched here
+and fall to the exception queue, which is the honest outcome for a tier that
+cannot address them.
+
+The rule that keeps the false-match rate down is in `_tolerant`: when more than
+one group could absorb a bank credit, the matcher **refuses** rather than
+picking. An arbitrary pick would raise the headline match rate and corrupt the
+books, which is the trade this project exists to refuse.
 """
 
+from __future__ import annotations
 
-def _unbuilt(*_args, **_kwargs):
-    raise NotImplementedError(
-        "P3 — Match tiers T0 exact / T1 tolerant / T2 subset-sum / T3 unmatched"
+from collections import defaultdict
+from dataclasses import dataclass, field
+from decimal import Decimal
+
+from ..contracts import MatchTier, Proof, ProofLeg, ProofTier, Record
+from .tolerance import ToleranceBudget, TolerancePolicy
+
+ZERO = Decimal("0.00")
+
+
+@dataclass(frozen=True)
+class MatchProfile:
+    """Everything domain-specific about one reconciliation loop.
+
+    The engine reads this; it never hardcodes a side name, a key name or a sign
+    (CLAUDE.md invariant 7).
+    """
+
+    name: str
+    anchor_side: str
+    """The side iterated one record at a time — typically the bank."""
+    group_side: str
+    """The side whose records form the other leg, grouped by `group_ref`."""
+    side_signs: dict[str, int]
+    tolerance: TolerancePolicy = field(default_factory=TolerancePolicy)
+    counterparty_key: str = "gateway"
+    """Key that must agree before two records are considered comparable."""
+
+
+@dataclass(frozen=True)
+class Match:
+    match_id: str
+    tier: MatchTier
+    anchor_id: str
+    group_ref: str
+    group_ids: list[str]
+    proof: Proof
+
+
+@dataclass(frozen=True)
+class MatchRun:
+    profile: str
+    matches: list[Match]
+    unmatched_anchors: list[str]
+    unmatched_groups: list[str]
+    ungrouped_records: list[str]
+    """Records the source gave no grouping for. T0/T1 cannot reach them; they
+    are P5's problem and are reported rather than quietly ignored."""
+
+    def by_tier(self) -> dict[str, int]:
+        counts: dict[str, int] = defaultdict(int)
+        for m in self.matches:
+            counts[m.tier.value] += 1
+        return dict(counts)
+
+
+def _groups_of(records: list[Record]) -> tuple[dict[str, list[Record]], list[str]]:
+    grouped: dict[str, list[Record]] = defaultdict(list)
+    ungrouped: list[str] = []
+    for record in records:
+        if record.group_ref:
+            grouped[record.group_ref].append(record)
+        else:
+            ungrouped.append(record.record_id)
+    return dict(grouped), ungrouped
+
+
+def _residual(anchor: Record, group: list[Record], profile: MatchProfile) -> Decimal:
+    anchor_sign = profile.side_signs[anchor.side]
+    group_sign = profile.side_signs[profile.group_side]
+    total = sum((r.amount for r in group), ZERO)
+    return anchor_sign * anchor.amount + group_sign * total
+
+
+def _build_proof(
+    match_id: str,
+    tier: MatchTier,
+    anchor: Record,
+    group: list[Record],
+    profile: MatchProfile,
+    budget: ToleranceBudget,
+    provenance: ProofTier,
+) -> Proof:
+    group_total = sum((r.amount for r in group), ZERO)
+    return Proof(
+        proof_id=f"PRF-{match_id}",
+        match_id=match_id,
+        tier=tier,
+        provenance=provenance,
+        legs=[
+            ProofLeg(side=anchor.side, record_ids=[anchor.record_id], subtotal=anchor.amount),
+            ProofLeg(
+                side=profile.group_side,
+                record_ids=sorted(r.record_id for r in group),
+                subtotal=group_total,
+            ),
+        ],
+        residual=_residual(anchor, group, profile),
+        tolerance_allowed=budget.allowed,
+        tolerance_used=budget.used,
+        declared_gap=(
+            "intake for one or more sources was not independently verified"
+            if provenance is ProofTier.P3_DECLARED
+            else None
+        ),
     )
+
+
+def run(
+    anchors: list[Record],
+    group_records: list[Record],
+    profile: MatchProfile,
+    provenance: ProofTier = ProofTier.P0_ARITHMETIC,
+) -> MatchRun:
+    """T0 then T1. A group already claimed by an earlier tier is not offered to
+    a later one — a group can back exactly one anchor."""
+    grouped, ungrouped = _groups_of(group_records)
+    claimed: set[str] = set()
+    matches: list[Match] = []
+    unmatched: list[Record] = []
+
+    def attempt(anchor: Record, tier: MatchTier) -> bool:
+        ref = _exact_ref(anchor, grouped) if tier is MatchTier.T0_EXACT else None
+        if tier is MatchTier.T0_EXACT:
+            candidates = [ref] if ref and ref not in claimed else []
+        else:
+            candidates = _tolerant(anchor, grouped, claimed, profile)
+
+        if len(candidates) != 1:
+            return False
+
+        group_ref = candidates[0]
+        group = grouped[group_ref]
+        budget = ToleranceBudget(allowed=profile.tolerance.absolute)
+        residual = _residual(anchor, group, profile)
+        if tier is MatchTier.T0_EXACT:
+            if residual != ZERO:
+                return False
+        elif not budget.consume(residual):
+            return False
+
+        match_id = f"M-{len(matches) + 1:05d}"
+        matches.append(
+            Match(
+                match_id=match_id,
+                tier=tier,
+                anchor_id=anchor.record_id,
+                group_ref=group_ref,
+                group_ids=sorted(r.record_id for r in group),
+                proof=_build_proof(match_id, tier, anchor, group, profile, budget, provenance),
+            )
+        )
+        claimed.add(group_ref)
+        return True
+
+    for tier in (MatchTier.T0_EXACT, MatchTier.T1_TOLERANT):
+        pending = unmatched if unmatched else list(anchors)
+        unmatched = [a for a in pending if not attempt(a, tier)]
+
+    return MatchRun(
+        profile=profile.name,
+        matches=matches,
+        unmatched_anchors=[a.record_id for a in unmatched],
+        unmatched_groups=sorted(set(grouped) - claimed),
+        ungrouped_records=ungrouped,
+    )
+
+
+def _exact_ref(anchor: Record, grouped: dict[str, list[Record]]) -> str | None:
+    """T0: the anchor names the group outright. `reference` is whatever the
+    adapter extracted; an exact hit is the only thing that counts here — a
+    truncated reference is T1's problem."""
+    ref = anchor.source_row_id
+    return ref if ref in grouped else None
+
+
+def _tolerant(
+    anchor: Record,
+    grouped: dict[str, list[Record]],
+    claimed: set[str],
+    profile: MatchProfile,
+) -> list[str]:
+    """T1: no usable reference. Comparable counterparty, a date inside the
+    window, and a residual the budget could absorb.
+
+    Returns every candidate, including when there is more than one. `run`
+    refuses on anything but a single candidate — reporting the ambiguity rather
+    than resolving it arbitrarily.
+    """
+    want = anchor.keys.get(profile.counterparty_key)
+    candidates: list[str] = []
+    for group_ref, group in sorted(grouped.items()):
+        if group_ref in claimed:
+            continue
+        if want is not None:
+            same = {r.keys.get(profile.counterparty_key) for r in group}
+            if same != {want}:
+                continue
+        if not any(profile.tolerance.within_window(anchor.posted_on, r.posted_on) for r in group):
+            continue
+        if abs(_residual(anchor, group, profile)) <= profile.tolerance.absolute:
+            candidates.append(group_ref)
+    return candidates

@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Current phase** | `P3` — engine T0/T1 + proof verifier + securo baseline arm |
-| **Last green gate** | **P2** — 19/19. `make verify` runs P0+P1+P2, 49 tests. |
-| **Build runs?** | Generator, ledger and intake do. Engine is still skeleton. |
-| **Last verified numbers** | batch A bank-leg ₹137,874.48 · orders-leg ₹18,700.00 (cross-checked) |
+| **Current phase** | `P4` — blocking + Splink, blocking recall on the scorecard |
+| **Last green gate** | **P3** — 24/24. `make verify` runs P0–P3, 73 tests. |
+| **Build runs?** | Generator, ledger, intake and the T0/T1 engine do. |
+| **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-20 |
 
 ---
@@ -29,7 +29,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | **`GREEN`** | [below](#p0--generator--ground-truth--2026-08-20) |
 | **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | **`GREEN`** | [below](#p1--contracts--ledger--2026-08-20) |
 | **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
-| **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | `not started` | — |
+| **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | **`GREEN`** | [below](#p3--first-number--2026-08-20) |
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | `not started` | — |
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | `not started` | — |
 | **P6** ◆ | `make eval` produces the full 4-arm × 8-metric comparison on A and B from a clean checkout | `not started` | — |
@@ -55,6 +55,86 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P3 — first number · 2026-08-20
+
+```
+$ .venv/bin/python -m bench.run --batch A
+batch A  ·  22 gateway credits  ·  517 settlement rows
+true pairs (payouts banked in period): 22
+
+arm               auto-match  false-match  precision   recall  correct  false  missed
+-------------------------------------------------------------------------------------
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2
+  securo_raw: securo's 1:1 exact-amount matcher on raw rows
+  securo_raw: applied outside its designed domain (it pairs internal transfers, not N:1 settlements) — a low score here is expected and is the point
+  securo_grouped: securo's rule, given the payout grouping for free
+  securo_grouped: the fairer comparison: it isolates the matching rule from the grouping, which is most of the work
+  deterministic: tiers: {'T0': 18, 'T1': 2}
+  deterministic: 8 record(s) the source left ungrouped — unreachable by T0/T1, deferred to subset-sum at P5
+```
+
+Batch B is identical to two decimal places. `make verify` runs P0–P3, 73 tests.
+
+**The finding that matters, and it does not flatter us.** Once securo's rule is
+handed the payout grouping it produces *pairs identical to ours* — `ours.pairs
+== theirs.pairs` is asserted, not observed in passing. Our T0/T1 matching rule
+contributes **nothing** over a 1:1 exact-amount matcher on this batch. The
+grouping is most of the work, and the tail is where the difference lives. That
+is exactly what the decision spec argued from Trintech's published numbers; this
+is the same conclusion from our own data.
+
+`securo_raw` at 0% is its algorithm on rows as they actually arrive — a 1:1
+exact matcher cannot address an N:1 problem. True, but on its own it is not a
+fair comparison, which is why `securo_grouped` exists and why the arm carries
+its caveat in `notes` beside the number rather than in a footnote.
+
+**Both arms miss exactly two payouts, and missing them is correct**: the E06
+duplicate (bank paid the right amount, the export double-counted, so the
+residual is far past tolerance) and the E09 ambiguous payout. 90.9% is therefore
+the *ceiling* at T0/T1, not a shortfall — nothing else on this batch is
+matchable without subset-sum.
+
+**Mutation-tested.** Replacing `verify()` with an unconditional `PROVEN` — the
+exact rubber stamp CLAUDE.md rule 1 names — fails **7 of 24** tests. A 0%
+false-match rate is worth nothing if the verifier stamps whatever it is handed,
+so every way a proof can lie is asserted to be refuted: inflated leg subtotal,
+residual that does not follow from the records, a record counted in two legs, a
+reference to a record that does not exist, a leg holding another side's records,
+and a caller-supplied sign convention the proof cannot choose for itself.
+
+**Three bugs found.**
+1. *The T1 truncation was a no-op.* The generator truncated payout references
+   with `[:12]` on a 10-char id, so **zero** truncated-reference cases existed
+   and the tolerant tier had nothing to exercise it — it would have passed as
+   dead code. Now truncates to 8 chars, and the labels record which payouts.
+   T1 fires on exactly those two, asserted by id rather than by count.
+2. *Match keys were not comparable across sources.* A bank narration yields
+   `RAZORPAY`, a settlement column yields `razorpay`, so every T1 candidate was
+   filtered out and T1 matched nothing. Keys are now casefolded on write in the
+   interpreter — keys exist to be compared, so comparability is a property of
+   the destination rather than something every consumer must remember. Case is
+   preserved in `raw`, which is evidence and never matched on.
+3. *I had handicapped the baseline.* `securo_grouped` represented each payout by
+   its **earliest** row, putting the delta 3 days from the bank credit and
+   outside securo's ±2 window — scoring it zero for a reason of our choosing.
+   A payout settles *after* its charges, so the latest row is the fair
+   representative. Changed, and the baseline went 0% → 90.9%.
+
+**P0 evidence refreshed.** The truncation fix changes batch bytes, so the
+committed hashes moved. Regenerated, P0 re-run green, new manifest below.
+
+```
+  A/bank_camt    fee9a06bdcdbf91f      B/bank_camt    81f1b1d5727c8a75
+  A/bank_csv     73f598ad8e8fd1fa      B/bank_csv     bb857bb69cc2f564
+  A/labels       2e95cf3ce938388b      B/labels       de18ca6e6c9bfed7
+  A/orders       cbbf6d4b5b7a10ee      B/orders       cbe3d63cb2c6b703
+  A/settlement   71d7a9bc1bb5724c      B/settlement   42f1ccddfbe3b367
+```
+
+---
 
 ### P2 — intake · 2026-08-20
 
@@ -196,11 +276,7 @@ batch B  seed=20260901  payouts= 23  orders= 263  bank= 26  defects=E01,E02,E06,
            unreconciled  bank_leg=₹135,948.15  orders_leg=₹18,700.00   [cross-checked]
 
 wrote data/batches/  + MANIFEST.json (sha256 per file)
-  A/bank_camt    b0268af7b211e6aa      B/bank_camt    cd0e0f359f8efe9e
-  A/bank_csv     8c2bd2666b79f485      B/bank_csv     f7d00b55450e4b92
-  A/labels       fd939089aef25a28      B/labels       725b21bf036fe6ed
-  A/orders       cbbf6d4b5b7a10ee      B/orders       cbe3d63cb2c6b703
-  A/settlement   71d7a9bc1bb5724c      B/settlement   42f1ccddfbe3b367
+  [hashes superseded 2026-08-20 by the P3 truncation fix — see the P3 entry]
 
 $ cp data/batches/MANIFEST.json /tmp/m1.json && rm -rf data/batches
 $ .venv/bin/python -m bench.generator >/dev/null && diff -q /tmp/m1.json data/batches/MANIFEST.json
@@ -232,8 +308,10 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| `src/recon/engine/`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P3–P10 |
-| `Proof` and `Rule` have no producers | Defined and validated, but nothing emits them yet | P3, P7 |
+| `engine/blocking.py`, `engine/subsetsum.py`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P4–P10 |
+| `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
+| No blocking | The engine compares every anchor against every group. Fine at 22×23; will not scale, and blocking recall is unmeasured. | P4 |
+| 8 ungrouped records unreachable | The E09 payout's rows carry no `group_ref`, so T0/T1 cannot see them. Reported, not silently dropped. | P5 |
 | XLSX / OFX / QIF readers | Not implemented — `read()` raises `ReaderError` rather than returning an empty document | when a source needs them |
 | `control_total` check never runs | No generated source states a total, so it only SKIPs. Untested against a real tie-out. | when a source carries one |
 | `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
@@ -272,23 +350,21 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P3 — the first number on the board.** Build `engine/tiers.py` (T0 exact,
-T1 tolerant), `engine/tolerance.py` (the per-match budget), and
-`engine/verifier.py`. Then wrap securo's `transfer_detection_service` as the
-naive baseline arm.
+**Start P4 — blocking, and measure its recall.** Build `engine/blocking.py`:
+candidate generation on amount buckets, date windows and normalized reference
+keys, with Splink scoring the fuzzy dimensions (counterparty, reference).
 
-**Build the verifier first, and build it to re-derive.** `Proof.residual` and the
-leg subtotals are *claims*; the verifier must recompute both from the Records and
-compare. A verifier that reads the stored residual is the single most tempting
-shallow proxy in this codebase — it would pass every test and prove nothing.
-`Proof.closes()` deliberately does not verify, and says so in its docstring.
+The P4 gate is that **blocking recall is measured against batch A's labels and
+printed on the scorecard** — not computed privately and omitted. A blocker that
+drops a true pair caps the whole system, and the cap is invisible unless the
+number is on the page every run (CLAUDE.md invariant 6).
 
-The P3 gate is auto-match rate **and false-match rate**, ours vs the securo
-baseline, on batch A. A match rate without its false-match rate is not a result.
-
-Inputs are ready: `ingest()` produces Records for all four sources, and
-`data/batches/A/labels.json` carries `payout_membership` as ground truth — every
-payout's true rows and its bank line.
+Two things to watch. Blocking must not change any P3 number: run the gate before
+and after and diff the scorecard, because a blocker that quietly improves the
+match rate has changed the answer, not the search. And recall must be measured
+on *candidate pairs*, not on final matches — a blocker that keeps a true pair
+which T0/T1 then fails to match still has perfect recall, and conflating the two
+would hide which layer lost it.
 
 ---
 
@@ -298,6 +374,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | **P3 GREEN.** T0/T1 engine, tolerance budget, independent verifier, securo baseline (raw + grouped). 90.9% auto-match, 0.00% false-match — tying the fair baseline. Found: T1 truncation was a no-op, match keys not casefolded, baseline handicapped by date choice. |
 | 2026-08-20 | **P2 GREEN.** Intake: CSV + CAMT readers, spec interpreter over the closed verb set, five proofs, four hand-written specs. Contract → 1.1.0. Found: zero-row specs reporting `declared` instead of `failed`. |
 | 2026-08-20 | **P1 GREEN.** Five semver'd contracts (v1.0.0) + Beancount v3 ledger. Found: `!r` lexer bug, and `tests/gates/` silently collecting zero tests. |
 | 2026-08-20 | **P0 GREEN.** Generator (`bench/generator/`, 4 modules), 10 adversarial cases, 11 gate tests. Cross-check caught and fixed a real labelling bug before any batch shipped. |

@@ -207,4 +207,5 @@ def _labels(batch: Batch) -> dict:
             "orders_leg": f"{_leg_total(batch, 'orders'):.2f}",
         },
         "ungrouped_payouts": sorted(batch.ungrouped),
+        "truncated_ref_payouts": sorted(batch.truncated_refs),
     }

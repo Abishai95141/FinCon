@@ -148,3 +148,7 @@ class Batch:
     # Payouts whose settlement rows are emitted without a payout_id, forcing
     # the matcher to infer the grouping.
     ungrouped: list[str] = field(default_factory=list)
+    # Payouts whose bank narration carries a truncated reference. Recoverable
+    # at T1 on amount + date + counterparty, so not an exception — but the
+    # tolerant tier has nothing to exercise it unless these exist.
+    truncated_refs: list[str] = field(default_factory=list)

@@ -232,8 +232,18 @@ def build(
         )
 
     # ---- bank file -----------------------------------------------------
+    # Truncate to 8 chars: "pout_00007" -> "pout_000", which loses the
+    # discriminating digits so the reference no longer matches any payout_id.
+    # The earlier [:12] was a no-op on a 10-char id, so no T1 case existed and
+    # the tolerant tier had nothing to exercise it.
     truncate_budget = defects.get("T1", 0)
-    truncated: list[str] = []
+    eligible = [
+        p.payout_id
+        for p in batch.payouts
+        if p.payout_id not in timing_payouts and p.payout_id not in ambiguous_ids
+    ]
+    truncated: list[str] = sorted(eligible)[:truncate_budget]
+    batch.truncated_refs = list(truncated)
     for p in batch.payouts:
         if p.payout_id in timing_payouts:
             continue  # banked next period — absent by construction
@@ -241,10 +251,7 @@ def build(
         if p.payout_id in ambiguous_ids:
             narration = f"NEFT/{p.gateway.upper()}/SETTLEMENT"  # no reference at all
         else:
-            ref = p.payout_id
-            if truncate_budget > 0 and len(truncated) < truncate_budget and rng.random() < 0.5:
-                ref = p.payout_id[:12]
-                truncated.append(p.payout_id)
+            ref = p.payout_id[:8] if p.payout_id in truncated else p.payout_id
             narration = f"NEFT/{p.gateway.upper()}/{ref}/SETTLEMENT"
         line = BankLine(nid("bank", "bl_"), p.settled_on + timedelta(days=1), credit, narration)
         batch.bank.append(line)
