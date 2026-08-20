@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Current phase** | `P0` — synthetic generator + ground truth |
-| **Last green gate** | *none — nothing built yet* |
-| **Build runs?** | No — skeleton only |
-| **Last verified numbers** | *none* |
+| **Current phase** | `P1` — contracts + canonical Record + ledger |
+| **Last green gate** | **P0** — 11/11, `make verify` |
+| **Build runs?** | Generator does. Engine is still skeleton. |
+| **Last verified numbers** | batch A bank-leg ₹137,874.48 · orders-leg ₹18,700.00 (cross-checked) |
 | **Updated** | 2026-08-20 |
 
 ---
@@ -26,7 +26,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 
 | Phase | Gate | Status | Evidence |
 |---|---|---|---|
-| **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | `not started` | — |
+| **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | **`GREEN`** | [below](#p0--generator--ground-truth--2026-08-20) |
 | **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | `not started` | — |
 | **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | `not started` | — |
 | **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | `not started` | — |
@@ -56,7 +56,46 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
-*(empty — no gates green yet)*
+### P0 — generator + ground truth · 2026-08-20
+
+```
+$ make verify
+11 passed in 0.89s
+
+$ .venv/bin/python -m bench.generator
+batch A  seed=20260801  payouts= 23  orders= 250  bank= 26  defects=E01,E02,E06,E07,E08,E09
+           unreconciled  bank_leg=₹137,874.48  orders_leg=₹18,700.00   [cross-checked]
+batch B  seed=20260901  payouts= 23  orders= 263  bank= 26  defects=E01,E02,E06,E07,E08,E09
+           unreconciled  bank_leg=₹135,948.15  orders_leg=₹18,700.00   [cross-checked]
+
+wrote data/batches/  + MANIFEST.json (sha256 per file)
+  A/bank_camt    b0268af7b211e6aa      B/bank_camt    cd0e0f359f8efe9e
+  A/bank_csv     8c2bd2666b79f485      B/bank_csv     f7d00b55450e4b92
+  A/labels       fd939089aef25a28      B/labels       725b21bf036fe6ed
+  A/orders       cbbf6d4b5b7a10ee      B/orders       cbe3d63cb2c6b703
+  A/settlement   71d7a9bc1bb5724c      B/settlement   42f1ccddfbe3b367
+
+$ cp data/batches/MANIFEST.json /tmp/m1.json && rm -rf data/batches
+$ .venv/bin/python -m bench.generator >/dev/null && diff -q /tmp/m1.json data/batches/MANIFEST.json
+  IDENTICAL — manifests match after full wipe
+```
+
+`MANIFEST.json` is committed (the only thing under `data/batches/` that is), so
+regeneration is checkable on a different machine, not just this one.
+
+**The cross-check earned its keep on first run.** It rejected batch A with
+`orders leg: recomputed 25100.70 != declared 18700.00`. Cause: the recomputation
+derived "which payments exist" from the order register's `payment_id` column,
+which ~8% of orders drop by design — conflating *no order exists* (a real gap)
+with *the export lost the reference* (recoverable on amount + date + email).
+Fixed to derive from charges. Had the check been written to read the planted
+list instead of recomputing, the batch would have shipped with wrong labels and
+every downstream number would have inherited them.
+
+**Not asserted:** that the planted defect *rates* are realistic. Counts are
+exact and labelled; whether one E06 per 23 payouts resembles production is
+unvalidated, and stays unvalidated until someone puts real format samples
+beside it.
 
 ---
 
@@ -66,7 +105,10 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| Everything | Skeleton only — every module raises `NotImplementedError` naming its phase | P0–P10 |
+| `src/recon/**` | Skeleton — every module raises `NotImplementedError` naming its phase | P1–P10 |
+| Defect rates unvalidated | Counts are exact; realism vs production formats is unchecked | ongoing — needs real format samples |
+| Only 2 gateways, 1 currency | Generator is INR-only by design (ADR: FX deferred, build plan P17) | P17 decision, post-v1 |
+| `bench/arms/`, `bench/metrics.py`, `bench/run.py` | Stubs | P6 |
 
 ---
 
@@ -99,9 +141,17 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P0.** Build `bench/generator/` — scenario composition, planted exceptions at known rates, complete labels by construction, seeded so batches regenerate identically. Author `bench/adversarial/` in the same phase, *before* any engine code exists.
+**Start P1.** Define the five contracts in `src/recon/contracts/` — `Record`, `Proof`,
+`Exception`, `Rule`, `AdapterSpec` — as Pydantic v2 models, semver'd from the first
+commit (ADR-002). Then wire Beancount v3 and the balance assertion.
 
-The P0 gate is not "the generator runs." It is: a second person, given the seed, regenerates byte-identical batches, and the adversarial set contains cases nobody has built an engine for yet.
+The P1 gate is not "the models import." It is: a hand-built journal round-trips
+through Beancount, a deliberately unbalanced entry is **rejected**, and a wrong
+closing balance **blocks** the close rather than warning.
+
+Design the contracts against `data/batches/A/labels.json` — it already contains
+every field the engine will need to produce, so the label schema is a working
+specification for the `Proof` and `Exception` shapes.
 
 ---
 
@@ -111,6 +161,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | **P0 GREEN.** Generator (`bench/generator/`, 4 modules), 10 adversarial cases, 11 gate tests. Cross-check caught and fixed a real labelling bug before any batch shipped. |
 | 2026-08-20 | Repo skeleton, CLAUDE.md, STATUS.md, ADR-001/002, Makefile, package layout. No functional code. |
 | 2026-08-20 | Research → decision spec → architecture addendum → walkthrough → build plan. Docs in `docs/`. |
 | 2026-08-20 | Code graphs built for securo (9,060 nodes) and qm (11,173 nodes); merged 20,233 / 63,339. |

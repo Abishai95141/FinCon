@@ -1,0 +1,22 @@
+{
+  "A": {
+    "files": {
+      "bank_camt": "b0268af7b211e6aa19cb813a0a7286803cea93b7ada2618974c7c94dc509bc52",
+      "bank_csv": "8c2bd2666b79f485c3a9a14baccf04650d8aa2297e78bd5a282c9776bc3897ad",
+      "labels": "fd939089aef25a2822d3ceca9ba689123e45d5d85cb6f3a83bde3aa5ae6cdc34",
+      "orders": "cbbf6d4b5b7a10eed076e26187c8886d11dba92180af995e253ef00dfc6fdbfc",
+      "settlement": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba"
+    },
+    "seed": 20260801
+  },
+  "B": {
+    "files": {
+      "bank_camt": "cd0e0f359f8efe9ec0ee83752803f027f68b23a4607913f4a8d6a10a06378d63",
+      "bank_csv": "f7d00b55450e4b920a77145e6d93dda5be524d41def1a45294c083d75c55b46f",
+      "labels": "725b21bf036fe6ed84686ea73fa046d442b395c717e16251b63cf22c55755f2b",
+      "orders": "cbe3d63cb2c6b703287f1cf6c50156470988928bb7c9cdb863d05910f66808a7",
+      "settlement": "42f1ccddfbe3b3671435c2d53ae2f778b4446f0168189c1358f60f39fdea2da6"
+    },
+    "seed": 20260901
+  }
+}

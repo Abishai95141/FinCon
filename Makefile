@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES :=
+GREEN_GATES := 0
 
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 

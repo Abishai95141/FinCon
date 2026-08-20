@@ -2,7 +2,8 @@ repos/
 graphify-out/
 __pycache__/
 *.pyc
-data/batches/
+data/batches/*
+!data/batches/MANIFEST.json
 .venv/
 uv.lock
 .pytest_cache/
