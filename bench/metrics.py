@@ -82,6 +82,20 @@ def truth_pairs(labels_path: Path) -> Pairs:
     return pairs
 
 
+def truth_groups(labels_path: Path) -> dict[str, str]:
+    """Ground truth as anchor external id -> the group_ref that truly backs it.
+
+    Blocking recall needs the group, not the row set: a block proposes a
+    (anchor, group) pair, so that is the unit its recall must be measured in.
+    """
+    labels = json.loads(labels_path.read_text(encoding="utf-8"))
+    return {
+        entry["bank_line"]: payout
+        for payout, entry in labels["payout_membership"].items()
+        if entry["bank_line"]
+    }
+
+
 def score(result: ArmResult, truth: Pairs) -> Scorecard:
     correct = false = 0
     for anchor, claimed in result.pairs.items():

@@ -9,6 +9,7 @@ publish.
 from __future__ import annotations
 
 from recon.contracts import ProofTier, Record
+from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
 from recon.engine.tiers import run as run_tiers
 from recon.engine.verifier import verify
@@ -21,10 +22,11 @@ def run(
     settlement: list[tuple[str, Record]],
     profile: MatchProfile,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
+    candidates: CandidateSet | None = None,
 ) -> ArmResult:
     anchors = [rec for _, rec in bank]
     group_records = [rec for _, rec in settlement]
-    outcome = run_tiers(anchors, group_records, profile, provenance)
+    outcome = run_tiers(anchors, group_records, profile, provenance, candidates)
 
     records = {rec.record_id: rec for _, rec in bank + settlement}
     external = {rec.record_id: ext for ext, rec in bank + settlement}
@@ -45,6 +47,7 @@ def run(
 
     notes = [
         f"tiers: {outcome.by_tier() or 'none'}",
+        *([outcome.candidates.summary()] if outcome.candidates else ["no blocking — exhaustive"]),
         f"{len(outcome.ungrouped_records)} record(s) the source left ungrouped "
         f"— unreachable by T0/T1, deferred to subset-sum at P5",
     ]

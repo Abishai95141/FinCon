@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P4` — blocking + Splink, blocking recall on the scorecard |
-| **Last green gate** | **P3** — 24/24. `make verify` runs P0–P3, 73 tests. |
-| **Build runs?** | Generator, ledger, intake and the T0/T1 engine do. |
+| **Current phase** | `P5` — T2 subset-sum + ambiguity detection |
+| **Last green gate** | **P4** — 14/14. `make verify` runs P0–P4, 87 tests. |
+| **Build runs?** | Generator, ledger, intake, blocking and the T0/T1 engine do. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-20 |
 
@@ -30,7 +30,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | **`GREEN`** | [below](#p1--contracts--ledger--2026-08-20) |
 | **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
 | **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | **`GREEN`** | [below](#p3--first-number--2026-08-20) |
-| **P4** | Blocking recall measured against A's labels and printed on the scorecard | `not started` | — |
+| **P4** | Blocking recall measured against A's labels and printed on the scorecard | **`GREEN`** | [below](#p4--blocking--2026-08-20) |
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | `not started` | — |
 | **P6** ◆ | `make eval` produces the full 4-arm × 8-metric comparison on A and B from a clean checkout | `not started` | — |
 | — | **◆ MINIMUM SHIPPABLE LINE** — everything below is upside | | |
@@ -55,6 +55,63 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P4 — blocking · 2026-08-20
+
+```
+$ .venv/bin/python -m bench.run --batch A
+batch A  ·  22 gateway credits  ·  517 settlement rows
+true pairs (payouts banked in period): 22
+blocking: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+          blocking recall 100.0% (21/21 reachable true pairs kept); 1 true pair(s) not reachable at all — the source declared no group: ['pout_00023']
+
+arm               auto-match  false-match  precision   recall  correct  false  missed
+-------------------------------------------------------------------------------------
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2
+  securo_raw: securo's 1:1 exact-amount matcher on raw rows
+  securo_raw: applied outside its designed domain (it pairs internal transfers, not N:1 settlements) — a low score here is expected and is the point
+  securo_grouped: securo's rule, given the payout grouping for free
+  securo_grouped: the fairer comparison: it isolates the matching rule from the grouping, which is most of the work
+  deterministic: tiers: {'T0': 18, 'T1': 2}
+  deterministic: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+  deterministic: 8 record(s) the source left ungrouped — unreachable by T0/T1, deferred to subset-sum at P5
+```
+
+Batch B: 72.1% reduction, same recall, same scores. `make verify` runs P0–P4,
+87 tests.
+
+**Recall is printed above the match rates**, so it cannot be skimmed past, and a
+dropped true pair exits the runner non-zero — a cap on everything downstream is
+not a footnote (CLAUDE.md invariant 6). Blocking is asserted to leave every P3
+number identical: a blocker that changes the answer is a matching rule wearing a
+blocker's clothes.
+
+**One true pair is not reachable at all, and that is reported separately.**
+`pout_00023` is the E09 payout: its settlement rows carry no `group_ref`, so no
+`(anchor, group)` pair was ever presented to the blocker. Counting it as a
+blocking drop would blame the wrong layer — the same conflation the P3 hand-off
+note warned about. So `dropped` and `unreachable` are separate fields, both
+printed.
+
+**That split is an attribution, not an escape hatch, and the gate proves it.**
+`test_unreachable_cannot_absorb_a_real_blocking_failure` removes a pair whose
+group *is* declared and asserts it lands in `dropped`. Mutating `recall()` to
+classify every loss as unreachable fails 5 tests including that one; mutating
+`build()` to silently drop a single pair fails 2. Without those, "100% recall"
+would be a number the code could always produce.
+
+**Splink deferred, with a reason.** The plan pairs blocking with Splink for
+probabilistic scoring of counterparty and reference. There is currently no case
+in the corpus where a probabilistic score changes an outcome: T1 already refuses
+when two groups could absorb a credit, and genuine ambiguity (identical amounts,
+identical dates) carries no signal for Splink to find. Adding it now would be an
+untested dependency that passes because it never runs — the same hazard as the
+dead T1 tier at P3 and the uncollected gate files at P2. It goes in when the
+corpus has a case that needs it.
+
+---
 
 ### P3 — first number · 2026-08-20
 
@@ -308,10 +365,11 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| `engine/blocking.py`, `engine/subsetsum.py`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P4–P10 |
+| `engine/subsetsum.py`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P5–P10 |
 | `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
-| No blocking | The engine compares every anchor against every group. Fine at 22×23; will not scale, and blocking recall is unmeasured. | P4 |
-| 8 ungrouped records unreachable | The E09 payout's rows carry no `group_ref`, so T0/T1 cannot see them. Reported, not silently dropped. | P5 |
+| Splink not integrated | Deferred with a reason — no corpus case where probabilistic scoring changes an outcome. See the P4 entry. | when a case needs it |
+| 8 ungrouped records unreachable | The E09 payout's rows carry no `group_ref`, so no candidate pair exists for them. Reported as `unreachable`, not as a blocking drop. | P5 |
+| Blocking untested at scale | 69.8% reduction on 22×23. The index shape is right; the constants are unvalidated above a few hundred rows. | when a large corpus exists |
 | XLSX / OFX / QIF readers | Not implemented — `read()` raises `ReaderError` rather than returning an empty document | when a source needs them |
 | `control_total` check never runs | No generated source states a total, so it only SKIPs. Untested against a real tie-out. | when a source carries one |
 | `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
@@ -350,21 +408,30 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P4 — blocking, and measure its recall.** Build `engine/blocking.py`:
-candidate generation on amount buckets, date windows and normalized reference
-keys, with Splink scoring the fuzzy dimensions (counterparty, reference).
+**Start P5 — subset-sum and ambiguity detection.** Build `engine/subsetsum.py`
+with OR-Tools CP-SAT: find which subset of the 8 ungrouped records sums to the
+bank credit within tolerance, and detect when more than one does.
 
-The P4 gate is that **blocking recall is measured against batch A's labels and
-printed on the scorecard** — not computed privately and omitted. A blocker that
-drops a true pair caps the whole system, and the cap is invisible unless the
-number is on the page every run (CLAUDE.md invariant 6).
+The P5 gate is that the planted ambiguous payout raises `E09` rather than a
+confident wrong answer, **and** solver timeouts surface as `E13` rather than as
+silent non-matches. A capacity limit must never be reported as a data finding.
 
-Two things to watch. Blocking must not change any P3 number: run the gate before
-and after and diff the scorecard, because a blocker that quietly improves the
-match rate has changed the answer, not the search. And recall must be measured
-on *candidate pairs*, not on final matches — a blocker that keeps a true pair
-which T0/T1 then fails to match still has perfect recall, and conflating the two
-would hide which layer lost it.
+Three traps, in order of how easily they slip through.
+
+1. **Finding one solution is not proving it unique.** `enumerate_all_solutions`
+   against a fixed objective is the mechanism; a bounded search that stops at
+   the first hit will report a confident wrong answer on exactly the case this
+   phase exists to catch. When enumeration itself hits the bound, report
+   *unproven uniqueness* — not uniqueness.
+2. **The ambiguity is already in the data and already labelled.**
+   `labels.json` carries `ambiguous_subsets` for `pout_00023`: two disjoint
+   subsets, equal cardinality, identical totals. Assert against those ids, not
+   against a count.
+3. **Bound the search before it is needed.** Subset-sum is NP-hard; 8 records is
+   trivial and proves nothing about the bounds. Set the wall-clock limit and
+   cardinality cap now, and test `E13` with a constructed case large enough to
+   hit them — otherwise the timeout path is dead code that passes because it
+   never runs, which has now happened twice.
 
 ---
 
@@ -374,6 +441,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | **P4 GREEN.** Blocking with unioned blocks, ~70% search reduction, 100% recall on reachable pairs, P3 numbers unchanged. `dropped` vs `unreachable` split, mutation-tested both ways. Splink deferred with a reason. |
 | 2026-08-20 | **P3 GREEN.** T0/T1 engine, tolerance budget, independent verifier, securo baseline (raw + grouped). 90.9% auto-match, 0.00% false-match — tying the fair baseline. Found: T1 truncation was a no-op, match keys not casefolded, baseline handicapped by date choice. |
 | 2026-08-20 | **P2 GREEN.** Intake: CSV + CAMT readers, spec interpreter over the closed verb set, five proofs, four hand-written specs. Contract → 1.1.0. Found: zero-row specs reporting `declared` instead of `failed`. |
 | 2026-08-20 | **P1 GREEN.** Five semver'd contracts (v1.0.0) + Beancount v3 ledger. Found: `!r` lexer bug, and `tests/gates/` silently collecting zero tests. |

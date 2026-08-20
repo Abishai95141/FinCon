@@ -16,12 +16,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from recon.contracts import ProofTier, Record
+from recon.engine.blocking import BlockingPolicy, recall
+from recon.engine.blocking import build as build_candidates
 from recon.engine.tiers import MatchProfile
 from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
 
 from .arms import deterministic, securo_baseline
-from .metrics import Scorecard, render_table, score, truth_pairs
+from .metrics import Scorecard, render_table, score, truth_groups, truth_pairs
 
 BATCHES = Path("data/batches")
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
@@ -71,20 +73,40 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     bank, settlement, provenance = load_sides(args.batch)
-    truth = truth_pairs(BATCHES / args.batch / "labels.json")
+    labels = BATCHES / args.batch / "labels.json"
+    truth = truth_pairs(labels)
+
+    candidates = build_candidates(
+        [rec for _, rec in bank], [rec for _, rec in settlement], BlockingPolicy()
+    )
+    report = recall(
+        candidates,
+        truth_groups(labels),
+        {ext: rec.record_id for ext, rec in bank},
+        declared_groups={rec.group_ref for _, rec in settlement if rec.group_ref},
+    )
 
     cards: list[Scorecard] = [
         score(securo_baseline.run_raw(bank, settlement), truth),
         score(securo_baseline.run_grouped(bank, settlement), truth),
-        score(deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance), truth),
+        score(
+            deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance, candidates),
+            truth,
+        ),
     ]
 
     print(
         f"batch {args.batch}  ·  {len(bank)} gateway credits  ·  {len(settlement)} settlement rows"
     )
-    print(f"true pairs (payouts banked in period): {len(truth)}\n")
+    print(f"true pairs (payouts banked in period): {len(truth)}")
+    # Printed above the match rates on every run. A blocker that drops a true
+    # pair caps everything below it, and the cap is invisible unless this number
+    # is on the page (CLAUDE.md invariant 6).
+    print(f"blocking: {candidates.summary()}")
+    print(f"          {report.render()}\n")
     print(render_table(cards))
-    return 0
+    # A dropped true pair is a failed run, not a footnote.
+    return 0 if not report.dropped else 1
 
 
 if __name__ == "__main__":

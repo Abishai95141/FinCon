@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from ..contracts import MatchTier, Proof, ProofLeg, ProofTier, Record
+from .blocking import CandidateSet
 from .tolerance import ToleranceBudget, TolerancePolicy
 
 ZERO = Decimal("0.00")
@@ -60,6 +61,10 @@ class MatchRun:
     ungrouped_records: list[str]
     """Records the source gave no grouping for. T0/T1 cannot reach them; they
     are P5's problem and are reported rather than quietly ignored."""
+
+    candidates: CandidateSet | None = None
+    """The candidate set the tiers were restricted to, when one was supplied.
+    Carried so a scorecard can print its recall beside the match rate."""
 
     def by_tier(self) -> dict[str, int]:
         counts: dict[str, int] = defaultdict(int)
@@ -125,25 +130,36 @@ def run(
     group_records: list[Record],
     profile: MatchProfile,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
+    candidates: CandidateSet | None = None,
 ) -> MatchRun:
     """T0 then T1. A group already claimed by an earlier tier is not offered to
-    a later one — a group can back exactly one anchor."""
+    a later one — a group can back exactly one anchor.
+
+    When `candidates` is supplied it bounds **both** tiers, not just the
+    expensive one. Letting T0 reach outside the candidate set would make the
+    reported blocking recall a number about T1 rather than about the system,
+    and the invariant it serves is that a pair dropped at blocking is
+    unrecoverable downstream.
+    """
     grouped, ungrouped = _groups_of(group_records)
     claimed: set[str] = set()
     matches: list[Match] = []
     unmatched: list[Record] = []
 
     def attempt(anchor: Record, tier: MatchTier) -> bool:
-        ref = _exact_ref(anchor, grouped) if tier is MatchTier.T0_EXACT else None
+        allowed = candidates.groups_for(anchor.record_id) if candidates else None
         if tier is MatchTier.T0_EXACT:
-            candidates = [ref] if ref and ref not in claimed else []
+            ref = _exact_ref(anchor, grouped)
+            viable = [ref] if ref and ref not in claimed else []
         else:
-            candidates = _tolerant(anchor, grouped, claimed, profile)
+            viable = _tolerant(anchor, grouped, claimed, profile, allowed)
+        if allowed is not None:
+            viable = [ref for ref in viable if ref in allowed]
 
-        if len(candidates) != 1:
+        if len(viable) != 1:
             return False
 
-        group_ref = candidates[0]
+        group_ref = viable[0]
         group = grouped[group_ref]
         budget = ToleranceBudget(allowed=profile.tolerance.absolute)
         residual = _residual(anchor, group, profile)
@@ -177,6 +193,7 @@ def run(
         unmatched_anchors=[a.record_id for a in unmatched],
         unmatched_groups=sorted(set(grouped) - claimed),
         ungrouped_records=ungrouped,
+        candidates=candidates,
     )
 
 
@@ -193,6 +210,7 @@ def _tolerant(
     grouped: dict[str, list[Record]],
     claimed: set[str],
     profile: MatchProfile,
+    allowed: set[str] | None = None,
 ) -> list[str]:
     """T1: no usable reference. Comparable counterparty, a date inside the
     window, and a residual the budget could absorb.
@@ -205,6 +223,8 @@ def _tolerant(
     candidates: list[str] = []
     for group_ref, group in sorted(grouped.items()):
         if group_ref in claimed:
+            continue
+        if allowed is not None and group_ref not in allowed:
             continue
         if want is not None:
             same = {r.keys.get(profile.counterparty_key) for r in group}
