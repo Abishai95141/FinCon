@@ -9,7 +9,7 @@ GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11
 # `make test` so a fresh clone still passes, and NAMED in the output so the
 # exclusion is visible — a silently skipped gate that reads as green is the
 # pytest-collection trap from P1 in a new costume.
-LIVE_GATES := 12
+LIVE_GATES := 12 12b
 
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 
