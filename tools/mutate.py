@@ -30,9 +30,13 @@ distinguish what it claimed to test.
 from __future__ import annotations
 
 import argparse
+import atexit
 import importlib
+import os
 import pathlib
+import signal
 import subprocess
+import sys
 
 SETS = ("p9", "p10", "p11", "p12", "p12b")
 
@@ -118,8 +122,6 @@ def run_set(name: str, env: dict) -> tuple[int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import os
-
     ap = argparse.ArgumentParser(prog="tools.mutate")
     ap.add_argument("--set", dest="only", choices=SETS)
     ap.add_argument("--list", action="store_true")
