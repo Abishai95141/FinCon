@@ -255,12 +255,20 @@ def test_e09_must_show_its_competing_subsets():
     common = dict(exception_id="E-1", as_of=date(2026, 8, 31), amount="87250.40")
     with pytest.raises(ValidationError):
         ReconException(code=ExceptionCode.E09_NETTING_AMBIGUITY, **common)
-    with pytest.raises(ValidationError):  # overlapping subsets are not alternatives
+    with pytest.raises(ValidationError):  # the same subset twice is one answer
         ReconException(
             code=ExceptionCode.E09_NETTING_AMBIGUITY,
-            alternatives=[["a", "b"], ["b", "c"]],
+            alternatives=[["a", "b"], ["b", "a"]],
             **common,
         )
+    # Overlapping alternatives ARE legitimate: two valid answers may share a
+    # row. Contract 1.1.0 required disjointness, which was a modelling error —
+    # it would have forced the engine to hide real ambiguity. See 1.2.0.
+    ReconException(
+        code=ExceptionCode.E09_NETTING_AMBIGUITY,
+        alternatives=[["a", "b"], ["b", "c"]],
+        **common,
+    )
     ok = ReconException(
         code=ExceptionCode.E09_NETTING_AMBIGUITY, alternatives=[["a", "b"], ["c", "d"]], **common
     )

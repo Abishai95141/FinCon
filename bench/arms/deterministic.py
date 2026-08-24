@@ -45,13 +45,21 @@ def run(
         pairs[external[match.anchor_id]] = frozenset(external[r] for r in match.group_ids)
         proofs.append(match.proof)
 
+    exceptions = outcome.exceptions
     notes = [
         f"tiers: {outcome.by_tier() or 'none'}",
+        *(
+            ["exceptions raised: " + ", ".join(f"{e.code.value} ₹{e.amount}" for e in exceptions)]
+            if exceptions
+            else []
+        ),
         *([outcome.candidates.summary()] if outcome.candidates else ["no blocking — exhaustive"]),
         f"{len(outcome.ungrouped_records)} record(s) the source left ungrouped "
-        f"— unreachable by T0/T1, deferred to subset-sum at P5",
+        f"— unreachable by T0/T1, reconstructed by T2 subset-sum",
     ]
     if refuted:
         notes.append(f"{len(refuted)} match(es) refused by the verifier: {refuted[:3]}")
 
-    return ArmResult(name="deterministic", pairs=pairs, proofs=proofs, notes=notes)
+    return ArmResult(
+        name="deterministic", pairs=pairs, proofs=proofs, notes=notes, exceptions=exceptions
+    )

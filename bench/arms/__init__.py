@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from recon.contracts import Proof
+from recon.contracts import Proof, ReconException
 
 #: anchor external id -> the external ids of the rows claimed to back it.
 Pairs = dict[str, frozenset[str]]
@@ -21,6 +21,11 @@ class ArmResult:
     name: str
     pairs: Pairs
     proofs: list[Proof] = field(default_factory=list)
+    exceptions: list[ReconException] = field(default_factory=list)
+    """What the arm could not commit, and why. An arm that simply drops the
+    hard cases would score the same as one that surfaces them, so the
+    exceptions travel with the pairs."""
+
     notes: list[str] = field(default_factory=list)
     """Anything a reader needs in order to interpret the number fairly — an
     arm's caveats belong beside its score, not in a footnote nobody reads."""

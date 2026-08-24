@@ -37,6 +37,9 @@ SETTLEMENT_3WAY = MatchProfile(
     side_signs={"bank": 1, "settlement": -1},
     tolerance=TolerancePolicy(absolute=Decimal("0.50"), date_window_days=3),
     counterparty_key="gateway",
+    # A fee shares its charge's payment_id; without this the solver reports
+    # subsets that mix a charge from one group with a fee from another.
+    cohesion_key="payment_id",
 )
 
 
@@ -86,13 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         declared_groups={rec.group_ref for _, rec in settlement if rec.group_ref},
     )
 
+    ours = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance, candidates)
     cards: list[Scorecard] = [
         score(securo_baseline.run_raw(bank, settlement), truth),
         score(securo_baseline.run_grouped(bank, settlement), truth),
-        score(
-            deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance, candidates),
-            truth,
-        ),
+        score(ours, truth),
     ]
 
     print(
@@ -105,6 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"blocking: {candidates.summary()}")
     print(f"          {report.render()}\n")
     print(render_table(cards))
+
+    if ours.exceptions:
+        print("\nexceptions (deterministic arm):")
+        for exc in ours.exceptions:
+            print(f"  {exc.code.value}  ₹{exc.amount:>12}  {exc.hypothesis}")
+            for subset in exc.alternatives or []:
+                print(f"        subset of {len(subset)}: {sorted(subset)[:2]}...")
     # A dropped true pair is a failed run, not a footnote.
     return 0 if not report.dropped else 1
 

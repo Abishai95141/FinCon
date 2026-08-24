@@ -83,7 +83,14 @@ class ReconException(BaseModel):
 
     alternatives: list[list[str]] | None = None
     """E09 only: the competing record subsets. Present so a reviewer can confirm
-    the ambiguity rather than take the classifier's word for it."""
+    the ambiguity rather than take the classifier's word for it.
+
+    They must be **distinct**, not disjoint. Contract 1.1.0 required
+    disjointness, which was wrong: {A,B} and {B,C} both summing to the target is
+    genuine ambiguity — two valid answers that happen to share a record. The
+    solver produces overlapping alternatives whenever a row can belong to more
+    than one viable subset, and rejecting those would have forced the engine to
+    hide real ambiguity to satisfy a validator."""
 
     blocks_close: bool = False
     resolution: Resolution | None = None
@@ -93,9 +100,14 @@ class ReconException(BaseModel):
         if self.code is ExceptionCode.E09_NETTING_AMBIGUITY:
             if not self.alternatives or len(self.alternatives) < 2:
                 raise ValueError("E09 must carry at least two competing subsets")
-            flat = [r for subset in self.alternatives for r in subset]
-            if len(flat) != len(set(flat)):
-                raise ValueError("E09 alternatives must be disjoint")
+            if any(not subset for subset in self.alternatives):
+                raise ValueError("an empty subset is not an alternative")
+            shapes = {frozenset(subset) for subset in self.alternatives}
+            if len(shapes) < 2:
+                raise ValueError(
+                    "E09 alternatives must be distinct — the same subset listed "
+                    "twice is one answer, not an ambiguity"
+                )
         if self.leg not in {"bank", "orders"}:
             raise ValueError(f"leg must be 'bank' or 'orders', got {self.leg!r}")
         return self

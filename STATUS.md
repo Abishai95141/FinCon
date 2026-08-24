@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P5` — T2 subset-sum + ambiguity detection |
-| **Last green gate** | **P4** — 14/14. `make verify` runs P0–P4, 87 tests. |
-| **Build runs?** | Generator, ledger, intake, blocking and the T0/T1 engine do. |
+| **Current phase** | `P6` — metrics + ablation runner (◆ ship line) |
+| **Last green gate** | **P5** — 17/17. `make verify` runs P0–P5, 104 tests. |
+| **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine. Contract 1.2.0. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-20 |
 
@@ -31,7 +31,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
 | **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | **`GREEN`** | [below](#p3--first-number--2026-08-20) |
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | **`GREEN`** | [below](#p4--blocking--2026-08-20) |
-| **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | `not started` | — |
+| **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | **`GREEN`** | [below](#p5--subset-sum--2026-08-21) |
 | **P6** ◆ | `make eval` produces the full 4-arm × 8-metric comparison on A and B from a clean checkout | `not started` | — |
 | — | **◆ MINIMUM SHIPPABLE LINE** — everything below is upside | | |
 | **P7** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes improvement rule by rule | `not started` | — |
@@ -55,6 +55,76 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P5 — subset-sum · 2026-08-21
+
+```
+$ .venv/bin/python -m bench.run --batch A
+batch A  ·  22 gateway credits  ·  517 settlement rows
+true pairs (payouts banked in period): 22
+blocking: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+          blocking recall 100.0% (21/21 reachable true pairs kept); 1 true pair(s) not reachable at all — the source declared no group: ['pout_00023']
+
+arm               auto-match  false-match  precision   recall  correct  false  missed
+-------------------------------------------------------------------------------------
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2
+  securo_raw: securo's 1:1 exact-amount matcher on raw rows
+  securo_raw: applied outside its designed domain (it pairs internal transfers, not N:1 settlements) — a low score here is expected and is the point
+  securo_grouped: securo's rule, given the payout grouping for free
+  securo_grouped: the fairer comparison: it isolates the matching rule from the grouping, which is most of the work
+  deterministic: tiers: {'T0': 18, 'T1': 2}
+  deterministic: exceptions raised: E09 ₹87250.40
+  deterministic: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+  deterministic: 8 record(s) the source left ungrouped — unreachable by T0/T1, reconstructed by T2 subset-sum
+
+exceptions (deterministic arm):
+  E09  ₹    87250.40  2 distinct subsets sum to this credit within tolerance; no unique answer exists
+        subset of 4: ['gateway-settlement:509', 'gateway-settlement:510']...
+        subset of 4: ['gateway-settlement:513', 'gateway-settlement:514']...
+```
+
+`make verify` runs P0–P5, 104 tests. The ambiguous payout is **never
+committed**: T2 finds two subsets, raises `E09` carrying both, blocks the close.
+
+**The solver reports what it established, not what it found.** Five outcomes:
+`UNIQUE` (enumeration ran out), `AMBIGUOUS` (two or more subsets — a data
+finding), `UNPROVEN` (one found, a bound stopped the search), `TIMEOUT`, `NONE`.
+`UNPROVEN` and `TIMEOUT` map to **`E13`**, not `E09`: they are findings about our
+compute, and reporting a capacity limit as a data finding is the specific
+failure this phase existed to prevent. All three bounds — wall clock,
+enumeration cap, candidate cap — are set up front and each is exercised, so the
+capacity path is not dead code.
+
+**Mutation-tested twice.** Committing the first solution without proving
+uniqueness fails 6 tests; reporting a capacity limit as `E09` fails 2.
+
+**The solver over-reported ambiguity until told about cohesion.** It first found
+**4** subsets, not the 2 in the labels — free to pair a charge from one half
+with a fee from the other. The data carries the linkage: a fee shares its
+charge's `payment_id`. Constraining rows that share a key to move together
+reduced it to exactly the two labelled subsets. Without it a real 200-row payout
+explodes combinatorially — a scaling bug, not a cosmetic one. The key is named
+by the profile, so the engine stays domain-agnostic.
+
+**Contract 1.1.0 → 1.2.0: a P1 modelling error of mine, corrected.** P1 required
+`E09.alternatives` to be **disjoint**. That is wrong — two subsets that share a
+row can both sum to the target, and that is genuine ambiguity. The solver
+produces overlapping alternatives whenever a row belongs to more than one viable
+subset, so the validator would have forced the engine to *hide real ambiguity to
+satisfy a contract*. Now requires **distinct**. A loosening, so minor; the P1
+gate was updated to assert the corrected semantics rather than deleted.
+
+**The no-float rule caught `SolverBounds.max_seconds: float`.** Rule 4 says do
+not suppress it, so the float went instead: durations are integer milliseconds
+in `engine/` now, for the same reason money is integer minor units. A blunt rule
+that cannot be silenced is doing its job.
+
+**Not built:** the wall-clock `TIMEOUT` branch is reachable but unexercised —
+the candidate cap refuses first at realistic sizes.
+
+---
 
 ### P4 — blocking · 2026-08-20
 
@@ -365,10 +435,11 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
-| `engine/subsetsum.py`, `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P5–P10 |
+| `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P6–P10 |
+| Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
 | `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
 | Splink not integrated | Deferred with a reason — no corpus case where probabilistic scoring changes an outcome. See the P4 entry. | when a case needs it |
-| 8 ungrouped records unreachable | The E09 payout's rows carry no `group_ref`, so no candidate pair exists for them. Reported as `unreachable`, not as a blocking drop. | P5 |
+| 8 ungrouped records | Reconstructed by T2. On batch A they resolve to two valid subsets, so they stay an `E09` exception rather than a match — correctly. | resolved |
 | Blocking untested at scale | 69.8% reduction on 22×23. The index shape is right; the constants are unvalidated above a few hundred rows. | when a large corpus exists |
 | XLSX / OFX / QIF readers | Not implemented — `read()` raises `ReaderError` rather than returning an empty document | when a source needs them |
 | `control_total` check never runs | No generated source states a total, so it only SKIPs. Untested against a real tie-out. | when a source carries one |
@@ -408,30 +479,19 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P5 — subset-sum and ambiguity detection.** Build `engine/subsetsum.py`
-with OR-Tools CP-SAT: find which subset of the 8 ungrouped records sums to the
-bank credit within tolerance, and detect when more than one does.
+**Start P6 — the ablation runner. This is the ◆ ship line.** Everything after it
+is upside; everything before it must still pass from a clean checkout.
 
-The P5 gate is that the planted ambiguous payout raises `E09` rather than a
-confident wrong answer, **and** solver timeouts surface as `E13` rather than as
-silent non-matches. A capacity limit must never be reported as a data finding.
+`make eval` must produce the full comparison on batches A and B: the arms against
+the eight metrics, as one reproducible command. The runner already prints
+blocking recall, the tier split, exceptions and the three-arm table — P6 is
+completing the metric set and making it a single entry point.
 
-Three traps, in order of how easily they slip through.
-
-1. **Finding one solution is not proving it unique.** `enumerate_all_solutions`
-   against a fixed objective is the mechanism; a bounded search that stops at
-   the first hit will report a confident wrong answer on exactly the case this
-   phase exists to catch. When enumeration itself hits the bound, report
-   *unproven uniqueness* — not uniqueness.
-2. **The ambiguity is already in the data and already labelled.**
-   `labels.json` carries `ambiguous_subsets` for `pout_00023`: two disjoint
-   subsets, equal cardinality, identical totals. Assert against those ids, not
-   against a count.
-3. **Bound the search before it is needed.** Subset-sum is NP-hard; 8 records is
-   trivial and proves nothing about the bounds. Set the wall-clock limit and
-   cardinality cap now, and test `E13` with a constructed case large enough to
-   hit them — otherwise the timeout path is dead code that passes because it
-   never runs, which has now happened twice.
+Two traps. **The LLM-only arm does not exist until P7** — report it as absent
+rather than as a zero, because a zero reads as "it tried and failed". And **every
+rate ships with its decomposition**: a headline auto-match rate without its
+false-match rate and proof-tier split is the number this project exists not to
+publish, so the renderer should make omitting it awkward.
 
 ---
 
@@ -441,6 +501,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **P5 GREEN.** T2 subset-sum with CP-SAT, five outcomes, cohesion constraint, E09/E13 split. Contract → 1.2.0 (disjoint→distinct, correcting a P1 modelling error). No-float rule caught a float in engine. |
 | 2026-08-20 | **P4 GREEN.** Blocking with unioned blocks, ~70% search reduction, 100% recall on reachable pairs, P3 numbers unchanged. `dropped` vs `unreachable` split, mutation-tested both ways. Splink deferred with a reason. |
 | 2026-08-20 | **P3 GREEN.** T0/T1 engine, tolerance budget, independent verifier, securo baseline (raw + grouped). 90.9% auto-match, 0.00% false-match — tying the fair baseline. Found: T1 truncation was a no-op, match keys not casefolded, baseline handicapped by date choice. |
 | 2026-08-20 | **P2 GREEN.** Intake: CSV + CAMT readers, spec interpreter over the closed verb set, five proofs, four hand-written specs. Contract → 1.1.0. Found: zero-row specs reporting `declared` instead of `failed`. |

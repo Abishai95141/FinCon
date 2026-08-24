@@ -19,7 +19,12 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
+# 1.2.0 — P5 loosened ReconException.alternatives from disjoint to distinct.
+#         Disjointness was a modelling error: {A,B} and {B,C} both summing to
+#         the target is genuine ambiguity, and rejecting it would have forced
+#         the engine to hide real ambiguity to satisfy a validator. Loosening,
+#         so minor: everything valid under 1.1.0 is still valid.
 # 1.1.0 — P2 added FieldMap.sign (optional): a fixed dr/cr sign for DECIMAL,
 #         needed by exports that split debits and credits into two columns.
 #         New optional field, so minor per the bump rules above.

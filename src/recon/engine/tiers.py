@@ -16,8 +16,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from ..contracts import MatchTier, Proof, ProofLeg, ProofTier, Record
+from ..contracts import ExceptionCode, MatchTier, Proof, ProofLeg, ProofTier, ReconException, Record
 from .blocking import CandidateSet
+from .subsetsum import Outcome, SolverBounds, solve
 from .tolerance import ToleranceBudget, TolerancePolicy
 
 ZERO = Decimal("0.00")
@@ -40,6 +41,11 @@ class MatchProfile:
     tolerance: TolerancePolicy = field(default_factory=TolerancePolicy)
     counterparty_key: str = "gateway"
     """Key that must agree before two records are considered comparable."""
+    cohesion_key: str | None = None
+    """Key whose equal values must move together in a subset — a fee and the
+    charge it was levied on. Passed through to the solver; naming it here keeps
+    the engine domain-agnostic."""
+    solver_bounds: SolverBounds = field(default_factory=SolverBounds)
 
 
 @dataclass(frozen=True)
@@ -59,8 +65,13 @@ class MatchRun:
     unmatched_anchors: list[str]
     unmatched_groups: list[str]
     ungrouped_records: list[str]
-    """Records the source gave no grouping for. T0/T1 cannot reach them; they
-    are P5's problem and are reported rather than quietly ignored."""
+    """Records the source gave no grouping for. T0/T1 cannot reach them, so T2
+    reconstructs the grouping by subset-sum."""
+
+    exceptions: list[ReconException] = field(default_factory=list)
+    """Raised by T2 where it could not commit: E09 when several subsets are
+    valid, E13 when a compute bound stopped the search. Never a silent
+    non-match."""
 
     candidates: CandidateSet | None = None
     """The candidate set the tiers were restricted to, when one was supplied.
@@ -187,6 +198,9 @@ def run(
         pending = unmatched if unmatched else list(anchors)
         unmatched = [a for a in pending if not attempt(a, tier)]
 
+    ungrouped_pool = [r for r in group_records if not r.group_ref]
+    unmatched, exceptions = _subset_pass(unmatched, ungrouped_pool, profile, provenance, matches)
+
     return MatchRun(
         profile=profile.name,
         matches=matches,
@@ -194,7 +208,114 @@ def run(
         unmatched_groups=sorted(set(grouped) - claimed),
         ungrouped_records=ungrouped,
         candidates=candidates,
+        exceptions=exceptions,
     )
+
+
+def _subset_pass(
+    anchors: list[Record],
+    pool: list[Record],
+    profile: MatchProfile,
+    provenance: ProofTier,
+    matches: list[Match],
+) -> tuple[list[Record], list[ReconException]]:
+    """T2: reconstruct which rows back a credit when the source declared no
+    grouping.
+
+    Commits only on a proven-unique subset. Everything else becomes an
+    exception that names why — an ambiguity (E09, a finding about the data) or
+    a compute bound (E13, a finding about us). A capacity limit reported as a
+    data finding would be the worst failure this module can produce.
+    """
+    exceptions: list[ReconException] = []
+    still: list[Record] = []
+    consumed: set[str] = set()
+    anchor_sign = profile.side_signs[profile.anchor_side]
+    group_sign = profile.side_signs[profile.group_side]
+
+    for anchor in anchors:
+        available = [r for r in pool if r.record_id not in consumed]
+        if not available:
+            still.append(anchor)
+            continue
+
+        target = Decimal(-anchor_sign) * anchor.amount / Decimal(group_sign)
+        result = solve(
+            target,
+            available,
+            profile.tolerance.absolute,
+            profile.solver_bounds,
+            profile.cohesion_key,
+        )
+
+        def raise_exception(
+            code: ExceptionCode,
+            note: str,
+            alternatives: list[list[str]] | None = None,
+            *,
+            # Bound explicitly rather than closed over: a closure capturing the
+            # loop variable reads whatever the loop has moved on to, which is
+            # correct only by accident of being called immediately.
+            subject: Record = anchor,
+            evidence: str = result.summary(),
+        ) -> None:
+            exceptions.append(
+                ReconException(
+                    exception_id=f"EXC-{len(exceptions) + 1:05d}",
+                    code=code,
+                    as_of=subject.posted_on,
+                    amount=abs(subject.amount),
+                    record_ids=[subject.record_id],
+                    hypothesis=note,
+                    evidence=[subject.lineage, evidence],
+                    alternatives=alternatives,
+                    blocks_close=True,
+                )
+            )
+
+        if result.outcome is Outcome.UNIQUE:
+            group = [r for r in available if r.record_id in set(result.solutions[0])]
+            budget = ToleranceBudget(allowed=profile.tolerance.absolute)
+            budget.consume(_residual(anchor, group, profile))
+            match_id = f"M-{len(matches) + 1:05d}"
+            matches.append(
+                Match(
+                    match_id=match_id,
+                    tier=MatchTier.T2_SUBSET_SUM,
+                    anchor_id=anchor.record_id,
+                    group_ref=f"inferred:{match_id}",
+                    group_ids=sorted(r.record_id for r in group),
+                    proof=_build_proof(
+                        match_id,
+                        MatchTier.T2_SUBSET_SUM,
+                        anchor,
+                        group,
+                        profile,
+                        budget,
+                        provenance,
+                    ),
+                )
+            )
+            consumed.update(r.record_id for r in group)
+            continue
+
+        if result.outcome is Outcome.AMBIGUOUS:
+            raise_exception(
+                ExceptionCode.E09_NETTING_AMBIGUITY,
+                f"{len(result.solutions)} distinct subsets sum to this credit "
+                f"within tolerance; no unique answer exists",
+                alternatives=result.solutions,
+            )
+        elif result.is_capacity_limit:
+            raise_exception(
+                ExceptionCode.E13_SOLVER_TIMEOUT,
+                f"search stopped at a compute bound ({result.bound_hit}) — "
+                f"uniqueness was not established, so this is a limit of ours "
+                f"and not a finding about the data",
+            )
+        still.append(anchor)
+
+    return still, exceptions
 
 
 def _exact_ref(anchor: Record, grouped: dict[str, list[Record]]) -> str | None:
