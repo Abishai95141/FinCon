@@ -55,7 +55,9 @@ MUTATIONS = [
     (
         "the decision log goes back to the caller's copy of scope",
         "bench/run.py",
-        """        scope=ours.scope,""",
-        """        scope=sides.scope,""",
+        """        sources=sides.proofs,
+        scope=ours.scope,""",
+        """        sources=sides.proofs,
+        scope=sides.scope,""",
     ),
 ]
