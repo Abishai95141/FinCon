@@ -129,13 +129,17 @@ proven unable to affect a posting. Promotion requires a named human and a writte
 The old P7. Not cuttable — without it there is no agent and no lift.
 
 - [ ] **Adapter-spec synthesis** — declarative spec only, no codegen (ADR-001), first-use approval.
-- [ ] **Exception triage** — classify into the registry, hypothesis, cited evidence, rank by cash
-      impact × age. May propose a new code.
+- [x] **Exception triage** — classify into the registry, hypothesis, cited evidence, rank by cash
+      impact × age. *(2026-08-24: built on `deepseek-v4-flash`. Classification 20% → 40% on A and
+      held-out B. A proposal may not overwrite a code the engine derived by proof — found by
+      measuring a net lift of zero on the first pass.)* Proposing a new code is wired in P11 and
+      not yet driven from triage.
 - [ ] **Rule induction** — proposal + regression report through the P8 gate.
 
 **Gate:** resolve three exceptions on batch A, approve three induced rules, re-run on held-out batch
 B, and the scorecard attributes the improvement rule by rule. Plus: drop a source in a format never
-seen and watch it author, verify and ingest without configuration.
+seen and watch it author, verify and ingest without configuration. **RED at 2026-08-24** — triage
+built and measured, induction and adapter synthesis not started. Evidence in STATUS.md.
 
 ### P13 — Substrate
 The old P8's other half.

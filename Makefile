@@ -5,6 +5,12 @@ SHELL := /bin/bash
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
 GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11
 
+# Gates that require a live model and cannot run offline. Excluded from
+# `make test` so a fresh clone still passes, and NAMED in the output so the
+# exclusion is visible — a silently skipped gate that reads as green is the
+# pytest-collection trap from P1 in a new costume.
+LIVE_GATES := 12
+
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 
 help:
@@ -12,6 +18,7 @@ help:
 	@echo
 	@echo "  setup     uv sync + install hooks"
 	@echo "  verify    re-run every currently-green gate ($(if $(GREEN_GATES),$(GREEN_GATES),none yet))"
+	@echo "            (P$(LIVE_GATES) needs a live model — not in verify, see STATUS)"
 	@echo "  gate P=N  run the gate for phase N"
 	@echo "  eval      ablation runner - 4 arms, 8 metrics, batches A and B     [P10]"
 	@echo "  gen       regenerate synthetic batches from seed                     [P0]"
@@ -63,7 +70,10 @@ replay:
 	uv run python -m bench.replay_cli $(or $(B),A)
 
 test:
-	uv run pytest -q tests/unit tests/property tests/gates
+	@echo "note: gate(s) P$(LIVE_GATES) need a live model and are excluded here."
+	@echo "      run them with: DEEPSEEK_API_KEY=... make gate P=12"
+	uv run pytest -q tests/unit tests/property tests/gates \
+	  $(foreach p,$(LIVE_GATES),--ignore=tests/gates/gate_p$(p).py)
 
 e2e:
 	uv run pytest -q tests/e2e

@@ -46,6 +46,8 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | An unmeasured thing reported as **zero** | A zero says we ran it and got nothing. That is a claim, and it flatters us for free — found at P10 on the LLM arm | Report **absent**, naming the phase that will measure it, and make the number *raise* rather than return |
 | Filtering an input before the completeness audit can see it | Invariant 8 only sees what it is handed; a filter in the caller is a silent drop with extra steps — found at P10 | Hand the engine everything; declare exclusions `out_of_scope` with a reason, and print the count |
 | A log written by instrumenting the happy path | It records what the author was thinking about, and the refusals are what nobody is thinking about — found at P9 | Derive events by set arithmetic over the structures the audit walks, and fail the run on an input no event names |
+| A model proposal overwriting a derived answer | The engine *proved* `E09`; the model *guessed* `E01`. Net lift was zero — one gained, one destroyed — found at P12 | A proposal is `P2` at best; it may not overwrite `P0 ARITHMETIC`. Do not even offer the item |
+| A prose fallback when a tool call is missing | One `except` block and ADR-001 is decorative — the engine is parsing text a model wrote | A reply that is not a tool call is refused and recorded, never parsed |
 | Computing the same fact twice | The copy nobody reads rots, and a control over it goes quietly dead — found at P9 | Extend the one answer; never recompute it beside itself |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
@@ -147,7 +149,8 @@ src/recon/
   intake/        readers · spec interpreter · closed parse verbs · five proofs
   ledger/        beancount wiring, balance assertions, posting rules
   engine/        blocking · tiers T0–T3 · subset-sum · tolerance budget · verifier
-  triage/        worklist (ranked, routed) + model edge: normalize, classify, induce
+  triage/        worklist (ranked, routed) · client.py = the only place a model speaks
+                 classify.py = proposals, checked · induce/normalize still stubs (P12)
   profiles/      loop definitions as data (settlement_3way, gstr2b)
   ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
   journal/       append-only decision log — hash chain, derivation, replay
@@ -203,6 +206,7 @@ make test         # unit + property
 make e2e          # end-to-end on a generated batch
 make lint         # ruff + the no-float rule
 make replay       # re-derive a close from its decision log alone
+# gate P=12 needs DEEPSEEK_API_KEY — no offline mode, by rule 1
 make graph        # refresh the graphify code graph
 ```
 

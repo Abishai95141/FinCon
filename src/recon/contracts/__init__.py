@@ -19,7 +19,11 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "3.0.0"
+CONTRACT_VERSION = "3.1.0"
+# 3.1.0 — P12 added EventKind.CLASSIFICATION_PROPOSED and its payload: the model
+#         edge proposing a code for an exception. New enum member plus a new
+#         model, so minor. `accepted` is always False at proposal time — an
+#         attestation is a separate decision by a named human.
 # 3.0.0 — P11 opened the exception taxonomy. `ReconException.code` was an
 #         `ExceptionCode` enum member and is now a pattern-validated string, so
 #         this is a retype on a required field: MAJOR. The enum survives as
@@ -108,6 +112,7 @@ from .event import (  # noqa: E402
     GENESIS,
     PAYLOADS,
     PRODUCERS,
+    ClassificationProposedPayload,
     CloseBlockedPayload,
     CloseCompletedPayload,
     CloseStartedPayload,
@@ -159,6 +164,7 @@ __all__ = [
     "AdapterSpec",
     "Authority",
     "CanonicalField",
+    "ClassificationProposedPayload",
     "CloseBlockedPayload",
     "CloseCompletedPayload",
     "CloseStartedPayload",

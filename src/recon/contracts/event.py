@@ -45,6 +45,7 @@ class EventKind(StrEnum):
     CLOSE_COMPLETED = "CloseCompleted"
     RULE_PROMOTED = "RulePromoted"
     PROPOSAL_REFUSED = "ProposalRefused"
+    CLASSIFICATION_PROPOSED = "ClassificationProposed"
     CODE_PROPOSED = "CodeProposed"
     CODE_ACCEPTED = "CodeAccepted"
     CODE_PROMOTED = "CodePromoted"
@@ -67,6 +68,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CLOSE_COMPLETED: "engine",
     EventKind.RULE_PROMOTED: "recon.engine.promotion.promote",
     EventKind.PROPOSAL_REFUSED: "recon.engine.promotion.promote",
+    EventKind.CLASSIFICATION_PROPOSED: "recon.triage.classify.classify",
     EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
     EventKind.CODE_ACCEPTED: "recon.engine.taxonomy.accept",
     EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
@@ -237,6 +239,22 @@ class ProposalRefusedPayload(_Payload):
     reasons: list[str]
 
 
+class ClassificationProposedPayload(_Payload):
+    exception_id: str
+    from_code: str
+    to_code: str
+    hypothesis: str
+    evidence: list[str] = Field(default_factory=list)
+    model: str = ""
+    accepted: bool = False
+    """Always False at proposal time. An attestation is a separate decision by a
+    named human, and conflating the two would lose the distinction the whole
+    trust boundary rests on."""
+
+    def record_ids(self) -> set[str]:
+        return set(self.evidence)
+
+
 class CodeProposedPayload(_Payload):
     code: str
     title: str
@@ -285,6 +303,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CLOSE_COMPLETED: CloseCompletedPayload,
     EventKind.RULE_PROMOTED: RulePromotedPayload,
     EventKind.PROPOSAL_REFUSED: ProposalRefusedPayload,
+    EventKind.CLASSIFICATION_PROPOSED: ClassificationProposedPayload,
     EventKind.CODE_PROPOSED: CodeProposedPayload,
     EventKind.CODE_ACCEPTED: CodeAcceptedPayload,
     EventKind.CODE_PROMOTED: CodePromotedPayload,
