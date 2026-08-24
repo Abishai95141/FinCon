@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Current phase** | **remediation** — 5 bypasses + 10 failure cases, blocks P7 |
+| **Current phase** | `P6` — completeness and honest failure ([plan v2](docs/06-PLAN-V2.md)) |
 | **Last green gate** | **P5** — 17/17. `make verify` runs P0–P5, 104 tests. |
 | **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine. Contract 1.2.0. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
@@ -28,18 +28,25 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 |---|---|---|---|
 | **P0** | Generator emits batch A and B with complete labels; adversarial cases present; a second person can regenerate identical batches from a seed | **`GREEN`** | [below](#p0--generator--ground-truth--2026-08-20) |
 | **P1** | Round-trip a hand-built journal through Beancount; an unbalanced entry is *rejected*; a wrong closing balance *blocks* the close | **`GREEN`** | [below](#p1--contracts--ledger--2026-08-20) |
-| **P2** | Both hand-written specs (CAMT, Shopify) ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
-| **P3** ◆ | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | **`GREEN`** | [below](#p3--first-number--2026-08-20) |
+| **P2** | Both hand-written specs ingest cleanly; a deliberately corrupted spec is caught by roll-forward, not inspection | **`GREEN`** | [below](#p2--intake--2026-08-20) |
+| **P3** | **First number.** Auto-match rate + false-match rate, ours vs securo baseline, on batch A | **`GREEN`** | [below](#p3--first-number--2026-08-20) |
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | **`GREEN`** | [below](#p4--blocking--2026-08-20) |
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | **`GREEN`** | [below](#p5--subset-sum--2026-08-21) |
-| **P6** ◆ | `make eval` produces the full 4-arm × 8-metric comparison on A and B from a clean checkout | `not started` | — |
-| — | **◆ MINIMUM SHIPPABLE LINE** — everything below is upside | | |
-| **P7** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes improvement rule by rule | `not started` | — |
-| **P8** | An external process calls `run_match` and re-derives the returned proof without touching our database | `not started` | — |
-| **P9** | A controller completes one close through the UI without a terminal | `not started` | — |
-| **P10** | A second loop (GSTR-2B) closes with zero kernel code changed — profile and adapters only | `not started` | — |
+| — | **↓ re-planned 2026-08-21 — see [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)** | | |
+| **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | `not started` | — |
+| **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | `not started` | — |
+| **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | `not started` | — |
+| **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | `not started` | — |
+| **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | `not started` | — |
+| — | **◆ SHIP LINE** — everything below is upside | | |
+| **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | `not started` | — |
+| **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | `not started` | — |
+| **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | `not started` | — |
+| **P14** | A controller completes one close through the UI without a terminal | `not started` | — |
+| **P15** | A second loop closes on profile and adapters alone; partial payment goes from exception to proof without an engine edit | `not started` | — |
 
-◆ = the three gates that carry the claim. **P7 is not cuttable.**
+◆ = the gates that carry the claim. **P6–P10 are not cuttable** — they are the difference between a
+measured system and an asserted one. **P12 is not cuttable for the claim.**
 
 ---
 
@@ -498,38 +505,25 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Remediation, before P7.** Two audits at P5 found the same thing from two
-directions: [04-CONTROL-PLANE-AUDIT.md](docs/04-CONTROL-PLANE-AUDIT.md) (five
-control bypasses) and [05-FAILURE-REGISTER.md](docs/05-FAILURE-REGISTER.md) (19
-probes: 5 crash, 3 silent, 2 wrong, 9 handled).
+**Start P6 — completeness and honest failure.** Four items, all small, no
+dependencies. Full sequence and reasoning in [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md).
 
-**Do this one first, ahead of everything:** the **completeness audit** for
-invariant 8 — assert at end of run that every source, record and anchor has a
-disposition, computed independently of the code paths that produced them. It is
-small, and it is the only item on either list that catches failures nobody has
-enumerated. It would have found both silent matching cases without anyone
-writing a partial-payment test.
+**Do the completeness audit first, ahead of the other three.** Invariant 8: at
+end of run, assert every source, record and anchor has a disposition — computed
+independently of the code paths that produced them. It is the only item on
+either audit list that catches failures nobody enumerated, and it would have
+found both silent matching cases without anyone writing a partial-payment test.
 
-Then, in order:
+Then: readers return a failed `IntakeProof` instead of raising (4 crash cases);
+a source producing zero records fails regardless of row count (header-only
+silence); `UNMAPPABLE` verb outcome carrying column name and three samples.
 
-1. Readers return a failed `IntakeProof` instead of raising — makes `ingest()`'s
-   docstring true and stops one bad file killing a close.
-2. A source producing zero records fails regardless of row count.
-3. `Policy` as a versioned, human-owned object; `verify(proof, records, policy)`
-   replaces `verify(proof, records, side_signs)`. Closes F1 and F2 together.
-4. Validators on `MatchProfile` — signs ±1, tolerance under the policy ceiling.
-5. Rejection budget in policy; intake fails above it.
-6. `UNMAPPABLE` verb outcome carrying column name and sample values.
-7. Rounding threshold in policy; residue above it becomes `E03`.
-8. Regression gate v2 — count added matches, re-run under policy, cap the delta.
-
-Write the attack first in every case. All of it reproduces from a clean
-checkout, so each fix has a failing case to turn green before it is believable.
-
-Deferred with reasons: exception-code registry (contract-breaking, major bump),
-declarative strategy pipeline (larger; wait until a second loop needs it), P6
-ablation runner (still the ship line, but it would be measuring a system whose
-governance is known-broken).
+**Write the attack first in every case.** All ten failure cases and all five
+bypasses reproduce from a clean checkout, so each fix has a failing case to turn
+green before it is believable. The P6 gate specifically requires that a
+deliberately undisposed anchor makes the completeness audit fail — otherwise the
+audit is decorative, which is the same hazard as the dead T1 tier at P3 and the
+uncollected gate files at P2.
 
 ---
 
@@ -539,6 +533,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **Re-planned P6–P15** ([docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)). Control plane becomes phases of its own ahead of the model edge; the decision log moves earlier; the ship line moves to P10. Old P6→P10, P7→P12, P8→P9+P13, P9→P14, P10→P15. |
 | 2026-08-21 | **Failure register.** 19 novel inputs probed: 5 crash, 3 finish silently, 2 finish wrong, 9 handled. Added **invariant 8** (every input has a disposition) to CLAUDE.md — one completeness check that catches unenumerated cases. |
 | 2026-08-21 | **Audit.** Attacked the system at P5: five reproducible control bypasses, two defeating the verifier. Root cause — artifacts check themselves, policy comes from the caller. Remediation 1–4 blocks P7. Contract → 1.3.0 (DECIMAL_MINOR). |
 | 2026-08-21 | **P5 GREEN.** T2 subset-sum with CP-SAT, five outcomes, cohesion constraint, E09/E13 split. Contract → 1.2.0 (disjoint→distinct, correcting a P1 modelling error). No-float rule caught a float in engine. |

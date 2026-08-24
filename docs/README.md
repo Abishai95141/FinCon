@@ -11,6 +11,7 @@ document below answers the question in front of you.
 | 03 | [Build plan](03-BUILD-PLAN.md) | Ten phases with gates, the Python stack with per-choice risk, model config and cost, 26 named failure modes. |
 | 04 | [Control-plane audit](04-CONTROL-PLANE-AUDIT.md) | Five reproducible bypasses found by attacking the system at P5, the single root cause, and the three-trust-class redesign. **Blocks P7.** |
 | 05 | [Failure register](05-FAILURE-REGISTER.md) | 19 probes: where a novel input crashes, finishes silently, or finishes wrong — plus invariant 8 and the disposition ladder that routes every case. |
+| 06 | [Plan v2](06-PLAN-V2.md) | **The working plan.** P6–P15 re-planned after the audits: control plane before the agent, decision log earlier, ship line at P10. Supersedes 03 from P6 onward. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Published artifacts
