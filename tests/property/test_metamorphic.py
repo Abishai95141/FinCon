@@ -196,7 +196,11 @@ def test_two_equally_viable_groups_produce_no_match(sides):
         contested,
         sides.scope,
     )
-    assert victim in uncontested.pairs or True  # T0 may have matched it before stripping
+    # The discriminating half: it *was* matched before the contest existed, so
+    # the absence below is the contest doing the work and not the fixture being
+    # broken. (`or True` sat here for one commit and ruff caught it — a vacuous
+    # assertion is a shallow proxy the linter found and my review did not.)
+    assert victim in uncontested.pairs, "the fixture anchor was never matched to begin with"
     assert victim not in with_contest.pairs, (
         "an anchor with two equally viable groups was matched to one of them — "
         "ambiguity resolved rather than reported"
