@@ -4,11 +4,11 @@
 
 | | |
 |---|---|
-| **Current phase** | `P6` — metrics + ablation runner (◆ ship line) |
+| **Current phase** | **control-plane remediation** — 5 audit findings, blocks P7 |
 | **Last green gate** | **P5** — 17/17. `make verify` runs P0–P5, 104 tests. |
 | **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine. Contract 1.2.0. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
-| **Updated** | 2026-08-20 |
+| **Updated** | 2026-08-21 |
 
 ---
 
@@ -224,6 +224,13 @@ residual is far past tolerance) and the E09 ambiguous payout. 90.9% is therefore
 the *ceiling* at T0/T1, not a shortfall — nothing else on this batch is
 matchable without subset-sum.
 
+**Correction, 2026-08-21.** This entry called the verifier "independent". It is
+independent of the *proof's residual claim* — mutation-testing proves that — but
+**not** of the caller's policy: it reads `tolerance_allowed` from the proof and
+takes `side_signs` from the caller. See findings F1/F2 in
+[docs/04-CONTROL-PLANE-AUDIT.md](docs/04-CONTROL-PLANE-AUDIT.md). The numbers
+below stand for the honest path; the independence claim was too broad.
+
 **Mutation-tested.** Replacing `verify()` with an unconditional `PROVEN` — the
 exact rubber stamp CLAUDE.md rule 1 names — fails **7 of 24** tests. A 0%
 false-match rate is worth nothing if the verifier stamps whatever it is handed,
@@ -435,6 +442,12 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 
 | Item | State | Phase that fixes it |
 |---|---|---|
+| **F1 `verify()` reads tolerance from the proof** | **CRITICAL.** A proof declaring `tolerance_allowed: 9999999` passes with a ₹7,466.19 residual. Defeats the independent-verification claim. | before P7 |
+| **F2 `verify()` takes signs from the caller** | **CRITICAL.** `side_signs={0,0}` makes every match verify. `MatchProfile` has zero validators. | before P7 |
+| **F3 regression gate blind to widening** | **HIGH.** `promotable` only checks `matches_broken == 0`; widening tolerance adds matches without breaking any. A ₹1,000,000 tolerance rule promotes cleanly. | before P7 — blocks it |
+| **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
+| **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
+| No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
 | `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P6–P10 |
 | Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
 | `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
@@ -479,19 +492,31 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P6 — the ablation runner. This is the ◆ ship line.** Everything after it
-is upside; everything before it must still pass from a clean checkout.
+**Start the control-plane remediation, before P7.** An adversarial audit at P5
+([docs/04-CONTROL-PLANE-AUDIT.md](docs/04-CONTROL-PLANE-AUDIT.md)) found five
+reproducible bypasses, two of which defeat the proof verifier. They are not five
+bugs — they are one missing layer showing through five times: **the system checks
+artifacts against themselves and takes its policy from whoever calls it.**
 
-`make eval` must produce the full comparison on batches A and B: the arms against
-the eight metrics, as one reproducible command. The runner already prints
-blocking recall, the tier split, exceptions and the three-arm table — P6 is
-completing the metric set and making it a single entry point.
+That is survivable while a human writes every config file, which is the situation
+today. It stops being survivable at P7, because every input the checks trust is
+an input the agent would be writing.
 
-Two traps. **The LLM-only arm does not exist until P7** — report it as absent
-rather than as a zero, because a zero reads as "it tried and failed". And **every
-rate ships with its decomposition**: a headline auto-match rate without its
-false-match rate and proof-tier split is the number this project exists not to
-publish, so the renderer should make omitting it awkward.
+Order, and the first four are not optional before P7:
+
+1. **`Policy` as a versioned, human-owned object.** `verify(proof, records,
+   policy)` replaces `verify(proof, records, side_signs)`. The proof's declared
+   tolerance becomes a claim to check against policy, not a permission to
+   honour. Closes F1 and F2 together.
+2. **Validators on `MatchProfile`** — signs must be ±1, tolerance must sit under
+   the policy ceiling. Should have existed at P1.
+3. **Rejection budget in policy**; intake fails above it rather than reporting
+   `declared`.
+4. **Regression gate v2** — count added matches as well as broken, re-run under
+   current policy rather than trusting the shipped report, cap the delta.
+
+Write the attack first in each case. All five findings reproduce from a clean
+checkout, so each fix has a failing case to turn green before it is believable.
 
 ---
 
@@ -501,6 +526,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **Audit.** Attacked the system at P5: five reproducible control bypasses, two defeating the verifier. Root cause — artifacts check themselves, policy comes from the caller. Remediation 1–4 blocks P7. Contract → 1.3.0 (DECIMAL_MINOR). |
 | 2026-08-21 | **P5 GREEN.** T2 subset-sum with CP-SAT, five outcomes, cohesion constraint, E09/E13 split. Contract → 1.2.0 (disjoint→distinct, correcting a P1 modelling error). No-float rule caught a float in engine. |
 | 2026-08-20 | **P4 GREEN.** Blocking with unioned blocks, ~70% search reduction, 100% recall on reachable pairs, P3 numbers unchanged. `dropped` vs `unreachable` split, mutation-tested both ways. Splink deferred with a reason. |
 | 2026-08-20 | **P3 GREEN.** T0/T1 engine, tolerance budget, independent verifier, securo baseline (raw + grouped). 90.9% auto-match, 0.00% false-match — tying the fair baseline. Found: T1 truncation was a no-op, match keys not casefolded, baseline handicapped by date choice. |

@@ -9,6 +9,7 @@ document below answers the question in front of you.
 | 01 | [Decision spec](01-DECISION-SPEC.md) | Problem, existing solutions, our solution, user flow, impact, trade-offs. The approve-or-reject document. |
 | 02 | [Architecture addendum](02-ARCHITECTURE-ADDENDUM.md) | Why deterministic verification does not constrain intake. Proof tiers P0–P3. The MCP substrate. **Amends 01 §3 and §7.** |
 | 03 | [Build plan](03-BUILD-PLAN.md) | Ten phases with gates, the Python stack with per-choice risk, model config and cost, 26 named failure modes. |
+| 04 | [Control-plane audit](04-CONTROL-PLANE-AUDIT.md) | Five reproducible bypasses found by attacking the system at P5, the single root cause, and the three-trust-class redesign. **Blocks P7.** |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Published artifacts
@@ -24,6 +25,7 @@ Republishing to the same URL requires passing it as `url` to the Artifact tool.
 | Open Intake, Verified Commit | https://claude.ai/code/artifact/5ec82d14-b5d0-437a-8834-d11dc4861adc | `02-ARCHITECTURE-ADDENDUM.md` |
 | One Close, End to End | https://claude.ai/code/artifact/7b3e968e-888c-419c-bdf4-9729e32b228a | walkthrough — no markdown mirror |
 | Build Order and Blast Radius | https://claude.ai/code/artifact/ee939959-bd65-471c-a4fe-992687fe1fbf | `03-BUILD-PLAN.md` |
+| Five Ways Past the Gate | https://claude.ai/code/artifact/20d9bec6-36ef-4f70-bd87-278812c1ab80 | `04-CONTROL-PLANE-AUDIT.md` |
 
 The walkthrough has no markdown mirror in this repo; its numbers are illustrative and internally
 consistent (verified with a script at authoring time), not measurements. Real numbers come from
