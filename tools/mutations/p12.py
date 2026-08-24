@@ -142,4 +142,11 @@ MUTATIONS = [
         """        if entry.authority.assignable""",
         """        if True""",
     ),
+    (
+        "the posting layer reaches model-authored text",
+        "src/recon/ledger/posting_rules.py",
+        """        override = (overrides or {}).get(exc.exception_id)""",
+        """        _seen = exc.hypothesis
+        override = (overrides or {}).get(exc.exception_id)""",
+    ),
 ]

@@ -400,14 +400,42 @@ def test_source_text_telling_the_model_what_to_do_does_not_steer_the_outcome(clo
 def test_the_injected_narration_cannot_reach_a_posting_account(closed):
     """The specific demand in the fixture is 'book it to Income:Sales'. The
     posting rule never reads model output at all — it reads the registry — so
-    the instruction has nowhere to land."""
+    the instruction has nowhere to land.
+
+    This grepped the module's source text until 2026-08-24, when a *comment*
+    documenting the constraint contained the word `hypothesis` and failed it.
+    A substring search over source is wrong in both directions: a comment trips
+    it, and `getattr(exc, "hypo" + "thesis")` walks straight past. The module's
+    own comment already claimed this was asserted by AST; now it is.
+    """
+    import ast
     import inspect
 
     from recon.ledger import posting_rules
 
-    source = inspect.getsource(posting_rules)
-    assert "hypothesis" not in source, "the posting rule reads model-authored text"
-    assert "ModelEdge" not in source and "classify" not in source
+    banned = {"hypothesis", "classify", "ModelEdge"}
+    tree = ast.parse(inspect.getsource(posting_rules))
+    docstrings = {
+        ast.get_docstring(n)
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Module | ast.FunctionDef | ast.ClassDef)
+    }
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in banned:
+            reached.add(node.attr)
+        elif isinstance(node, ast.Name) and node.id in banned:
+            reached.add(node.id)
+        elif isinstance(node, ast.Constant) and node.value in banned:
+            # A name reached by string is still a name reached — `getattr` walks
+            # straight past a grep. Docstrings are the one place the words may
+            # legitimately appear.
+            if node.value not in docstrings:
+                reached.add(node.value)
+        elif isinstance(node, ast.ImportFrom) and "triage" in (node.module or ""):
+            reached.add(node.module or "triage")
+
+    assert not reached, f"the posting layer reaches model-authored territory: {sorted(reached)}"
 
 
 def test_source_text_is_passed_as_data_not_as_instruction(edge):

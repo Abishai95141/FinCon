@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from bench.run import SETTLEMENT_POLICY
 
 pytestmark = pytest.mark.gate
 
@@ -108,6 +109,7 @@ def induced(closed, edge):
                 taxonomy=closed.taxonomy,
                 profile_name="settlement_3way",
                 edge=edge,
+                policy=SETTLEMENT_POLICY,
             )
         )
     return out
@@ -209,11 +211,18 @@ def test_an_action_the_regression_cannot_model_is_reported_absent_not_zero(close
         matches=[],
     )
     outcome = regress(rule, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
-    assert outcome.unmodelled == ["book_to"], outcome.unmodelled
+    assert outcome.unmodelled == [], (
+        "book_to is modelled now — a posting delta measures it. The absent-not-"
+        "zero discipline moved to actions nothing simulates, not to this one"
+    )
+    assert outcome.postings is None, (
+        "no taxonomy was supplied, so the posting delta is absent rather than "
+        "empty — which is the distinction the whole control rests on"
+    )
 
     decision = evaluate(rule, outcome, SETTLEMENT_POLICY)
     assert not decision.allowed
-    assert any("could not model" in r for r in decision.reasons), decision.reasons
+    assert any("Expenses:GatewayFees" in r for r in decision.reasons), decision.reasons
 
 
 def test_the_actions_the_regression_does_model_are_named(closed):
@@ -221,7 +230,11 @@ def test_the_actions_the_regression_does_model_are_named(closed):
 
     assert "set_tolerance" in MODELLED_ACTIONS
     assert "suppress" in MODELLED_ACTIONS
-    assert "book_to" not in MODELLED_ACTIONS
+    assert "book_to" in MODELLED_ACTIONS, (
+        "book_to became modelled when the regression grew a posting delta; this "
+        "asserted the opposite for two commits because the live gates only run "
+        "with a key and `make test` excludes them"
+    )
 
 
 def test_suppression_is_actually_simulated_and_creates_a_real_match(closed):
@@ -393,6 +406,7 @@ def test_every_induction_is_recorded(closed, edge, tmp_path):
         taxonomy=closed.taxonomy,
         profile_name="settlement_3way",
         edge=edge,
+        policy=SETTLEMENT_POLICY,
         journal=journal,
     )
     kinds = [e.kind for e in read(tmp_path / "i.jsonl")]
@@ -403,8 +417,9 @@ def test_rule_induced_now_has_a_real_producer():
     from recon.contracts import PRODUCERS, EventKind
 
     assert not PRODUCERS[EventKind.RULE_INDUCED].startswith("P")
-    assert PRODUCERS[EventKind.ADAPTER_AUTHORED].startswith("P12"), (
-        "adapter synthesis is still unbuilt and must still say so"
+    assert not PRODUCERS[EventKind.ADAPTER_AUTHORED].startswith("P"), (
+        "adapter synthesis is built; a producer table still naming the phase "
+        "that will build it is a stub outliving its stub"
     )
 
 
@@ -556,7 +571,15 @@ def test_an_over_broad_rule_is_refused_on_the_reference_population(closed, held_
 def test_a_narrow_rule_still_promotes_under_the_reference_cap(closed, held_out):
     """The other half. The dedup rule fires on 2 of 536 reference rows — general,
     and nowhere near broad. A cap that refused it would refuse the one rule this
-    phase exists to promote."""
+    phase exists to promote.
+
+    This asserted `decision.allowed` until 2026-08-24, when the same rule turned
+    out to be strictly harmful for a reason no cap can see: it removes ₹5,489.75
+    of real value and destroys the planted `E06` that names it. So the claim
+    narrows to what this test is actually about — the *cap* does not fire on a
+    narrow rule — and the rule is refused by exactly one control, which is not
+    this one.
+    """
     from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY
 
     from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
@@ -583,7 +606,10 @@ def test_a_narrow_rule_still_promotes_under_the_reference_cap(closed, held_out):
         held_out=held_out.settlement_records,
         induced_on=closed.settlement_records,
     )
-    assert decision.allowed, decision.reasons
+    assert not any("reference rows" in r for r in decision.reasons), (
+        "the selectivity cap must not be what refuses a rule firing on 2 of 536"
+    )
+    assert len(decision.reasons) == 1 and "of value" in decision.reasons[0], decision.reasons
 
 
 def test_a_rule_cannot_reach_a_field_outside_the_closed_vocabulary(closed):
