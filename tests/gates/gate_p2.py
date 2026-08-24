@@ -19,7 +19,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from recon.contracts import CONTRACT_VERSION, AdapterSpec, ParseVerb, ProofTier
+from recon.contracts import (
+    CONTRACT_VERSION,
+    AdapterSpec,
+    CanonicalField,
+    ParseVerb,
+    ProofTier,
+)
 from recon.intake import ADAPTER_DIR, ingest, load_spec
 from recon.intake.proofs import CheckStatus
 from recon.intake.verbs import REGISTRY
@@ -160,6 +166,64 @@ def test_group_ref_is_absent_where_the_source_declared_none():
 # --------------------------------------------------------------------------
 # ADR-001 — the security boundary, asserted structurally
 # --------------------------------------------------------------------------
+
+
+VERB_CASES = {
+    ParseVerb.TEXT: (dict(source="c", parse="text", strip=["₹"]), {"c": "₹ hello "}, "hello"),
+    ParseVerb.LOWER: (dict(source="c", parse="lower"), {"c": "RAZORPAY"}, "razorpay"),
+    ParseVerb.CONSTANT: (dict(parse="constant", value="INR"), {}, "INR"),
+    ParseVerb.INTEGER: (dict(source="c", parse="integer", strip=[","]), {"c": "1,234"}, 1234),
+    ParseVerb.DECIMAL: (
+        dict(source="c", parse="decimal", strip=["₹", ","], sign="dr"),
+        {"c": "₹1,842.07"},
+        Decimal("-1842.07"),
+    ),
+    ParseVerb.DECIMAL_MINOR: (
+        dict(source="c", parse="decimal_minor"),
+        {"c": "1842907"},
+        Decimal("18429.07"),
+    ),
+    ParseVerb.DATE: (
+        dict(source="c", parse="date", fmt="DD-MM-YY"),
+        {"c": "14-08-26"},
+        date(2026, 8, 14),
+    ),
+    ParseVerb.REGEX: (
+        dict(source="c", parse="regex", pattern="/(pout_[A-Za-z0-9]+)"),
+        {"c": "NEFT/RAZORPAY/pout_00007/SETTLEMENT"},
+        "pout_00007",
+    ),
+    ParseVerb.SIGN_FROM_COLUMN: (
+        dict(source="c", parse="sign_from_column", sign_column="ind", sign_when_negative="DBIT"),
+        {"c": "500.00", "ind": "DBIT"},
+        Decimal("-500.00"),
+    ),
+}
+
+
+@pytest.mark.parametrize("verb", list(ParseVerb), ids=lambda v: v.value)
+def test_every_parse_verb_is_exercised_with_a_real_assertion(verb):
+    """A closed vocabulary is only as good as its least-tested member.
+
+    Coverage found four verbs with no direct test — including `DECIMAL_MINOR`,
+    which was *added* to fix a source ingested 100x wrong. Two of the four ran
+    in every batch because the shipped specs use them, so they showed as covered
+    while nothing asserted what they produced. Parametrised over the enum so a
+    new verb without a case fails here rather than shipping untested.
+    """
+    from recon.contracts.adapter import FieldMap
+    from recon.intake import verbs as verb_module
+
+    if verb is ParseVerb.UNMAPPABLE:
+        fm = FieldMap(to=CanonicalField.RAW, source="c", parse=verb)
+        with pytest.raises(verb_module.ParseError, match="UNMAPPABLE"):
+            verb_module.apply(fm, {"c": "anything"})
+        return
+
+    assert verb in VERB_CASES, f"{verb.value} has no case — add one before shipping it"
+    spec, row, expected = VERB_CASES[verb]
+    target = CanonicalField.AMOUNT if isinstance(expected, Decimal) else CanonicalField.RAW
+    assert verb_module.apply(FieldMap(to=target, **spec), row) == expected
 
 
 def test_parse_vocabulary_is_complete():
