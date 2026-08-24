@@ -92,7 +92,15 @@ class RuleAction(BaseModel):
     def _suppression_states_a_reason(self) -> RuleAction:
         if self.kind is ActionKind.SUPPRESS and not self.reason:
             raise ValueError("a suppress action must state a reason — never silent")
-        if self.kind in {ActionKind.BOOK_TO, ActionKind.NORMALIZE_KEY} and not self.target:
+        if (
+            self.kind in {ActionKind.BOOK_TO, ActionKind.NORMALIZE_KEY, ActionKind.RAISE_ADVISORY}
+            and not self.target
+        ):
+            # `raise_advisory` joined this list in 6.2.0. It was optional, so a
+            # model wrote an advisory with nothing to advise: the rule fired,
+            # named no code, re-coded no exception, and the only thing that
+            # caught it was a control counting effects. Nothing could have
+            # depended on the old shape — the action reached no close at all.
             raise ValueError(f"action {self.kind!r} requires a target")
         if self.kind is ActionKind.NORMALIZE_KEY and self.value is None:
             raise ValueError("normalize_key must say what the key becomes, not only which key")

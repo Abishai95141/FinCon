@@ -180,6 +180,47 @@ def _build_proof(
     )
 
 
+def _advise(
+    exceptions: list[ReconException], advisories: list[rulestore.Advisory]
+) -> list[ReconException]:
+    """Let a promoted rule say what an exception *is*.
+
+    `E14` is the absence of an explanation — `P3 DECLARED`, nobody vouched for
+    it. A promoted rule that recognises the shape supplies one, and the label
+    becomes `P1 RULE`: weaker than a derivation, stronger than a default.
+
+    The ladder does the guarding, so there is no list of which codes may be
+    overwritten. `E09` came out of an enumeration that found two valid subsets —
+    `P0 ARITHMETIC` — and a rule does not get to talk over an answer the engine
+    proved. That is `outranks`, and it is the same check triage runs on a model
+    proposal, for the same reason.
+    """
+    if not advisories:
+        return exceptions
+    out: list[ReconException] = []
+    for exception in exceptions:
+        touching = [
+            a for a in advisories if a.code and not set(exception.record_ids).isdisjoint(a.records)
+        ]
+        if not touching or exception.code_provenance.outranks(ProofTier.P1_RULE):
+            out.append(exception)
+            continue
+        advisory = touching[0]
+        out.append(
+            exception.model_copy(
+                update={
+                    "code": advisory.code,
+                    "code_provenance": ProofTier.P1_RULE,
+                    "evidence": [
+                        *exception.evidence,
+                        f"{advisory.rule_id}@v{advisory.rule_version}: {advisory.reason}",
+                    ],
+                }
+            )
+        )
+    return out
+
+
 def _provenance_for(
     group_ref: str, applied: rulestore.Applied, base: ProofTier
 ) -> tuple[ProofTier, Rule | None]:
@@ -238,8 +279,16 @@ def run(
     # same `scope` the caller uses means a rule cannot remove a row by a route
     # the completeness audit does not walk — invariant 8 sees a rule's effect on
     # exactly the terms it sees an operator's.
-    applied = rulestore.apply(list(rules or []), group_records, profile=profile.name)
+    active = list(rules or [])
+    applied = rulestore.apply(active, group_records, profile=profile.name)
     scope.update(applied.scope)
+    # The remaining two match-affecting actions, in the order the regression
+    # measures them: suppression removes rows, then key rewrites change what is
+    # comparable among the rows that are left.
+    profile = rulestore.tolerance_for(active, profile)
+    group_records = rulestore.normalize(
+        active, [r for r in group_records if r.record_id not in applied.scope]
+    )
     in_scope_anchors = [a for a in anchors if a.record_id not in scope]
     grouped, ungrouped = _groups_of([r for r in group_records if r.record_id not in scope])
     claimed: set[str] = set()
@@ -301,6 +350,7 @@ def run(
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
+    exceptions = _advise(exceptions, applied.advisories)
 
     return MatchRun(
         profile=profile.name,

@@ -75,6 +75,21 @@ _FIELD_HELP = (
     "the first assertion of an event and anything above is a repeat."
 )
 
+
+def applicable_actions() -> list[str]:
+    """Actions worth offering: measurable at promotion *and* performed at close.
+
+    Offering one that fails either is how `raise_advisory` came to be proposed,
+    promoted, and inert. Two hand-typed lists agreeing with a third hand-typed
+    list in a tool schema is three chances to drift, so the schema takes the
+    intersection of the two that are enforced.
+    """
+    from ..engine.promotion import MODELLED_ACTIONS
+    from ..engine.rulestore import APPLIED_ACTIONS
+
+    return sorted({k.value for k in APPLIED_ACTIONS} & set(MODELLED_ACTIONS))
+
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -107,18 +122,21 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {
+                    "kind": {"type": "string", "enum": applicable_actions()},
+                    "target": {
                         "type": "string",
-                        "enum": [
-                            "set_tolerance",
-                            "book_to",
-                            "normalize_key",
-                            "suppress",
-                            "raise_advisory",
-                        ],
+                        "description": (
+                            "What the action acts on, by kind: raise_advisory -> an "
+                            "exception code from the registry above; book_to -> an "
+                            "account role; normalize_key -> the key to rewrite (with "
+                            "`value` as its replacement). Required for those three."
+                        ),
                     },
-                    "target": {"type": "string"},
-                    "amount": {"type": "string"},
+                    "amount": {
+                        "type": "string",
+                        "description": "set_tolerance only: the budget, decimal as a string.",
+                    },
+                    "value": {"type": "string", "description": "normalize_key: the replacement."},
                     "reason": {"type": "string"},
                 },
                 "required": ["kind"],
@@ -189,6 +207,11 @@ def acceptance_criteria(policy: Policy) -> str:
         "is a policy change.\n"
         f"  - breaks any historical match, or adds more than "
         f"{policy.max_added_matches}.\n"
+        "  - removes any value from the close. Dropping rows that carry money is "
+        "an attested act — a named human signs it (P2) — because raw records "
+        "cannot prove a row is spurious: they contain it. A rule may drop rows "
+        "with no movement on its own authority. To act on rows that do carry "
+        "value, name the finding instead of removing it.\n"
         f"  - acts outside the vocabulary the gate can simulate: "
         f"{', '.join(sorted(MODELLED_ACTIONS))}. An effect nobody can measure "
         "cannot be shown to be safe.\n"

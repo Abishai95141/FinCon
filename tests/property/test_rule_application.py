@@ -135,3 +135,57 @@ def test_a_rules_suppressions_reach_the_decision_log():
 
     assert suppressed, "the rule fired but the close's scope does not record it"
     assert result.ok, "a close whose log cannot account for its own exclusions is not ok"
+
+
+def test_the_model_is_only_offered_actions_that_are_measured_and_performed():
+    """`raise_advisory` was in the tool schema, in `MODELLED_ACTIONS`, and in no
+    implementation. A rule using it promoted with zero objections and changed
+    nothing — the cleanest-scoring rule the gate had ever seen, and a no-op.
+
+    Three hand-typed lists is three chances to drift, so the schema takes the
+    intersection of the two that are enforced.
+    """
+    from recon.engine.promotion import MODELLED_ACTIONS
+    from recon.engine.rulestore import APPLIED_ACTIONS
+    from recon.triage.induce import SCHEMA, applicable_actions
+
+    offered = set(SCHEMA["properties"]["then"]["items"]["properties"]["kind"]["enum"])
+    assert offered == set(applicable_actions())
+    assert offered == {k.value for k in APPLIED_ACTIONS} & set(MODELLED_ACTIONS)
+
+
+@pytest.mark.parametrize(
+    ("action", "detectable"),
+    [
+        ({"kind": "set_tolerance", "amount": "500.00"}, "matches"),
+        ({"kind": "normalize_key", "target": "gateway", "value": "x"}, "matches"),
+        ({"kind": "raise_advisory", "target": "E06", "reason": "a repeat"}, "codes"),
+        ({"kind": "suppress", "reason": "a repeat"}, "matches"),
+    ],
+)
+def test_every_offered_action_changes_something_at_close(action: dict, detectable: str):
+    """The check that would have caught it. An action a close cannot perform is
+    indistinguishable from one that works — `unapplied` named three of them and
+    nothing read the report."""
+    field = "key_occurrence" if action["kind"] in {"raise_advisory", "suppress"} else "side"
+    value = "0" if field == "key_occurrence" else "settlement"
+    op = Operator.GT if field == "key_occurrence" else Operator.EQ
+    rule = _rule(when=[{"field": field, "op": op, "value": value}], then=[action])
+
+    off, on = close("A", rules=[]), close("A", rules=[rule])
+    if detectable == "matches":
+        assert len(on.matches) != len(off.matches) or len(on.exceptions) != len(off.exceptions)
+    else:
+        assert sorted(e.code for e in on.exceptions) != sorted(e.code for e in off.exceptions)
+
+
+def test_book_to_reaches_a_posting():
+    """Measured by a posting delta at promotion and reaching no posting at close
+    — a rule approved for rerouting money it never rerouted."""
+    rule = _rule(
+        when=[{"field": "side", "op": Operator.EQ, "value": "bank"}],
+        then=[{"kind": ActionKind.BOOK_TO, "target": "rounding"}],
+    )
+    off, on = close("A", rules=[]), close("A", rules=[rule])
+    roles = lambda r: sorted({p.role.value for e in r.entries for p in e.postings})  # noqa: E731
+    assert "rounding" in roles(on) and "rounding" not in roles(off)

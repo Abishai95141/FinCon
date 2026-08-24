@@ -1,0 +1,54 @@
+{
+  "profile": "settlement_3way",
+  "promoted": [
+    {
+      "contract_version": "6.2.0",
+      "rule_id": "R-DUP-06",
+      "version": 1,
+      "status": "promoted",
+      "profile": "settlement_3way",
+      "when": [
+        {
+          "field": "side",
+          "op": "eq",
+          "value": "settlement"
+        },
+        {
+          "field": "keys.row_type",
+          "op": "eq",
+          "value": "fee"
+        },
+        {
+          "field": "key_occurrence",
+          "op": "gt",
+          "value": "0"
+        }
+      ],
+      "then": [
+        {
+          "kind": "raise_advisory",
+          "target": "E06",
+          "amount": null,
+          "pct": null,
+          "value": null,
+          "reason": "Fee row appears twice with identical natural_key (same payment_id and amount) in the settlement export, indicating a duplicate export of the same economic event by the gateway."
+        }
+      ],
+      "induced_from": null,
+      "regression": null,
+      "promotion": {
+        "promoted_by": "meera",
+        "promoted_at": "2026-08-24T18:49:57.903541Z",
+        "policy_ref": "settlement-in@v1",
+        "evidence_hash": "85d67e21ee46dc6fb37b3537fc1d9e2825ee48f045c71c06d453624cd8758901",
+        "matches_checked": 20,
+        "matches_broken": 0,
+        "matches_added": 0,
+        "exceptions_cleared": 0,
+        "postings_moved": "no entry changed account",
+        "sample_added": []
+      },
+      "revoked_at": null
+    }
+  ]
+}

@@ -675,13 +675,35 @@ def test_the_taxonomy_asset_is_valid_json_and_round_trips(registry):
 
 
 def test_p10_numbers_are_unchanged(tmp_path):
+    """P10's figures were taken on the unruled engine, before any rule could be
+    promoted, so that is what they are compared against. Passing `rules=[]` is
+    not a convenience — a close now loads the promoted store by default, and
+    checking a later phase's improvement against an earlier phase's baseline
+    would report a regression every time the system got better."""
     from bench.run import close
 
-    card = {c.arm: c for c in close("A", journal_dir=tmp_path).cards}["deterministic"]
+    card = {c.arm: c for c in close("A", journal_dir=tmp_path, rules=[]).cards}["deterministic"]
     assert card.produced == 20
     assert card.false_matches == 0
     assert card.exceptions.surfaced == 4
     assert card.exceptions.classified == 1
+
+
+def test_a_promoted_rule_only_ever_improves_on_that_baseline(tmp_path):
+    """The other half, and the one that would catch a promoted rule making
+    things worse: the shipped store must not do worse than the bare engine on
+    any headline number. A rule that trades a finding for a match passes every
+    delta check and fails this."""
+    from bench.run import close
+
+    bare = {c.arm: c for c in close("A", journal_dir=tmp_path / "a", rules=[]).cards}
+    ruled = {c.arm: c for c in close("A", journal_dir=tmp_path / "b").cards}
+    before, after = bare["deterministic"], ruled["deterministic"]
+
+    assert after.correct >= before.correct
+    assert after.false_matches <= before.false_matches
+    assert after.exceptions.surfaced >= before.exceptions.surfaced
+    assert after.exceptions.classified >= before.exceptions.classified
 
 
 def test_the_worklist_says_how_far_the_routing_actually_spread(tmp_path):
@@ -693,10 +715,16 @@ def test_the_worklist_says_how_far_the_routing_actually_spread(tmp_path):
 
     from recon.triage.worklist import summarise
 
-    result = close("A", journal_dir=tmp_path)
-    line = summarise(result.worklist)
-    assert "1 owner(s): controller" in line
-    assert "nothing to discriminate" in line
+    bare = summarise(close("A", journal_dir=tmp_path / "a", rules=[]).worklist)
+    assert "1 owner(s): controller" in bare
+    assert "nothing to discriminate" in bare
+
+    # And what breaking the bottleneck looks like. `R-DUP-06` re-codes one E14
+    # to E06, which the registry routes to gateway-ops rather than the
+    # controller — so the dispersion this test was written to complain about
+    # rises for the first time. One rule, one desk, and the number moves.
+    ruled = summarise(close("A", journal_dir=tmp_path / "b").worklist)
+    assert "2 owner(s)" in ruled and "gateway-ops" in ruled
 
 
 def test_dispersion_rises_when_the_codes_actually_differ(registry):

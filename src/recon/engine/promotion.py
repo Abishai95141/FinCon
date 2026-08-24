@@ -23,7 +23,7 @@ refused rule cannot explain the refusal. `evaluate` decides.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -139,6 +139,10 @@ class RegressionOutcome:
     added-match count and printed in the record a human reads before
     approving."""
 
+    advisories_applied: int = 0
+    """Exceptions a `raise_advisory` rule re-coded. Zero from a rule that raises
+    one means it landed on nothing — the no-op that scored clean."""
+
     value_suppressed: Decimal = ZERO
     """Net amount on the rows a `SUPPRESS` rule removes from the close.
 
@@ -180,11 +184,16 @@ def _tolerance_asked_for(rule: Rule) -> Decimal | None:
 
 
 def _apply(rule: Rule, profile):
-    """The rule's effect on the matching configuration."""
-    asked = _tolerance_asked_for(rule)
-    if asked is None:
-        return profile
-    return replace(profile, tolerance=replace(profile.tolerance, absolute=asked))
+    """The rule's effect on the matching configuration.
+
+    Delegates, so the widening the regression measures is by construction the
+    widening the close performs. These were two implementations until the close
+    grew the ability to apply a rule at all — at which point the second one
+    would have been free to disagree with the first.
+    """
+    from .rulestore import tolerance_for
+
+    return tolerance_for([rule], profile)
 
 
 def _unmodelled(rule: Rule) -> list[str]:
@@ -192,58 +201,17 @@ def _unmodelled(rule: Rule) -> list[str]:
 
 
 def _normalized_by(rule: Rule, records: list[Record]) -> list[Record]:
-    """Apply the rule's key rewrites before matching.
+    """Apply the rule's key rewrites before matching. See `rulestore.normalize`."""
+    from .rulestore import normalize
 
-    Rewriting a key changes what is comparable, which changes which rows pair —
-    so this is squarely a match-delta effect, and the regression not applying it
-    was an omission rather than a limit.
-    """
-    from .rules import select
-
-    rewrites = [a for a in rule.then if a.kind is ActionKind.NORMALIZE_KEY]
-    if not rewrites:
-        return records
-    hit = set(select(rule, records).matched)
-    out: list[Record] = []
-    for record in records:
-        if record.record_id not in hit:
-            out.append(record)
-            continue
-        keys = dict(record.keys)
-        for action in rewrites:
-            keys[action.target] = action.value
-        out.append(record.model_copy(update={"keys": keys}))
-    return out
+    return normalize([rule], records)
 
 
 def _booking_overrides(rule: Rule, history: MatchHistory) -> dict[str, object]:
-    """Which exceptions a `book_to` rule reroutes, and to where.
+    """Which exceptions a `book_to` rule reroutes. See `rulestore.booking_overrides`."""
+    from .rulestore import booking_overrides
 
-    An exception is rerouted when the rule fires on a record it names. The rule
-    supplies the destination; nothing here reads model output, and the posting
-    layer still cannot — it takes a plain mapping.
-    """
-    from ..ledger.accounts import AccountRole
-    from .rules import fires_on
-
-    bookings = [a for a in rule.then if a.kind is ActionKind.BOOK_TO]
-    if not bookings:
-        return {}
-    try:
-        destination = AccountRole(bookings[-1].target)
-    except ValueError:
-        # An account role outside the chart is a spec error, not a posting. The
-        # refusal is `evaluate`'s to make; here it simply reroutes nothing.
-        return {}
-    overrides: dict[str, object] = {}
-    for exception in history.exceptions:
-        named = set(getattr(exception, "record_ids", []))
-        if any(
-            history.records.get(rid) is not None and fires_on(rule, history.records[rid])
-            for rid in named
-        ):
-            overrides[exception.exception_id] = destination
-    return overrides
+    return booking_overrides([rule], list(history.exceptions), history.records)
 
 
 def _posting_delta(rule: Rule, history: MatchHistory, taxonomy) -> PostingDelta | None:
@@ -385,6 +353,8 @@ def regress(
     asking for more than policy allows must still be measurable, or the refusal
     could not say what the rule would have done.
     """
+    from . import rulestore
+    from .tiers import _advise
     from .tiers import run as run_tiers
 
     suppressed = _suppressed_by(rule, history.group_records)
@@ -400,6 +370,19 @@ def regress(
     # differencing the two counted the configuration as well as the rule and
     # reported -1 exceptions cleared for a rule that cleared one.
     baseline = run_tiers(history.anchors, history.group_records, profile, ProofTier.P0_ARITHMETIC)
+
+    # `raise_advisory` was declared modelled and simulated nowhere, so a rule
+    # using it came back 0 broken / 0 added / nothing suppressed and promoted
+    # without an objection while doing nothing whatsoever.
+    advised = _advise(
+        after.exceptions,
+        rulestore.apply(
+            [rule], history.group_records, profile=profile.name, simulate=True
+        ).advisories,
+    )
+    advisories_applied = sum(
+        1 for was, now in zip(after.exceptions, advised, strict=True) if was.code != now.code
+    )
 
     before_ids = history.matched_anchor_ids()
     after_by_anchor = {m.anchor_id: m for m in after.matches}
@@ -424,6 +407,7 @@ def regress(
         added=added,
         unverifiable=unverifiable,
         exceptions_cleared=len(baseline.exceptions) - len(after.exceptions),
+        advisories_applied=advisories_applied,
         value_suppressed=sum(
             (r.amount for r in history.group_records if r.record_id in suppressed), ZERO
         ),
@@ -501,6 +485,44 @@ def evaluate(
                 reasons.append(
                     f"book_to names {action.target!r}, which is not an account role. "
                     f"Known: {sorted(r.value for r in AccountRole)}"
+                )
+
+    from .rulestore import APPLIED_ACTIONS
+
+    inert = sorted({a.kind.value for a in rule.then} - {k.value for k in APPLIED_ACTIONS})
+    if inert:
+        # Two lists have to be satisfied, not one. `MODELLED_ACTIONS` says the
+        # regression can *measure* an action; `APPLIED_ACTIONS` says a close can
+        # *perform* it. Only the first was checked, so `set_tolerance`, `book_to`
+        # and `normalize_key` promoted on a clean regression and then did
+        # nothing — the close reported them `unapplied` and no one was reading.
+        reasons.append(
+            f"acts by {', '.join(inert)}, which a close does not perform. The "
+            f"regression can measure it and nothing carries it out, so promoting "
+            f"it would grant a permission with no effect"
+        )
+
+    advisory_targets = [a.target for a in rule.then if a.kind is ActionKind.RAISE_ADVISORY]
+    if advisory_targets:
+        if outcome.advisories_applied == 0:
+            # The no-op that scored better than any real rule: clean on broken,
+            # added, value and postings, because it did nothing on all four.
+            reasons.append(
+                "raises an advisory that re-codes no exception. A rule whose only "
+                "effect lands on nothing is not a safe rule, it is an unmeasured one"
+            )
+        for target in advisory_targets:
+            if not target:
+                reasons.append("raise_advisory names no code — there is nothing to say")
+            elif taxonomy is not None and target not in taxonomy:
+                reasons.append(f"raise_advisory names {target!r}, which is not in the registry")
+            elif taxonomy is not None and not taxonomy[target].authority.may_fire_rule:
+                # P11: naming grants nothing. A code may label from birth and
+                # fire a rule only once a human has promoted it with a written
+                # definition.
+                reasons.append(
+                    f"raise_advisory names {target!r}, which is {taxonomy[target].status.value} "
+                    f"— a code fires a rule only once promoted"
                 )
 
     if outcome.value_suppressed != ZERO:

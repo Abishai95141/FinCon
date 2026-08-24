@@ -322,7 +322,7 @@ def _advisory(*predicates: Predicate) -> Rule:
         rule_id="R-MR",
         profile="settlement_3way",
         when=list(predicates),
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="metamorphic probe")],
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, target="E06", reason="metamorphic probe")],
     )
 
 

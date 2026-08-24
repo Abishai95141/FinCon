@@ -19,7 +19,7 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "6.1.0"
+CONTRACT_VERSION = "6.2.0"
 # 6.1.0 — RuleAction.value (normalize_key could say which key to rewrite and
 #         never what to, which is why it was unusable), PromotionEvent
 #         .postings_moved, AdapterAuthoredPayload, AdapterSpec.natural_key.
@@ -88,6 +88,10 @@ CONTRACT_VERSION = "6.1.0"
 #         new models, so minor — nothing existing changed shape. The log is a
 #         public artifact: an external auditor reads it without our code, so it
 #         is versioned like everything else here.
+# 6.2.0 — `RuleAction.target` is required for RAISE_ADVISORY, alongside BOOK_TO
+#         and NORMALIZE_KEY. The advisory action reached no close before this,
+#         so no valid consumer could depend on a target-less one; a model wrote
+#         exactly that and produced a rule with nothing to advise.
 # 2.0.0 — P8 tightened the Rule promotion validator: PROMOTED now requires a
 #         PromotionEvent produced by recon.engine.promotion.promote(), which
 #         re-runs the regression against real history under a named policy. A

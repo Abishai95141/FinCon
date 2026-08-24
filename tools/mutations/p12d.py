@@ -43,7 +43,7 @@ MUTATIONS = [
     (
         "an unpromoted rule is allowed to act",
         "src/recon/engine/rulestore.py",
-        """        if rule.status is not RuleStatus.PROMOTED or rule.revoked_at is not None:""",
+        """        if not simulate and (rule.status is not RuleStatus.PROMOTED or rule.revoked_at is not None):""",
         """        if False:""",
     ),
     (
@@ -59,5 +59,29 @@ MUTATIONS = [
         scope=ours.scope,""",
         """        sources=sides.proofs,
         scope=sides.scope,""",
+    ),
+    (
+        "an action a close cannot perform stops blocking promotion",
+        "src/recon/engine/promotion.py",
+        """    if inert:""",
+        """    if False:""",
+    ),
+    (
+        "an advisory that re-codes nothing stops being refused",
+        "src/recon/engine/promotion.py",
+        """        if outcome.advisories_applied == 0:""",
+        """        if False:""",
+    ),
+    (
+        "raise_advisory goes back to changing nothing at close",
+        "src/recon/engine/tiers.py",
+        """    exceptions = _advise(exceptions, applied.advisories)""",
+        """    pass""",
+    ),
+    (
+        "set_tolerance and normalize_key go back to being inert at close",
+        "src/recon/engine/tiers.py",
+        """    profile = rulestore.tolerance_for(active, profile)""",
+        """    pass""",
     ),
 ]

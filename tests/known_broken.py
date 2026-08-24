@@ -62,23 +62,29 @@ def test_no_domain_constants_in_kernel_code():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P12: no rule stands promoted, so nothing attributes improvement rule "
-    "by rule  -  the gate's own sentence. Status changed on 2026-08-24 without the "
-    "row going green: a model-induced rule DID promote end to end (key_occurrence "
-    "gt 0, suppressing a duplicated export row; 0 broken, 1 added, fires on "
-    "held-out B), and against the generator's labels it added a false match and "
-    "destroyed a planted E06 worth the exact value it removed. The gate had no "
-    "dimension for value leaving a close; it does now, and the rule is correctly "
-    "refused. What is missing is no longer the rule but the attestation path  -  "
-    "a suppression that removes value needs a named human, and P12 has no route "
-    "for one to sign a firing.",
-)
+# Was xfail(strict) from P8 until 2026-08-25: no model-induced rule had ever
+# been promoted, so nothing attributed improvement rule by rule. `R-DUP-06`
+# does — deepseek-v4-flash, from a controller's own words, `raise_advisory ->
+# E06` on a repeated export row. Exception classification 1/5 -> 2/5 on batch A
+# *and* on held-out B, no false match, no value moved.
+#
+# It took two refusals to get here, both of them the system working: the first
+# rule removed ₹5,489.75 and destroyed the finding it was meant to raise, and
+# the second named no code and re-coded nothing. The row is green because the
+# gate refused twice, not because it stopped asking.
 def test_a_model_induced_rule_has_been_promoted():
     from pathlib import Path as _P
 
-    assert list(_P("data/rules").glob("*.json")) if _P("data/rules").exists() else False
+    from recon.contracts.rule import Rule, RuleStatus
+
+    stored = list(_P("data/rules").glob("*.json"))
+    assert stored, "no promoted rule is stored, so no close can be attributed to one"
+    for path in stored:
+        for entry in __import__("json").loads(path.read_text())["promoted"]:
+            rule = Rule(**entry)
+            assert rule.status is RuleStatus.PROMOTED
+            assert rule.promotion is not None, "a promoted rule with no promotion event"
+            assert rule.promotion.promoted_by, "promotion with no named actor"
 
 
 @pytest.mark.xfail(

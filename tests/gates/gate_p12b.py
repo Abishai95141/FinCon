@@ -347,7 +347,7 @@ def test_a_rule_keyed_on_a_property_does_generalise(closed, held_out):
         rule_id="R-FEE",
         profile="settlement_3way",
         when=[Predicate(field="keys.row_type", op=Operator.EQ, value="fee")],
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="fee row")],
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, target="E06", reason="fee row")],
     )
     assert generalises(rule, closed.settlement_records).fires > 0
     assert generalises(rule, held_out.settlement_records).generalises
@@ -477,7 +477,7 @@ def test_a_rule_that_fires_on_nothing_it_came_from_is_refused(closed):
         rule_id="R-INERT",
         profile="settlement_3way",
         when=[Predicate(field="keys.row_type", op=Operator.EQ, value="does-not-exist")],
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="never fires")],
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, target="E06", reason="never fires")],
     )
     # The real matches, so the regression measures a delta against history
     # rather than counting every existing match as an addition.
@@ -510,7 +510,7 @@ def test_a_rule_that_does_fire_clears_the_fires_check(closed):
         rule_id="R-LIVE",
         profile="settlement_3way",
         when=[Predicate(field="keys.row_type", op=Operator.EQ, value="fee")],
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="fee row")],
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, target="E06", reason="fee row")],
     )
     history = MatchHistory(
         anchors=[r for r in closed.records.values() if r.side == "bank"],
@@ -548,7 +548,7 @@ def test_an_over_broad_rule_is_refused_on_the_reference_population(closed, held_
         rule_id="R-BROAD",
         profile="settlement_3way",
         when=[Predicate(field="keys.row_type", op=Operator.IN, value=["charge", "fee"])],
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="everything")],
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, target="E06", reason="everything")],
     )
     reference = held_out.settlement_records
     fired = generalises(broad, reference)

@@ -239,6 +239,7 @@ def close(
     scorecard cannot be produced over a run the record does not account for.
     """
     sides = load_sides(batch)
+    active_rules = rulestore.load(SETTLEMENT_3WAY.name) if rules is None else rules
     labels = BATCHES / batch / "labels.json"
     truth = truth_pairs(labels)
 
@@ -275,7 +276,7 @@ def close(
         # Promoted rules are part of the system, not an experiment beside it:
         # the default close reads the store, so a rule that changes nothing
         # shows up as a scorecard that did not move.
-        rulestore.load(SETTLEMENT_3WAY.name) if rules is None else rules,
+        active_rules,
     )
 
     by_external = {ext: rec for ext, rec in sides.bank + sides.settlement}
@@ -316,6 +317,10 @@ def close(
         records=records,
         anchor_side=SETTLEMENT_3WAY.anchor_side,
         taxonomy=TAXONOMY,
+        # The last of the five. `book_to` was measured by a posting delta at
+        # promotion and reached no posting at close, so a rule could be approved
+        # for rerouting money it never rerouted.
+        overrides=rulestore.booking_overrides(active_rules, list(ours.exceptions), records),
     )
     ledger = post_and_assert(
         entries,

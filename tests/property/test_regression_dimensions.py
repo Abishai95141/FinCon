@@ -286,3 +286,17 @@ def test_the_criteria_state_the_standard_and_never_the_answer():
     text = acceptance_criteria(SETTLEMENT_POLICY)
     named = [f for f in FIELDS if re.search(rf"\b{re.escape(f)}\b", text)]
     assert not named, f"the criteria name {named}; that is the answer, not the standard"
+
+
+def test_the_proposer_is_told_that_removing_value_is_refused():
+    """The drift I introduced while fixing drift.
+
+    The value control landed after `acceptance_criteria` was written, so for one
+    commit the gate refused on a ground the proposer was never told — which is
+    precisely the failure that made three induced rules read as incompetence.
+    A control the proposer cannot see produces a refusal it could not avoid.
+    """
+    from recon.triage.induce import acceptance_criteria
+
+    text = acceptance_criteria(SETTLEMENT_POLICY).lower()
+    assert "value" in text and ("attested" in text or "p2" in text)
