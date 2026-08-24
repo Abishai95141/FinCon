@@ -61,5 +61,10 @@ def run(
         notes.append(f"{len(refuted)} match(es) refused by the verifier: {refuted[:3]}")
 
     return ArmResult(
-        name="deterministic", pairs=pairs, proofs=proofs, notes=notes, exceptions=exceptions
+        name="deterministic",
+        pairs=pairs,
+        proofs=proofs,
+        notes=notes,
+        exceptions=exceptions,
+        completeness=outcome.completeness,
     )

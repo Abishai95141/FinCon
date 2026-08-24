@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from recon.contracts import Proof, ReconException
+from recon.engine.completeness import CompletenessReport
 
 #: anchor external id -> the external ids of the rows claimed to back it.
 Pairs = dict[str, frozenset[str]]
@@ -25,6 +26,10 @@ class ArmResult:
     """What the arm could not commit, and why. An arm that simply drops the
     hard cases would score the same as one that surfaces them, so the
     exceptions travel with the pairs."""
+
+    completeness: CompletenessReport | None = None
+    """Invariant 8. An arm that cannot account for its inputs has not finished,
+    whatever its match rate says."""
 
     notes: list[str] = field(default_factory=list)
     """Anything a reader needs in order to interpret the number fairly — an

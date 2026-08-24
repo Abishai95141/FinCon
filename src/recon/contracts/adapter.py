@@ -61,6 +61,11 @@ class ParseVerb(StrEnum):
     CONSTANT = "constant"
     INTEGER = "integer"
     LOWER = "lower"
+    UNMAPPABLE = "unmappable"
+    """No verb in this vocabulary can express the column. Declaring it is the
+    honest alternative to reaching for the nearest verb and returning a
+    plausible wrong number — the failure mode that made a source 100x wrong at
+    1.3.0. Always fails the row, naming the column and the value it saw."""
     SIGN_FROM_COLUMN = "sign_from_column"
     """Amount lives in one column, its sign in another (split Dr/Cr exports)."""
 

@@ -33,12 +33,25 @@ class ExceptionCode(StrEnum):
     E11_COUNTERPARTY_ALIAS = "E11"
     E12_WRONG_ENTITY = "E12"
     E13_SOLVER_TIMEOUT = "E13"
+    E14_UNEXPLAINED = "E14"
+    """No strategy applied and the engine cannot say why. Added in 1.4.0 because
+    invariant 8 requires a disposition for every input, and force-fitting an
+    unmatched item into `E02` or `E01` would put a guess where the engine has
+    only facts. Carries what it does know — the amount, the best residual, the
+    row count — and leaves classification to triage."""
 
 
 #: Codes where escalating is the correct outcome, not a failure to match.
 #: E09 has no unique answer; E13 is a compute bound, and a capacity limit must
-#: never be reported as a data finding.
-HONESTY_CODES = frozenset({ExceptionCode.E09_NETTING_AMBIGUITY, ExceptionCode.E13_SOLVER_TIMEOUT})
+#: never be reported as a data finding; E14 is "I do not know", which is a
+#: better answer than a confident wrong one.
+HONESTY_CODES = frozenset(
+    {
+        ExceptionCode.E09_NETTING_AMBIGUITY,
+        ExceptionCode.E13_SOLVER_TIMEOUT,
+        ExceptionCode.E14_UNEXPLAINED,
+    }
+)
 
 
 class Resolution(BaseModel):

@@ -111,13 +111,24 @@ def _row_conservation(doc: SourceDocument, out: Interpreted) -> Check:
     # this document, not a weakly-evidenced intake. Without this, a wrong date
     # format parses nothing and still reports "declared" — which reads as "we
     # got data we could not fully verify" rather than "we got nothing".
-    if doc.rows_in_file > 0 and not out.records:
+    if not out.records:
+        if doc.rows_in_file == 0:
+            # A header with no data rows. Could be a genuinely empty period or a
+            # failed download, and nothing in the file distinguishes them — so
+            # this escalates rather than passing as a clean month.
+            return Check(
+                "row_conservation",
+                CheckStatus.FAIL,
+                "the source produced zero records and contained no data rows — "
+                "either a genuinely empty period or a failed fetch, and the file "
+                "cannot tell us which. Declare an empty period explicitly.",
+            )
+        reasons = sorted({r.detail or r.reason for r in out.rejections})
         return Check(
             "row_conservation",
             CheckStatus.FAIL,
             f"all {doc.rows_in_file} row(s) rejected — the spec does not match "
-            f"this document. First reason: "
-            f"{out.rejections[0].detail or out.rejections[0].reason}",
+            f"this document. Reasons: {reasons[:3]}",
         )
     rate = len(out.rejections) / doc.rows_in_file if doc.rows_in_file else 0.0
     return Check(

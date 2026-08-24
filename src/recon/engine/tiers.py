@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from ..contracts import ExceptionCode, MatchTier, Proof, ProofLeg, ProofTier, ReconException, Record
 from .blocking import CandidateSet
+from .completeness import CompletenessReport, audit
 from .subsetsum import Outcome, SolverBounds, solve
 from .tolerance import ToleranceBudget, TolerancePolicy
 
@@ -69,9 +70,13 @@ class MatchRun:
     reconstructs the grouping by subset-sum."""
 
     exceptions: list[ReconException] = field(default_factory=list)
-    """Raised by T2 where it could not commit: E09 when several subsets are
-    valid, E13 when a compute bound stopped the search. Never a silent
-    non-match."""
+    """Everything the run could not commit, and why. E09 for ambiguity, E13 for
+    a compute bound, E14 where the engine has no explanation to offer. Never a
+    silent non-match — see invariant 8."""
+
+    completeness: CompletenessReport | None = None
+    """Invariant 8, computed by set arithmetic over inputs and outputs rather
+    than by asking this function whether it handled everything."""
 
     candidates: CandidateSet | None = None
     """The candidate set the tiers were restricted to, when one was supplied.
@@ -201,15 +206,79 @@ def run(
     ungrouped_pool = [r for r in group_records if not r.group_ref]
     unmatched, exceptions = _subset_pass(unmatched, ungrouped_pool, profile, provenance, matches)
 
+    unclaimed = sorted(set(grouped) - claimed)
+    _disposition_pass(unmatched, unclaimed, grouped, exceptions)
+
     return MatchRun(
         profile=profile.name,
         matches=matches,
         unmatched_anchors=[a.record_id for a in unmatched],
-        unmatched_groups=sorted(set(grouped) - claimed),
+        unmatched_groups=unclaimed,
         ungrouped_records=ungrouped,
         candidates=candidates,
         exceptions=exceptions,
+        completeness=audit(
+            anchors=anchors,
+            group_records=group_records,
+            matched_anchor_ids=[m.anchor_id for m in matches],
+            matched_record_ids=[rid for m in matches for rid in m.group_ids],
+            exceptions=exceptions,
+        ),
     )
+
+
+def _disposition_pass(
+    unmatched: list[Record],
+    unclaimed_groups: list[str],
+    grouped: dict[str, list[Record]],
+    exceptions: list[ReconException],
+) -> None:
+    """Invariant 8's teeth. Anything the tiers left over gets an `E14` naming
+    the facts the engine actually has.
+
+    `E14` rather than a guess: the engine knows an anchor did not match and what
+    it is worth, but not *why*. Force-fitting it into `E06` or `E01` would put a
+    guess where there are only facts, and rules key on codes — a wrong code
+    routes the item to the wrong owner and may fire the wrong rule. Triage
+    classifies it later; the engine states what it saw.
+    """
+    seen = {rid for exc in exceptions for rid in exc.record_ids}
+    seen |= {rid for exc in exceptions for s in (exc.alternatives or []) for rid in s}
+
+    for anchor in unmatched:
+        if anchor.record_id in seen:
+            continue
+        exceptions.append(
+            ReconException(
+                exception_id=f"EXC-{len(exceptions) + 1:05d}",
+                code=ExceptionCode.E14_UNEXPLAINED,
+                as_of=anchor.posted_on,
+                amount=abs(anchor.amount),
+                record_ids=[anchor.record_id],
+                hypothesis="no strategy produced a match and the engine cannot say why",
+                evidence=[anchor.lineage, f"amount {anchor.amount}"],
+                blocks_close=True,
+            )
+        )
+
+    for group_ref in unclaimed_groups:
+        rows = grouped[group_ref]
+        row_ids = sorted(r.record_id for r in rows)
+        if all(rid in seen for rid in row_ids):
+            continue
+        total = sum((r.amount for r in rows), ZERO)
+        exceptions.append(
+            ReconException(
+                exception_id=f"EXC-{len(exceptions) + 1:05d}",
+                code=ExceptionCode.E14_UNEXPLAINED,
+                as_of=max(r.posted_on for r in rows),
+                amount=abs(total),
+                record_ids=row_ids,
+                hypothesis=f"group {group_ref!r} was not claimed by any anchor in this period",
+                evidence=[f"{len(rows)} row(s)", f"total {total}"],
+                blocks_close=True,
+            )
+        )
 
 
 def _subset_pass(

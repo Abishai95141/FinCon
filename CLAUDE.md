@@ -38,6 +38,11 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | Marking a phase gate green without pasting the command output | Unverifiable claims accumulate into a broken build | Gate status in STATUS.md requires the output that proves it |
 | `except: pass` around a verification step | Turns a failure into a silent success | Let it raise; a failed verification is information |
 | Generator emitting only cases the engine handles | Teaching to the test | Adversarial set is authored at P0 and never edited to match the engine |
+| A check reading its threshold from the artifact it checks | The artifact grants itself permission — this is audit finding `F1` | Thresholds come from policy, passed in alongside the artifact |
+| A check taking its policy from the caller | The caller may be the agent — audit finding `F2` | Policy is a separate, versioned input the proposer cannot supply |
+| A gate measuring only one direction of harm | Widening a tolerance breaks nothing and ruins everything — audit finding `F3` | Count what a change *adds*, not only what it breaks |
+| Counting a rejection as "accounted for" without bounding its volume | 251 of 517 rows discarded, `ok=True` — audit finding `F4` | A reason makes a rejection legible; a budget makes it bounded |
+| An input that ends a run with no disposition | The run exits zero and the scorecard looks clean — see invariant 8 | Every source, record and anchor is matched, excepted, or explicitly out of scope |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
 
@@ -87,7 +92,7 @@ Compaction loses these first. They are load-bearing — use them exactly.
 
 **The rule is "never move silently," not "refuse what you can't prove."** A close may complete carrying P2 and P3 items — it may not carry them undeclared. Every headline rate ships with its tier split.
 
-**Exception codes** — fixed taxonomy, a closed enum
+**Exception codes** — closed enum *today*; P11 replaces it with a registry whose codes have a lifecycle, so an agent can name a novel finding without it having any power until promoted
 | | | | |
 |---|---|---|---|
 | `E01` Timing / in-transit | `E02` Fee variance vs contract | `E03` FX / rounding | `E04` Partial payment |
@@ -127,7 +132,11 @@ docs/
   00-RESEARCH-DOSSIER.md      why this problem, what exists
   01-DECISION-SPEC.md         problem/solution/impact/trade-offs
   02-ARCHITECTURE-ADDENDUM.md open intake, verified commit; proof tiers; substrate
-  03-BUILD-PLAN.md            phases, stack, 26 failure modes
+  03-BUILD-PLAN.md            stack, model config, 26 failure modes (phases superseded by 06)
+  04-CONTROL-PLANE-AUDIT.md   five reproducible control bypasses; the trust-class redesign
+  05-FAILURE-REGISTER.md      19 probes — where a novel input crashes, goes silent, or goes wrong
+  06-PLAN-V2.md               ← THE PLAN. P6–P15, re-planned after the audits.
+  README.md                   index + the published artifact URLs
   decisions/                  ADRs — one per notable or irreversible choice
 src/recon/
   contracts/     Pydantic models = the public semver'd surface
@@ -168,9 +177,9 @@ Run this every session. It is short on purpose.
 6. **Update** STATUS.md: gate status, the command output that proves it, real numbers, anything now known-broken.
 7. **Commit** with the phase and gate in the message.
 
-**When compaction hits:** re-read CLAUDE.md and STATUS.md. Between them they carry the vocabulary, the invariants, the file map, and exactly where the build stands. Nothing else needs to survive.
+**When compaction hits:** re-read CLAUDE.md and STATUS.md. Between them they carry the vocabulary, the eight invariants, the file map, and exactly where the build stands. Nothing else needs to survive.
 
-**Do not skip ahead.** Phases are ordered so the first real number lands at P3 and the adapter interpreter exists before the model that writes specs for it. Building P7 before P2 means inventing two things at once.
+**Do not skip ahead.** The plan is [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md) — phase numbers after P5 were reassigned on 2026-08-21, so anything citing the old P6–P10 is stale. The order encodes three rules: what catches *unknown* failures comes before what fixes known ones; governance lands before the agent; measurement lands before the agent. Building the model edge before the control plane means demonstrating the opposite of the thesis.
 
 ---
 

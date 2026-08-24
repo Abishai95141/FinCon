@@ -107,14 +107,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"          {report.render()}\n")
     print(render_table(cards))
 
+    if ours.completeness is not None:
+        # Invariant 8, printed like blocking recall: a run that cannot account
+        # for its inputs has not finished, whatever the match rate says.
+        print(f"\n{ours.completeness.render()}")
+
     if ours.exceptions:
         print("\nexceptions (deterministic arm):")
         for exc in ours.exceptions:
             print(f"  {exc.code.value}  ₹{exc.amount:>12}  {exc.hypothesis}")
             for subset in exc.alternatives or []:
                 print(f"        subset of {len(subset)}: {sorted(subset)[:2]}...")
-    # A dropped true pair is a failed run, not a footnote.
-    return 0 if not report.dropped else 1
+    # A dropped true pair and an undisposed input are both failed runs.
+    incomplete = ours.completeness is not None and not ours.completeness.complete
+    return 0 if not (report.dropped or incomplete) else 1
 
 
 if __name__ == "__main__":

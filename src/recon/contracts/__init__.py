@@ -19,7 +19,16 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.3.0"
+CONTRACT_VERSION = "1.4.0"
+# 1.4.0 — P6 added two members, both so the system can say "I do not know" out
+#         loud rather than guess:
+#           ExceptionCode.E14_UNEXPLAINED — invariant 8 requires a disposition
+#             for every input, and the engine often cannot say WHY an item did
+#             not match. Force-fitting an existing code would put a guess where
+#             there are only facts.
+#           ParseVerb.UNMAPPABLE — a spec author (human or model) declares that
+#             no verb expresses a column, instead of reaching for the nearest.
+#         Both new enum members, so minor.
 # 1.3.0 — P5 added ParseVerb.DECIMAL_MINOR: integer minor units. Found by
 #         ingesting a source whose amounts were paise-as-integer; it parsed
 #         cleanly and was 100x wrong, and no proof could contradict it because

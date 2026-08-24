@@ -126,6 +126,15 @@ def parse_regex(value: str, fm: FieldMap, row: dict[str, str]) -> str:
     return match.group(1) if match.groups() else match.group(0)
 
 
+def parse_unmappable(value: str, fm: FieldMap, row: dict[str, str]) -> object:
+    """Always fails, on purpose. Naming the gap escalates it; guessing hides it."""
+    raise ParseError(
+        fm.source or "?",
+        value,
+        "no verb in this vocabulary expresses this column — declared UNMAPPABLE",
+    )
+
+
 def parse_sign_from_column(value: str, fm: FieldMap, row: dict[str, str]) -> Decimal:
     """Amount in one column, its sign in another — split Dr/Cr exports."""
     amount = parse_decimal(value, fm, row)
@@ -145,6 +154,7 @@ REGISTRY: dict[ParseVerb, Callable[[str, FieldMap, dict[str, str]], object]] = {
     ParseVerb.DATE: parse_date,
     ParseVerb.REGEX: parse_regex,
     ParseVerb.SIGN_FROM_COLUMN: parse_sign_from_column,
+    ParseVerb.UNMAPPABLE: parse_unmappable,
 }
 
 # A verb in the enum with no implementation is an import-time failure, not a

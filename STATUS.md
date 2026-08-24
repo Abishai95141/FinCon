@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P6` — completeness and honest failure ([plan v2](docs/06-PLAN-V2.md)) |
-| **Last green gate** | **P5** — 17/17. `make verify` runs P0–P5, 104 tests. |
-| **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine. Contract 1.2.0. |
+| **Current phase** | `P7` — policy and the constraint layer ([plan v2](docs/06-PLAN-V2.md)) |
+| **Last green gate** | **P6** — 19/19. `make verify` runs P0–P6, 123 tests. Contract 1.4.0. |
+| **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine, completeness audit. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-21 |
 
@@ -62,6 +62,98 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P6 — completeness · 2026-08-21
+
+```
+$ make verify
+=== gate P0 ===  11   === gate P1 ===  19   === gate P2 ===  19
+=== gate P3 ===  24   === gate P4 ===  14   === gate P5 ===  17
+=== gate P6 ===  19
+
+$ .venv/bin/python -m pytest -q     123 passed
+$ make lint                         All checks passed!
+
+batch A  ·  22 gateway credits  ·  517 settlement rows
+true pairs (payouts banked in period): 22
+blocking: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+          blocking recall 100.0% (21/21 reachable true pairs kept); 1 true pair(s) not reachable at all — the source declared no group: ['pout_00023']
+
+arm               auto-match  false-match  precision   recall  correct  false  missed
+-------------------------------------------------------------------------------------
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2
+  securo_raw: securo's 1:1 exact-amount matcher on raw rows
+  securo_raw: applied outside its designed domain (it pairs internal transfers, not N:1 settlements) — a low score here is expected and is the point
+  securo_grouped: securo's rule, given the payout grouping for free
+  securo_grouped: the fairer comparison: it isolates the matching rule from the grouping, which is most of the work
+  deterministic: tiers: {'T0': 18, 'T1': 2}
+  deterministic: exceptions raised: E09 ₹87250.40, E14 ₹84769.72, E14 ₹90259.47, E14 ₹43684.26
+  deterministic: 146/484 pairs (69.8% reduction) :: amount=121 date=198 reference=19
+  deterministic: 8 record(s) the source left ungrouped — unreachable by T0/T1, reconstructed by T2 subset-sum
+
+disposition [complete]  anchors={'excepted': 2, 'matched': 20}  records={'excepted': 64, 'matched': 453}
+
+exceptions (deterministic arm):
+  E09  ₹    87250.40  2 distinct subsets sum to this credit within tolerance; no unique answer exists
+        subset of 4: ['gateway-settlement:509', 'gateway-settlement:510']...
+        subset of 4: ['gateway-settlement:513', 'gateway-settlement:514']...
+  E14  ₹    84769.72  no strategy produced a match and the engine cannot say why
+  E14  ₹    90259.47  group 'pout_00011' was not claimed by any anchor in this period
+  E14  ₹    43684.26  group 'pout_00022' was not claimed by any anchor in this period
+```
+
+**The audit found two silent cases on the real batch that the register missed.**
+The register was built from synthetic probes; run against batch A, invariant 8
+immediately flagged **1 undisposed anchor and 64 undisposed records** — the E06
+duplicate payout's bank line, and the rows of two groups (`pout_00011`,
+`pout_00022`) that no anchor claimed. Four phases of green gates on this data and
+57 records were ending every run mentioned nowhere.
+
+That is the argument for the invariant over the register: a list of anticipated
+cases ages badly, and this one was already stale by the time it was written.
+
+**`E14 UNEXPLAINED` rather than a guess.** The engine knows an item did not match
+and what it is worth; it does not know *why*. Force-fitting `E06` or `E01` would
+put a guess where rules key on codes — a wrong code routes to the wrong owner and
+may fire the wrong rule. `E14` carries the facts it has (amount, row count,
+total) and leaves classification to triage. It joins `E09` and `E13` as an
+honesty code: "I do not know" said out loud beats a confident wrong answer.
+
+**All five crash cases now report instead of raising.** `ingest()`'s docstring
+promised this since P2 and was false — the reader raised straight through, so one
+unopenable file killed a whole close. A source that cannot be read is now a
+failed source, not a failed run.
+
+**Header-only files fail rather than reading as a clean month.** A failed fetch
+and a genuinely empty period are indistinguishable from the file, so this
+escalates instead of guessing.
+
+**Contract 1.2.0 → 1.4.0** (1.3.0 was `DECIMAL_MINOR`). Two new enum members,
+both so the system can say "I do not know" out loud: `ExceptionCode.E14_UNEXPLAINED`
+and `ParseVerb.UNMAPPABLE`.
+
+**One semantics bug of mine, caught by its own test.** `UNMAPPABLE` first failed
+individual *rows*, so on a split Dr/Cr source the debits still parsed and intake
+reported `declared`, `ok=True` — a partial ingest masking that a whole class of
+rows was unexpressible. Declaring a column unmappable is a statement about the
+**spec**, not the rows. It now stops the source before reading and says which
+column and what to do next.
+
+**Mutation-tested both ways.** Skipping the disposition pass fails 7 tests;
+making the audit always report `complete` fails 2, including the load-bearing
+one. The gate asserts directly that a deliberately undisposed anchor makes the
+audit fail — an audit that only ever passes is decorative.
+
+**P3's numbers are unchanged**: 90.9% auto-match, 0.00% false-match, and the
+batches still regenerate to the committed hashes.
+
+**Not built:** the completeness audit covers anchors, records and sources. It
+does not yet cover *journal entries* — nothing asserts that every proven match
+produced a posting. That belongs with P9's decision log.
+
+---
 
 ### P5 — subset-sum · 2026-08-21
 
@@ -454,12 +546,10 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **F3 regression gate blind to widening** | **HIGH.** `promotable` only checks `matches_broken == 0`; widening tolerance adds matches without breaking any. A ₹1,000,000 tolerance rule promotes cleanly. | before P7 — blocks it |
 | **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
 | **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
-| **Readers raise instead of reporting** | 4 crash cases: unsupported kind, malformed XML, empty file, bad `header_row`. `ingest()`'s docstring claims it never raises. One bad file kills a close. | remediation |
-| **Header-only file reports `ok=True`** | Zero-rows guard is `rows_in_file > 0 and not records`, so an empty export passes as clean. A failed fetch reads as a quiet month. | remediation |
-| **Partial payment is silent** | `matches=0 exceptions=[] unmatched=1`. `E04` exists in the taxonomy and nothing ever produces it. Violates invariant 8. | remediation |
-| **1:N settlement is silent** | T2 reconstructs N:1 only. The inverse has no strategy and raises no exception. Violates invariant 8. | remediation |
-| **A finding with no code crashes** | `ExceptionCode("E14")` → `ValueError`. The agent can only force-fit or stay silent. | code registry |
-| **Sub-paisa residue posts silently** | Entry off by ₹0.005 → `blocked=False`, zero errors. Build-plan P16 (rounding account + threshold) never built. | remediation |
+| **Sub-paisa residue posts silently** | Entry off by ₹0.005 → `blocked=False`, zero errors. Build-plan P16 (rounding account + threshold) never built. | P7 |
+| **Completeness does not cover postings** | The audit accounts for anchors, records and sources. Nothing asserts every proven match produced a journal entry. | P9 |
+| **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
+| **A novel finding still cannot be named** | `E14` is the honest placeholder; a real registry with a lifecycle is P11. | P11 |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
 | `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P6–P10 |
 | Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
@@ -505,25 +595,29 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P6 — completeness and honest failure.** Four items, all small, no
-dependencies. Full sequence and reasoning in [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md).
+**Start P7 — policy and the constraint layer.** The single change that closes
+both critical bypasses from [the audit](docs/04-CONTROL-PLANE-AUDIT.md).
 
-**Do the completeness audit first, ahead of the other three.** Invariant 8: at
-end of run, assert every source, record and anchor has a disposition — computed
-independently of the code paths that produced them. It is the only item on
-either audit list that catches failures nobody enumerated, and it would have
-found both silent matching cases without anyone writing a partial-payment test.
+1. **`Policy` contract** — versioned, human-owned, supplied out-of-band.
+2. **`verify(proof, records, policy)`** replaces `verify(proof, records, side_signs)`.
+   The proof's declared tolerance becomes a claim checked against policy rather
+   than a permission honoured. Closes `F1` and `F2` together.
+3. **`MatchProfile` validators** — signs must be ±1, tolerance under the ceiling.
+4. **Rejection budget** in policy; intake fails above it.
+5. **Rounding threshold** in policy; residue above it becomes `E03`.
 
-Then: readers return a failed `IntakeProof` instead of raising (4 crash cases);
-a source producing zero records fails regardless of row count (header-only
-silence); `UNMAPPABLE` verb outcome carrying column name and three samples.
+**Reproduce each attack as a failing test first.** All of them run today:
 
-**Write the attack first in every case.** All ten failure cases and all five
-bypasses reproduce from a clean checkout, so each fix has a failing case to turn
-green before it is believable. The P6 gate specifically requires that a
-deliberately undisposed anchor makes the completeness audit fail — otherwise the
-audit is decorative, which is the same hazard as the dead T1 tier at P3 and the
-uncollected gate files at P2.
+```
+verify(proof, records, {"bank": 0, "settlement": 0})        -> PROVEN  (F2)
+proof declaring tolerance_allowed 9999999, residual 7466.19 -> PROVEN  (F1)
+reject rule discarding 251 of 517 rows                      -> declared, ok=True  (F4)
+journal entry off by 0.005                                  -> blocked=False
+```
+
+Turn each red, then green. P6 earned this discipline twice over: the completeness
+audit found two silent cases the register had missed, and `UNMAPPABLE`'s first
+implementation was wrong in a way only its own test exposed.
 
 ---
 
@@ -533,6 +627,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **P6 GREEN.** Completeness audit (invariant 8) + `E14_UNEXPLAINED` + `UNMAPPABLE`; readers report instead of raising; header-only files fail. Contract → 1.4.0. The audit found 2 silent cases on the real batch the register had missed. |
 | 2026-08-21 | **Re-planned P6–P15** ([docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)). Control plane becomes phases of its own ahead of the model edge; the decision log moves earlier; the ship line moves to P10. Old P6→P10, P7→P12, P8→P9+P13, P9→P14, P10→P15. |
 | 2026-08-21 | **Failure register.** 19 novel inputs probed: 5 crash, 3 finish silently, 2 finish wrong, 9 handled. Added **invariant 8** (every input has a disposition) to CLAUDE.md — one completeness check that catches unenumerated cases. |
 | 2026-08-21 | **Audit.** Attacked the system at P5: five reproducible control bypasses, two defeating the verifier. Root cause — artifacts check themselves, policy comes from the caller. Remediation 1–4 blocks P7. Contract → 1.3.0 (DECIMAL_MINOR). |
