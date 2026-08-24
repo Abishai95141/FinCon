@@ -764,3 +764,61 @@ def test_the_edge_refuses_to_exist_without_a_key(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with pytest.raises(ModelUnavailable, match="no offline mode"):
         ModelEdge(api_key=None)
+
+
+# --------------------------------------------------------------------------
+# the LLM-only arm, and what its advantage is made of
+# --------------------------------------------------------------------------
+
+
+def test_the_llm_only_arm_scores_higher_and_commits_what_cannot_be_verified(edge, closed):
+    """The dossier's most persuasive comparison, measured — and it does not say
+    what the dossier expected.
+
+    The prediction was "looks good and is wrong". What happens is stranger and
+    better: the model is *right about the linkage* and wrong about the
+    *arithmetic*, and the benchmark rewards it. It out-scores the deterministic
+    arm on `auto-match` by exactly one match — `bl_00011`, whose claimed rows sum
+    to ₹90,259.47 against a credit of ₹84,769.72 — and that match is its entire
+    advantage.
+
+    The only variable removed versus the hybrid arm is the proof gate. Same
+    model, same facts, same forced schema. So the difference is attributable.
+    """
+    from bench.arms import llm_only
+    from bench.metrics import unprovable_matches
+    from bench.run import SETTLEMENT_3WAY, load_sides
+
+    sides = load_sides("A")
+    by_ext = {e: r for e, r in sides.bank + sides.settlement}
+    tolerance = SETTLEMENT_3WAY.tolerance.absolute
+
+    naive = llm_only.run(sides.anchors, sides.settlement, edge)
+    unprovable = unprovable_matches(naive, by_ext, tolerance)
+
+    deterministic_pairs = {c.arm: c for c in closed.cards}["deterministic"].produced
+    assert naive.pairs, "the arm produced nothing — a key problem, not a result"
+
+    # Whatever it scored, every match beyond the provable set must be unprovable.
+    assert len(naive.pairs) - unprovable <= deterministic_pairs, (
+        f"the model produced {len(naive.pairs)} matches of which {unprovable} do not "
+        f"balance; the provable remainder must not exceed the {deterministic_pairs} "
+        f"the engine proved"
+    )
+    if len(naive.pairs) > deterministic_pairs:
+        assert unprovable >= 1, (
+            "it out-matched the engine without a single unprovable pairing — the "
+            "engine is leaving a provable match on the table and that is a bug"
+        )
+
+
+def test_the_llm_only_arm_carries_no_proof_at_all(edge):
+    """What makes it the right control. It is not a worse matcher — it is the
+    same matcher with the proof gate removed."""
+    from bench.arms import llm_only
+    from bench.run import load_sides
+
+    sides = load_sides("A")
+    naive = llm_only.run(sides.anchors, sides.settlement, edge)
+    assert naive.proofs == []
+    assert any("nothing verifies" in n for n in naive.notes)

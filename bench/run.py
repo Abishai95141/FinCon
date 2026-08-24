@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -59,13 +60,14 @@ from recon.triage.worklist import build as build_worklist
 
 from .arms import deterministic, llm_only, securo_baseline
 from .metrics import (
-    EIGHT_METRICS,
+    METRICS,
     Scorecard,
     render_table,
     score,
     scorecard_digest,
     truth_groups,
     truth_pairs,
+    unprovable_matches,
 )
 from .planted import load_planted, score_planted
 
@@ -210,6 +212,16 @@ def load_sides(batch: str) -> Sides:
     )
 
 
+def _model_edge():
+    """The LLM-only arm needs a live model. No key means the arm is absent, not
+    zero — and there is no offline mode, by CLAUDE.md rule 1."""
+    if not os.environ.get("DEEPSEEK_API_KEY"):
+        return None
+    from recon.triage.client import ModelEdge
+
+    return ModelEdge()
+
+
 def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
     """One close: matched, posted, recorded, scored.
 
@@ -255,17 +267,35 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         sides.scope,
     )
 
+    by_external = {ext: rec for ext, rec in sides.bank + sides.settlement}
+    tolerance = SETTLEMENT_3WAY.tolerance.absolute
     cards = [
         score(
             result,
             truth,
+            unprovable=unprovable_matches(result, by_external, tolerance),
             exceptions=score_planted(planted, result.exceptions, in_scope_legs=IN_SCOPE_LEGS),
             elapsed_ns=elapsed,
             records_scored=records_scored,
         )
         for result, elapsed in ((raw, raw_ns), (grouped, grouped_ns), (ours, ours_ns))
     ]
-    cards.append(score(llm_only.absent(), truth))
+    # Runs only when a key is present; reports `absent` otherwise, never zero.
+    # An arm nobody called must not contribute a number to a comparison.
+    edge = _model_edge()
+    if edge is None:
+        cards.append(score(llm_only.absent(), truth))
+    else:
+        naive, naive_ns = timed(llm_only.run, sides.anchors, sides.settlement, edge)
+        cards.append(
+            score(
+                naive,
+                truth,
+                elapsed_ns=naive_ns,
+                records_scored=records_scored,
+                unprovable=unprovable_matches(naive, by_external, tolerance),
+            )
+        )
 
     # --- the books -------------------------------------------------------
     records = {rec.record_id: rec for _, rec in sides.bank + sides.settlement}
@@ -479,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         print(render(result))
         print()
 
-    print("the eight metrics: " + " · ".join(EIGHT_METRICS))
+    print("the eight metrics: " + " · ".join(METRICS))
     failed = [r.batch for r in results if not r.ok]
     if failed:
         print(f"\nFAILED — batch(es) {failed} dropped a true pair or left an input undisposed")

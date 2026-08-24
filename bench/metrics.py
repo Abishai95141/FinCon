@@ -32,13 +32,15 @@ from .rate import ArmAbsent, Rate
 
 #: The eight metrics the plan claims, in the order they are rendered. Named so
 #: a reader can tick them off against the page instead of taking the count on
-#: trust — `EIGHT_METRICS` is asserted to appear in the output.
-EIGHT_METRICS = (
+#: trust — `METRICS` is asserted to appear in the output.
+#: Nine since the LLM-only arm exposed what the eighth was missing.
+METRICS = (
     "auto-match",
     "precision",
     "recall",
     "false-match",
     "blocking recall",
+    "unprovable matches",
     "exception coverage",
     "exception classification",
     "ambiguity detection",
@@ -56,9 +58,28 @@ class Scorecard:
     correct: int = 0
     false_matches: int = 0
     missed: int = 0
+    unprovable_rate_of: int = 0
 
     tiers: dict[str, int] | None = None
     """How the matches were found. Required of any arm that produced one."""
+
+    unprovable: int = 0
+    """Matches the arm reported whose residual does not close under policy.
+
+    The metric the scorecard was missing, and the reason it was missing is worth
+    stating. `correct` is scored against `payout_membership`, which records
+    which rows *belong to* a payout — and for the planted `E06` that includes the
+    duplicated row. So the labelled answer for `bl_00011` sums to ₹90,259.47
+    against a credit of ₹84,769.72: a linkage that is true and an equation that
+    does not balance.
+
+    An arm that names that linkage scores **correct**. The deterministic arm
+    refuses it — invariant 2, a match without a passing proof is not a match —
+    and scores a **miss**. So `auto-match` has been rewarding unprovable answers
+    since P3, and the engine has been penalised for declining them.
+
+    This counts them. It is the number the dossier wanted from the LLM-only arm:
+    not "the model is wrong" but "the model commits what nobody can verify"."""
 
     exceptions: ExceptionScore | None = None
     elapsed_ns: int | None = None
@@ -107,6 +128,12 @@ class Scorecard:
         return Rate(self.false_matches, self.produced)
 
     @property
+    def unprovable_rate(self) -> Rate:
+        """Of the matches produced, the share whose arithmetic does not close."""
+        self._guard()
+        return Rate(self.unprovable, self.produced)
+
+    @property
     def precision(self) -> Rate:
         self._guard()
         return Rate(self.correct, self.produced)
@@ -148,7 +175,8 @@ class Scorecard:
     def header() -> str:
         return (
             f"{'arm':<16} {'auto-match':>11} {'false-match':>12} "
-            f"{'precision':>10} {'recall':>8} {'correct':>8} {'false':>6} {'missed':>7}"
+            f"{'precision':>10} {'recall':>8} {'correct':>8} {'false':>6} {'missed':>7} "
+            f"{'unprovable':>11}"
         )
 
     def render(self) -> str:
@@ -158,7 +186,8 @@ class Scorecard:
             f"{self.arm:<16} {self.auto_match_rate.value:>10.1%} "
             f"{self.false_match_rate.value:>11.2%} "
             f"{self.precision.value:>9.1%} {self.recall.value:>7.1%} "
-            f"{self.correct:>8} {self.false_matches:>6} {self.missed:>7}"
+            f"{self.correct:>8} {self.false_matches:>6} {self.missed:>7} "
+            f"{self.unprovable:>11}"
         )
 
     @staticmethod
@@ -213,6 +242,27 @@ def truth_groups(labels_path: Path) -> dict[str, str]:
     }
 
 
+def unprovable_matches(result: ArmResult, records: dict, tolerance) -> int:
+    """Matches whose residual does not close, recomputed from raw records.
+
+    Deliberately independent of whatever the arm believes: an arm carrying
+    proofs is checked the same way as one carrying none, so no arm can vouch for
+    itself. This is `verify()`'s question asked of every arm rather than only of
+    the one that happens to produce proofs.
+    """
+    from decimal import Decimal
+
+    count = 0
+    for anchor_ext, claimed in result.pairs.items():
+        anchor = records.get(anchor_ext)
+        if anchor is None:
+            continue
+        total = sum((records[e].amount for e in claimed if e in records), Decimal("0.00"))
+        if abs(anchor.amount - total) > tolerance:
+            count += 1
+    return count
+
+
 def score(
     result: ArmResult,
     truth: Pairs,
@@ -220,6 +270,7 @@ def score(
     exceptions: ExceptionScore | None = None,
     elapsed_ns: int | None = None,
     records_scored: int = 0,
+    unprovable: int = 0,
 ) -> Scorecard:
     if result.absent:
         return Scorecard(arm=result.name, absent=result.absent, notes=list(result.notes))
@@ -237,6 +288,7 @@ def score(
         correct=correct,
         false_matches=false,
         missed=len(truth) - correct,
+        unprovable=unprovable,
         tiers=dict(result.tiers),
         exceptions=exceptions,
         elapsed_ns=elapsed_ns,

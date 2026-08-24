@@ -236,3 +236,85 @@ def test_the_duplicate_rule_survives_the_whole_promotion_gate(sides):
         induced_on=rows,
     )
     assert decision.allowed, decision.reasons
+
+
+# --------------------------------------------------------------------------
+# what the benchmark's own labels assert
+# --------------------------------------------------------------------------
+
+
+def test_the_label_for_the_duplicated_payout_does_not_balance(sides):
+    """Pins the finding so it cannot quietly disappear.
+
+    `payout_membership` records which rows *belong to* a payout, and for the
+    planted `E06` that includes the duplicated row. So the labelled answer for
+    `bl_00011` sums to ₹90,259.47 against a credit of ₹84,769.72 — a linkage
+    that is true and an equation that does not balance.
+
+    `auto-match` scores against that label. An arm naming the linkage scores
+    **correct**; the deterministic arm refuses it (invariant 2 — a match without
+    a passing proof is not a match) and scores a **miss**. So the metric has been
+    rewarding unprovable answers since P3 and penalising the engine for
+    declining them.
+
+    The label is not wrong — it is a linkage label, and it is accurate. It is
+    the *metric* that was reading it as a reconciliation. `unprovable matches`
+    is what tells the two apart, and this test is why it exists.
+    """
+    from decimal import Decimal
+
+    from bench.metrics import truth_pairs
+
+    truth = truth_pairs(BATCHES / "A" / "labels.json")
+    by_ext = {e: r for e, r in sides["A"].bank + sides["A"].settlement}
+    claimed = truth["bl_00011"]
+    total = sum((by_ext[e].amount for e in claimed if e in by_ext), Decimal("0.00"))
+    anchor = by_ext["bl_00011"].amount
+
+    assert anchor == Decimal("84769.72")
+    assert total == Decimal("90259.47")
+    assert abs(anchor - total) > SETTLEMENT_3WAY.tolerance.absolute, (
+        "the labelled pairing now balances — if the generator changed, this "
+        "finding needs rewriting rather than deleting"
+    )
+
+
+def test_the_deterministic_arm_reports_no_unprovable_match(sides):
+    """Invariant 2, measured rather than asserted. Every match it reports
+    carries a proof the verifier re-derives, so the count is zero by
+    construction — and if it ever is not, the invariant has been broken."""
+    from bench.arms import deterministic
+    from bench.metrics import unprovable_matches
+
+    from recon.engine.blocking import BlockingPolicy
+    from recon.engine.blocking import build as build_candidates
+
+    a = sides["A"]
+    candidates = build_candidates(
+        [r for _, r in a.anchors], [r for _, r in a.settlement], BlockingPolicy()
+    )
+    result = deterministic.run(
+        a.bank,
+        a.settlement,
+        SETTLEMENT_3WAY,
+        SETTLEMENT_POLICY,
+        ProofTier.P0_ARITHMETIC,
+        candidates,
+        a.scope,
+    )
+    by_ext = {e: r for e, r in a.bank + a.settlement}
+    assert unprovable_matches(result, by_ext, SETTLEMENT_3WAY.tolerance.absolute) == 0
+
+
+def test_an_unprovable_pairing_is_counted(sides):
+    """The detector, exercised on a pairing built to not balance. A counter that
+    has never counted is not a measurement — `false_matches` taught that."""
+    from bench.arms import ArmResult
+    from bench.metrics import unprovable_matches
+
+    a = sides["A"]
+    by_ext = {e: r for e, r in a.bank + a.settlement}
+    anchor = next(e for e, r in a.anchors)
+    wrong = next(e for e, r in a.settlement if r.group_ref)
+    arm = ArmResult(name="x", pairs={anchor: frozenset({wrong})}, tiers={"t": 1})
+    assert unprovable_matches(arm, by_ext, SETTLEMENT_3WAY.tolerance.absolute) == 1

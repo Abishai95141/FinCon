@@ -69,16 +69,20 @@ def test_one_command_produces_the_full_comparison_on_both_batches(capsys):
         assert arm in out, f"arm {arm} missing"
 
 
-def test_all_eight_metrics_are_named_in_the_output(capsys):
-    """Eight metrics is a claim in the plan. A reader must be able to tick them
-    off against the page rather than take our word for the count."""
-    from bench.metrics import EIGHT_METRICS
+def test_every_metric_is_named_in_the_output(capsys):
+    """A reader must be able to tick them off against the page rather than take
+    our word for the count."""
+    from bench.metrics import METRICS
     from bench.run import main
 
-    assert len(EIGHT_METRICS) == 8
+    # Nine, not the plan's eight. The LLM-only arm exposed a gap: `auto-match`
+    # scores linkage against labels that, for the planted `E06`, do not balance
+    # — so an arm naming an unprovable pairing scores *correct* and the engine
+    # scores a *miss* for refusing it. `unprovable matches` tells them apart.
+    assert len(METRICS) == 9
     main([])
     out = capsys.readouterr().out
-    missing = [m for m in EIGHT_METRICS if m not in out]
+    missing = [m for m in METRICS if m not in out]
     assert not missing, f"metrics claimed but not rendered: {missing}"
 
 
