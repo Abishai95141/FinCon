@@ -107,6 +107,45 @@ class RegressionReport(BaseModel):
         return self.matches_broken == 0 and self.matches_checked > 0
 
 
+class PromotionEvent(BaseModel):
+    """What a promotion *is*, from P8 onward.
+
+    Before P8 a rule reached `PROMOTED` by carrying a `RegressionReport` — a
+    model anyone could construct, asserting whatever it liked. That is audit
+    finding `F1` in another costume: an artifact carrying its own evidence. This
+    event is produced only by `recon.engine.promotion.promote`, which re-runs the
+    regression against real history under a named policy, and it carries a hash a
+    third party can recompute.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    promoted_by: str
+    promoted_at: datetime
+    policy_ref: str
+    evidence_hash: str
+    """sha256 over the history and the rule. Recomputing it is how a promotion is
+    re-verified — see `verify_promotion`."""
+
+    matches_checked: int
+    matches_broken: int
+    matches_added: int
+    exceptions_cleared: int
+    sample_added: list[str] = Field(default_factory=list)
+    """Ids of matches the rule would create, shown to the approver. An approval
+    granted without seeing what it adds is a signature on an empty page."""
+
+    @model_validator(mode="after")
+    def _named_and_evidenced(self) -> PromotionEvent:
+        if not self.promoted_by.strip():
+            raise ValueError("a promotion must name who granted it")
+        if not self.evidence_hash.strip():
+            raise ValueError("a promotion without evidence is an assertion")
+        if self.matches_added and not self.sample_added:
+            raise ValueError("a rule that adds matches must show a sample of them")
+        return self
+
+
 class Rule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -126,8 +165,12 @@ class Rule(BaseModel):
     travels with it, so a later reader can see why it exists."""
 
     regression: RegressionReport | None = None
-    promoted_by: str | None = None
-    promoted_at: datetime | None = None
+    """A *claim* the proposer may attach. Carries no authority — P8 re-runs the
+    regression rather than reading this."""
+
+    promotion: PromotionEvent | None = None
+    """The only thing that authorises `PROMOTED`."""
+
     revoked_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -136,18 +179,20 @@ class Rule(BaseModel):
             raise ValueError("a rule with no conditions matches everything")
         if not self.then:
             raise ValueError("a rule with no actions does nothing")
-        if self.status is RuleStatus.PROMOTED:
-            if self.regression is None:
-                raise ValueError("cannot promote without a regression report")
-            if not self.regression.promotable:
-                raise ValueError(
-                    f"cannot promote: {self.regression.matches_broken} historical "
-                    f"match(es) would break"
-                )
-            if not self.promoted_by:
-                raise ValueError("promotion must name promoted_by")
+        if self.status is RuleStatus.PROMOTED and self.promotion is None:
+            # Tightened at contract 2.0.0. A hand-built RegressionReport used to
+            # be enough, and a report is something anyone can construct.
+            raise ValueError(
+                "cannot promote without a PromotionEvent — a regression report "
+                "attached by the proposer is a claim, not authority. Use "
+                "recon.engine.promotion.promote()."
+            )
         return self
 
     @property
     def ref(self) -> str:
         return f"{self.rule_id}@v{self.version}"
+
+    @property
+    def promoted_by(self) -> str | None:
+        return self.promotion.promoted_by if self.promotion else None

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from recon.contracts import AdapterSpec, ParseVerb, ProofTier
+from recon.contracts import CONTRACT_VERSION, AdapterSpec, ParseVerb, ProofTier
 from recon.intake import ADAPTER_DIR, ingest, load_spec
 from recon.intake.proofs import CheckStatus
 from recon.intake.verbs import REGISTRY
@@ -203,4 +203,7 @@ def test_shipped_specs_are_human_authored_and_valid():
         spec = load_spec(spec_id)
         assert spec.authored_by == "human", f"{spec_id} is not hand-written"
         assert not spec.needs_first_use_approval
-        assert spec.contract_version.startswith("1.")
+        # Not pinned to a major: the shipped specs omit the field and pick up
+        # whatever CONTRACT_VERSION is at load time, so pinning "1." made this
+        # fail on the first legitimate major bump rather than on a real problem.
+        assert spec.contract_version == CONTRACT_VERSION

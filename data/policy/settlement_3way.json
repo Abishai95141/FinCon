@@ -6,6 +6,7 @@
   "tolerance_ceiling": "0.50",
   "rejection_budget_pct": "0.1000",
   "rounding_threshold": "0.01",
+  "max_added_matches": 25,
   "approved_by": "meera",
   "approved_at": "2026-08-01T00:00:00Z",
   "notes": "Ceiling covers gateway fee rounding only. Raising it needs a named approval and a re-run of the regression suite."

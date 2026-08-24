@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| **Current phase** | `P8` — the promotion gate ([plan v2](docs/06-PLAN-V2.md)) |
-| **Last green gate** | **P7** — 21/21. `make verify` runs P0–P7, 146 tests. Contract 1.5.0. |
+| **Current phase** | `P9` — the record ([plan v2](docs/06-PLAN-V2.md)) |
+| **Last green gate** | **P8** — 15/15. `make verify` runs P0–P8, 161 tests. Contract **2.0.0**. |
 | **Build runs?** | All of the above, now under a `Policy` loaded from `data/policy/`. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-21 |
@@ -35,7 +35,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | — | **↓ re-planned 2026-08-21 — see [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)** | | |
 | **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | `not started` | — |
 | **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | **`GREEN`** | [below](#p7--policy--2026-08-21) |
-| **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | `not started` | — |
+| **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | **`GREEN`** | [below](#p8--promotion-gate--2026-08-21) |
 | **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | `not started` | — |
 | **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | `not started` | — |
 | — | **◆ SHIP LINE** — everything below is upside | | |
@@ -62,6 +62,66 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P8 — promotion gate · 2026-08-21
+
+```
+$ make verify   P0 11 · P1 19 · P2 19 · P3 24 · P4 14 · P5 17 · P6 21 · P7 21 · P8 15
+$ pytest -q     161 passed        $ make lint   All checks passed!
+
+R-EVIL   tol Rs 1000000.00   1 checked, 0 broken, 1 added, 1 unverifiable
+         -> REFUSED: asks for tolerance above the ceiling 0.50 in settlement-in@v1
+R-023    tol Rs       0.30   1 checked, 0 broken, 1 added, 0 unverifiable
+         -> PROMOTED by meera, adds 1, sample ['b:1']
+```
+
+**Both halves.** A gate that refuses everything is as useless as one that refuses
+nothing, so the gate requires `R-EVIL` refused **and** a legitimate narrow rule
+promoted. Only the pair shows it discriminates.
+
+**Written red first** — the file failed on collection before any implementation
+existed, then test by test as each attack was reproduced.
+
+**The report is re-run, not read.** `RegressionReport` was attached *by the
+proposer*: audit finding `F1` in a different costume, an artifact carrying its
+own evidence. `regress()` now replays the rule against real history and reports
+what it actually did. A rule claiming "1400 checked, 0 broken, 93 cleared" gets
+measured against the history that exists.
+
+**Additions are counted.** `matches_broken == 0` measured the one direction that
+cannot see a widening rule — widening never breaks a match, it only adds.
+Additions are the *point* of a rule, so they are bounded by
+`policy.max_added_matches` and sampled into the approval rather than forbidden.
+
+**Defence in depth, visible in the output.** `R-EVIL` shows `1 unverifiable`
+beside the ceiling refusal: even with the ceiling check bypassed, every added
+match must pass the same proof gate as any other, and that one does not.
+
+**Promotion is an event, not a field.** `PROMOTED` is now unreachable without a
+`PromotionEvent` that only `promote()` produces — carrying actor, policy ref, an
+evidence hash and a sample of what the rule adds. `promote()` raises rather than
+returning a flag: a caller able to ignore a boolean would be granting its own
+permission.
+
+**Contract 1.5.0 → 2.0.0, the first major.** Tightening a validator is major by
+the rules in `contracts/__init__.py`, and this tightens the one that matters:
+`Rule` can no longer reach `PROMOTED` on a self-attached report.
+`promoted_by`/`promoted_at` moved onto the event.
+
+**A weak test of mine, found by mutation and fixed.** Stubbing
+`verify_promotion` to `return True` initially passed all 15 — because the forgery
+in that test changed *two* fields at once, so the surviving guard caught it and
+the disabled one was never exercised. Now each guard is forged on its own
+(hash, added, broken, policy ref) and the stub fails.
+
+**P3's numbers unchanged**, completeness still holds, batches still reproduce.
+
+**Not built:** `regress()` models `SET_TOLERANCE` only. `NORMALIZE_KEY` can also
+add matches — by making records comparable that were not — and today regresses as
+a no-op, so its delta is invisible to the cap. Needs a key-rewriting interpreter,
+which belongs with rule execution at P12.
+
+---
 
 ### P7 — policy · 2026-08-21
 
@@ -616,6 +676,7 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **F3 regression gate blind to widening** | **HIGH.** `promotable` only checks `matches_broken == 0`; widening tolerance adds matches without breaking any. A ₹1,000,000 tolerance rule promotes cleanly. | before P7 — blocks it |
 | **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
 | **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
+| **`NORMALIZE_KEY` regresses as a no-op** | `regress()` models `SET_TOLERANCE` only. A key-rewriting rule can add matches whose delta the cap never sees. | P12 |
 | **Policy provenance unverified** | `Policy` is loaded from disk and trusted. Nothing checks a signature, so a tampered policy file governs. | P9 |
 | **Completeness does not cover postings** | The audit accounts for anchors, records and sources. Nothing asserts every proven match produced a journal entry. | P9 |
 | **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
@@ -665,32 +726,28 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P8 — the promotion gate.** Blocks rule induction; must land before
-anything authors a rule.
+**Start P9 — the record.** Moved earlier from the old P8 for a reason: you
+cannot audit an agent you did not log, and P12 is where a model first authors
+configuration.
 
-`RegressionReport.promotable` is `matches_broken == 0`. Widening a tolerance
-never *breaks* a match — it only adds. The gate measures the one direction that
-cannot detect the danger, and a model optimising for "exceptions cleared" finds
-that move immediately.
+1. **Append-only decision log**, typed events: `MatchProven`, `MatchRejected`,
+   `ExceptionRaised`, `RuleInduced`, `RulePromoted`, `AdapterAuthored`,
+   `IntakeUnverified`, `CloseBlocked`, `ProposalRefused`, `CodeProposed`.
+2. Every event carries **actor, input hash, policy version, outcome**.
 
-1. Count matches **added** as well as broken.
-2. Re-run the regression under current policy rather than trusting the report
-   shipped with the rule.
-3. Cap the match delta by policy; require a sample of added matches in the
-   approval.
-4. Promotion becomes an **event** — actor, policy version, evidence hash — not a
-   field on a model.
+**The gate is replay**: reconstruct the same scorecard from the log alone. An
+event stream that cannot reproduce the run is not an audit trail, it is a diary.
 
-**Write the attack first**, as P7 did. It reproduces today:
+Two things to get right. **Do not log by instrumenting the happy path** — a log
+written only where someone remembered to call it will miss exactly the refusals
+that matter; derive the events from the same structures the completeness audit
+walks. And **the log must record refusals as first-class events**: `R-EVIL` being
+turned away is the most interesting thing that happens in a governed system, and
+a log that only contains successes is a marketing document.
 
-```
-rule R-EVIL  action: set_tolerance -> Rs 1,000,000
-regression:  0 broken, 93 cleared      promotable: True   -> PROMOTED accepted
-```
-
-The gate is that `R-EVIL` is **refused** while a legitimate narrow rule still
-promotes. Note the second half — a gate that refuses everything is as useless as
-one that refuses nothing.
+P9 also closes the P7 gap: policy is loaded from disk and trusted today, with
+nothing verifying provenance. Once every event carries a policy ref, a tampered
+policy becomes visible as a run judged under a version nobody approved.
 
 ---
 
@@ -700,6 +757,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **P8 GREEN.** Promotion gate: regression re-run rather than read, additions counted and capped, added matches must verify, promotion is an event with an evidence hash. `R-EVIL` refused, narrow rule promotes. Contract → **2.0.0** (first major). Mutation found a weak test of mine that changed two fields at once. |
 | 2026-08-21 | **P7 GREEN.** `Policy` as a versioned frozen asset; `verify(proof, records, policy)`; profile validators + `check_profile`; rejection budget; rounding threshold. All four audit bypasses closed and mutation-tested 1:1. Contract → 1.5.0. Also fixed a missing-file crash P6's gate had missed, and a vacuous assertion in my own P7 gate. |
 | 2026-08-21 | **P6 GREEN.** Completeness audit (invariant 8) + `E14_UNEXPLAINED` + `UNMAPPABLE`; readers report instead of raising; header-only files fail. Contract → 1.4.0. The audit found 2 silent cases on the real batch the register had missed. |
 | 2026-08-21 | **Re-planned P6–P15** ([docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)). Control plane becomes phases of its own ahead of the model edge; the decision log moves earlier; the ship line moves to P10. Old P6→P10, P7→P12, P8→P9+P13, P9→P14, P10→P15. |

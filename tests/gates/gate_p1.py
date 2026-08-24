@@ -277,28 +277,41 @@ def test_e09_must_show_its_competing_subsets():
 
 
 def test_rule_cannot_be_promoted_while_it_breaks_history():
-    """CLAUDE.md invariant 5, made unrepresentable rather than merely policy."""
+    """Superseded and tightened at P8 / contract 2.0.0.
+
+    This originally asserted that a `RegressionReport` with `matches_broken > 0`
+    blocked promotion. It did — but the report was attached *by the proposer*,
+    so a spotless one authorised anything, and it counted only breakage while the
+    real danger (a rule that merely *adds* matches) went unmeasured. Promotion
+    now requires a `PromotionEvent` that only `recon.engine.promotion.promote()`
+    can produce, by re-running the regression against real history.
+
+    What survives here is the contract half: `PROMOTED` is unreachable without
+    that event. The behaviour half lives in gate_p8.
+    """
     base = dict(
         rule_id="R-023",
         profile="settlement_3way",
         when=[Predicate(field="keys.gateway", op=Operator.EQ, value="razorpay")],
         then=[RuleAction(kind=ActionKind.BOOK_TO, target="Expenses:GatewayFees:Variance")],
     )
-    breaks = RegressionReport(
-        ran_at=datetime.now(UTC), matches_checked=1400, matches_broken=3, exceptions_would_clear=14
-    )
-    with pytest.raises(ValidationError):
-        Rule(status=RuleStatus.PROMOTED, regression=breaks, promoted_by="meera", **base)
-    with pytest.raises(ValidationError):  # no report at all
-        Rule(status=RuleStatus.PROMOTED, promoted_by="meera", **base)
-
     clean = RegressionReport(
-        ran_at=datetime.now(UTC), matches_checked=1400, matches_broken=0, exceptions_would_clear=14
+        ran_at=datetime.now(UTC),
+        matches_checked=1400,
+        matches_broken=0,
+        exceptions_would_clear=14,
     )
-    with pytest.raises(ValidationError):  # clean report but nobody approved it
+
+    # A self-attached report — however spotless — no longer authorises anything.
+    with pytest.raises(ValidationError, match="PromotionEvent"):
         Rule(status=RuleStatus.PROMOTED, regression=clean, **base)
-    promoted = Rule(status=RuleStatus.PROMOTED, regression=clean, promoted_by="meera", **base)
-    assert promoted.ref == "R-023@v1"
+    with pytest.raises(ValidationError, match="PromotionEvent"):
+        Rule(status=RuleStatus.PROMOTED, **base)
+
+    draft = Rule(regression=clean, **base)
+    assert draft.status is RuleStatus.DRAFT
+    assert draft.ref == "R-023@v1"
+    assert draft.promoted_by is None
 
 
 def test_rule_actions_cannot_suppress_silently():

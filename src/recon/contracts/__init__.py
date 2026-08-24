@@ -19,7 +19,14 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.5.0"
+CONTRACT_VERSION = "2.0.0"
+# 2.0.0 — P8 tightened the Rule promotion validator: PROMOTED now requires a
+#         PromotionEvent produced by recon.engine.promotion.promote(), which
+#         re-runs the regression against real history under a named policy. A
+#         RegressionReport attached by the proposer is a claim and no longer
+#         authorises anything. Tightening a validator is MAJOR by the rules
+#         above, and `promoted_by`/`promoted_at` moved onto the event.
+#         Also added Policy.max_added_matches (a rule's match-delta cap).
 # 1.5.0 — P7 added the Policy contract: the answer to "was this allowed?".
 #         Versioned, frozen, carrying an approver's name, and deliberately not
 #         something a proposer can supply. verify() now takes it instead of a
@@ -85,7 +92,14 @@ from .exception import ExceptionCode, ReconException, Resolution  # noqa: E402
 from .policy import Policy, PolicyViolation, Ratio  # noqa: E402
 from .proof import MatchTier, Proof, ProofLeg, ProofTier  # noqa: E402
 from .record import Record  # noqa: E402
-from .rule import Predicate, RegressionReport, Rule, RuleAction, RuleStatus  # noqa: E402
+from .rule import (  # noqa: E402
+    Predicate,
+    PromotionEvent,
+    RegressionReport,
+    Rule,
+    RuleAction,
+    RuleStatus,
+)
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -99,6 +113,7 @@ __all__ = [
     "Policy",
     "PolicyViolation",
     "Predicate",
+    "PromotionEvent",
     "Proof",
     "ProofLeg",
     "ProofTier",

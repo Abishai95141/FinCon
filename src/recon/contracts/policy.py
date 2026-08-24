@@ -79,6 +79,12 @@ class Policy(BaseModel):
     """Residue at or below this posts to the rounding account. Above it, the
     close is blocked rather than plugged."""
 
+    max_added_matches: int = 25
+    """How many matches one promoted rule may add. A rule exists to clear
+    exceptions, so some additions are the point — but unbounded additions are
+    how a rule quietly rewrites a close. Above this the rule escalates instead
+    of promoting."""
+
     approved_by: str
     approved_at: datetime
     notes: str | None = None
@@ -112,6 +118,8 @@ class Policy(BaseModel):
                 "rounding_threshold above tolerance_ceiling would let the "
                 "rounding account absorb more than a match may"
             )
+        if self.max_added_matches < 0:
+            raise ValueError("a negative match delta cap is not a cap")
         if not self.approved_by.strip():
             raise ValueError("unapproved policy is not policy — name the approver")
         return self
