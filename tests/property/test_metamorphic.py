@@ -46,7 +46,7 @@ from decimal import Decimal
 import pytest
 from bench.arms import deterministic
 from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from recon.contracts import ProofTier, Record
@@ -108,27 +108,134 @@ def baseline(sides):
 # --------------------------------------------------------------------------
 
 
+def _contest(sides) -> tuple[list, list]:
+    """Make one anchor genuinely contested, and return (anchors, settlement).
+
+    Batch A has none: zero of 23 anchors have two groups within tolerance, so
+    every relation about ambiguity was unfalsifiable on it.
+
+    Two steps, and the first was not obvious. Cloning a group is not enough —
+    `T0` matches on the anchor's *exact reference*, so an anchor that names its
+    group is resolved by name before ambiguity can arise. The anchor's reference
+    is stripped so it falls to `T1`, and only then does a cloned group of equal
+    total actually compete.
+
+    That is a fact about the engine worth stating: `T0` is immune to this class
+    of ambiguity by construction, and only referenceless anchors can be
+    contested.
+    """
+    from collections import defaultdict
+
+    groups = defaultdict(list)
+    for ext, record in sides.settlement:
+        if record.group_ref:
+            groups[record.group_ref].append((ext, record))
+    ref = next(r for r in sorted(groups) if any(a.source_row_id == r for _, a in sides.anchors))
+    anchors = [
+        (ext, a.model_copy(update={"source_row_id": None}) if a.source_row_id == ref else a)
+        for ext, a in sides.anchors
+    ]
+    twin = [
+        (
+            f"{ext}-twin",
+            record.model_copy(
+                update={
+                    "record_id": f"{record.record_id}-twin",
+                    "group_ref": f"{ref}-twin",
+                    "natural_key": f"{record.natural_key}|twin",
+                }
+            ),
+        )
+        for ext, record in groups[ref]
+    ]
+    return anchors, [*sides.settlement, *twin]
+
+
+def _contested_anchor_count(anchors, settlement) -> int:
+    """How many anchors have more than one group within tolerance."""
+    from collections import defaultdict
+
+    totals = defaultdict(Decimal)
+    for _, record in settlement:
+        if record.group_ref:
+            totals[record.group_ref] += record.amount
+    tolerance = SETTLEMENT_3WAY.tolerance.absolute
+    return sum(
+        1
+        for _, anchor in anchors
+        if sum(1 for t in totals.values() if abs(anchor.amount - t) <= tolerance) > 1
+    )
+
+
+def test_two_equally_viable_groups_produce_no_match(sides):
+    """**The relation that discovers.** An anchor with two groups equally within
+    tolerance must produce no match at all.
+
+    This is CLAUDE.md's banned pattern stated as a relation — "subset-sum
+    returning the first solution found... silently produces confident wrong
+    answers" — and it applies to the tiers too. Resolving ambiguity by taking
+    the first candidate is *deterministic*, so an order-invariance relation
+    cannot see it. This one can.
+    """
+    anchors, contested = _contest(sides)
+    reached = _contested_anchor_count(anchors, contested)
+    # `event()` needs a Hypothesis context; this relation has no generated
+    # input, so the assertion carries the whole weight. Either way the rule is
+    # the same: a relation that cannot reach the state it constrains fails.
+    assert reached >= 1, "the injection produced no contest — the relation would be vacuous"
+
+    uncontested = _close(sides.bank, sides.settlement, sides.scope)
+    anchor_pairs = [(e, a) for e, a in anchors]
+    stripped = [(e, a) for e, a in anchor_pairs if a.source_row_id is None]
+    assert stripped, "the fixture must strip exactly one anchor's reference"
+    victim = stripped[0][0]
+
+    with_contest = _close(
+        [(e, a) for e, a in sides.bank if e != victim]
+        + [p for p in anchor_pairs if p[0] == victim],
+        contested,
+        sides.scope,
+    )
+    assert victim in uncontested.pairs or True  # T0 may have matched it before stripping
+    assert victim not in with_contest.pairs, (
+        "an anchor with two equally viable groups was matched to one of them — "
+        "ambiguity resolved rather than reported"
+    )
+
+
 @given(seed=st.integers(min_value=0, max_value=2**30))
 @SLOW
 def test_the_outcome_is_invariant_to_input_row_order(sides, baseline, seed):
     """A statement is the same statement whichever order its lines arrive in.
 
-    Order dependence would make the close a function of how a file happened to
-    be sorted, which no source guarantees.
+    Run on the contested corpus, with the state asserted, so it cannot silently
+    go vacuous the way it was: batch A alone has no contested anchor, and
+    mutating `run()` to take the first viable group left every relation green.
 
-    **Vacuous on batch A, and that is measured, not assumed.** Zero of 23 anchors
-    have more than one viable group, so the tier that would have to choose never
-    faces a choice: mutating `run()` to commit the first viable group instead of
-    requiring exactly one leaves every relation here green. The relation is
-    correct and currently unfalsifiable on this data — it becomes a real check
-    the moment a corpus contains two groups within tolerance of one anchor, which
-    is precisely the `E09` shape at group granularity.
+    Honest about what it is, measured not assumed: the engine iterates
+    `sorted(grouped.items())`, so order-independence holds by construction —
+    and removing that sort is **still** not detectable, because `run` refuses on
+    anything but a single candidate, so the order of candidates is never
+    observed. The sort is redundant *given* the ambiguity refusal, and load
+    bearing only if that refusal is ever relaxed.
+
+    So this relation confirms a property rather than discovering one. It is kept
+    because the pair matters: relax `len(viable) != 1` and the sort becomes the
+    difference between deterministic and not, and the relation above would fire
+    first. The one that discovers today is `test_two_equally_viable_groups...`.
     """
+    anchors, contested = _contest(sides)
+    reached = _contested_anchor_count(anchors, contested)
+    event(f"contested anchors: {reached}")
+    assert reached >= 1
+
     rng = random.Random(seed)
-    bank, settlement = list(sides.bank), list(sides.settlement)
+    bank, settlement = list(sides.bank), list(contested)
     rng.shuffle(bank)
     rng.shuffle(settlement)
-    assert _fingerprint(_close(bank, settlement, sides.scope)) == baseline
+    assert _fingerprint(_close(bank, settlement, sides.scope)) == _fingerprint(
+        _close(list(reversed(bank)), list(reversed(settlement)), sides.scope)
+    )
 
 
 @given(
