@@ -38,7 +38,7 @@ import signal
 import subprocess
 import sys
 
-SETS = ("p9", "p10", "p11", "p12", "p12b")
+SETS = ("p9", "p10", "p11", "p12", "p12b", "p12d")
 
 
 def _module(name: str):

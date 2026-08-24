@@ -33,6 +33,8 @@ from ..contracts.rule import ActionKind, PromotionEvent, Rule, RuleStatus
 from ..contracts.taxonomy import TaxonomyViolation
 from .verifier import verify
 
+ZERO = Decimal("0.00")
+
 SAMPLE_SIZE = 5
 
 #: Action kinds `regress` can actually simulate. Anything else comes back with
@@ -131,6 +133,22 @@ class RegressionOutcome:
     """Added matches whose proof does not hold under policy. A rule may not
     create a match that would fail the same gate as any other."""
     exceptions_cleared: int = 0
+    """Exceptions raised before the rule and not after, both sides measured by
+    the same run under the same profile. It was `len(added)` until 2026-08-24:
+    a field named for exceptions that had never counted one, aliased to the
+    added-match count and printed in the record a human reads before
+    approving."""
+
+    value_suppressed: Decimal = ZERO
+    """Net amount on the rows a `SUPPRESS` rule removes from the close.
+
+    The dimension that let a strictly harmful rule through. The gate measured
+    matches broken, matches added and postings moved, and a suppression that
+    deleted a real discrepancy scored as a clean win on all three: the anchor it
+    unblocked became an added match, nothing broke, and the finding it destroyed
+    was named by no dimension. Measured on the *records*, so it does not depend
+    on anyone having raised an exception for them yet."""
+
     evidence_hash: str = ""
     postings: PostingDelta | None = None
     """`None` means the posting layer was not replayed — no taxonomy or no
@@ -377,6 +395,11 @@ def regress(
         _apply(rule, profile),
         ProofTier.P0_ARITHMETIC,
     )
+    # Like for like. `history.exceptions` came out of a full close — policy,
+    # candidate bounding, declared scope — and `after` is a bare tier run, so
+    # differencing the two counted the configuration as well as the rule and
+    # reported -1 exceptions cleared for a rule that cleared one.
+    baseline = run_tiers(history.anchors, history.group_records, profile, ProofTier.P0_ARITHMETIC)
 
     before_ids = history.matched_anchor_ids()
     after_by_anchor = {m.anchor_id: m for m in after.matches}
@@ -400,7 +423,10 @@ def regress(
         broken=sorted(before_ids - after_ids),
         added=added,
         unverifiable=unverifiable,
-        exceptions_cleared=len(added),
+        exceptions_cleared=len(baseline.exceptions) - len(after.exceptions),
+        value_suppressed=sum(
+            (r.amount for r in history.group_records if r.record_id in suppressed), ZERO
+        ),
         evidence_hash=hashlib.sha256(payload.encode()).hexdigest(),
         unmodelled=_unmodelled(rule),
         postings=_posting_delta(rule, history, taxonomy),
@@ -476,6 +502,26 @@ def evaluate(
                     f"book_to names {action.target!r}, which is not an account role. "
                     f"Known: {sorted(r.value for r in AccountRole)}"
                 )
+
+    if outcome.value_suppressed != ZERO:
+        # The gap a strictly harmful rule walked through on 2026-08-24. A model
+        # rule suppressed a duplicated export row, unblocked its payout, and
+        # scored 0 broken / 1 added / no postings moved — clean on every
+        # dimension the gate had. Measured against the labels it added a false
+        # match and destroyed a planted E06 worth the exact amount it removed.
+        #
+        # Refused on tier, not on outcome. "This row is spurious" is a claim
+        # about the counterparty's data that the raw records cannot settle —
+        # they contain the row. A rule asserting it is `P1 RULE` provenance on
+        # something only a named human can attest, so the honest answer is that
+        # value leaves a close over someone's signature or not at all. Dropping
+        # rows that carry no value needs no signature and is unaffected.
+        reasons.append(
+            f"suppresses {outcome.value_suppressed} of value. Removing money from a "
+            f"close is an attested act, not a rule's own authority: raw records "
+            f"cannot prove a row is spurious — they contain it. Raise the finding "
+            f"and let a named human accept it (P2), or suppress only zero-value rows"
+        )
 
     if outcome.unmodelled:
         reasons.append(

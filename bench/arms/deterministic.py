@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from recon.contracts import Policy, ProofTier, Record
+from recon.contracts.rule import Rule
 from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
 from recon.engine.tiers import run as run_tiers
@@ -28,11 +29,19 @@ def run(
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
     candidates: CandidateSet | None = None,
     out_of_scope: Mapping[str, str] | None = None,
+    rules: list[Rule] | None = None,
 ) -> ArmResult:
     anchors = [rec for _, rec in bank]
     group_records = [rec for _, rec in settlement]
     outcome = run_tiers(
-        anchors, group_records, profile, provenance, candidates, policy, out_of_scope
+        anchors,
+        group_records,
+        profile,
+        provenance,
+        candidates,
+        policy,
+        out_of_scope,
+        rules,
     )
 
     records = {rec.record_id: rec for _, rec in bank + settlement}
@@ -92,6 +101,7 @@ def run(
         notes=notes,
         exceptions=exceptions,
         completeness=outcome.completeness,
+        scope=outcome.scope,
         matches=kept,
         rejected=refusals,
         run=outcome,

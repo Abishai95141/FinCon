@@ -93,6 +93,11 @@ def history():
     groups = [
         _rec("s:0", "settlement", "100.00", group_ref="g0", keys={"gateway": "razorpay"}),
         _rec("s:1", "settlement", "199.80", group_ref="g1", keys={"gateway": "razorpay"}),
+        # A memo line: printed by the source, carrying no movement. The one
+        # thing a rule may remove on its own authority, and the fixture had no
+        # example of it — so "a legitimate suppression still promotes" was
+        # demonstrated with a row worth ₹199.80.
+        _rec("s:memo", "settlement", "0.00", group_ref="g9", keys={"gateway": "razorpay"}),
     ]
     profile, policy = _profile(), _policy()
     baseline = run_tiers(anchors, groups, profile, ProofTier.P0_ARITHMETIC, policy=policy)
@@ -377,18 +382,26 @@ def test_a_suppress_rule_that_destroys_a_match_is_refused(history):
 
 def test_a_narrow_suppress_rule_still_promotes(history):
     """The other half. A gate that refuses every suppression is as useless as
-    one that refuses none — `s:1` backs no match in this history, so removing it
-    costs nothing."""
+    one that refuses none.
+
+    This asserted the wrong thing until 2026-08-24: it suppressed `s:1`, worth
+    ₹199.80, on the reasoning that the row "backs no match in this history, so
+    removing it costs nothing". Breaking no match is not the same as costing
+    nothing — that conflation is precisely the blind spot that let a rule
+    delete a real discrepancy and score clean. A memo line carrying no movement
+    is the case that genuinely costs nothing.
+    """
     narrow = Rule(
         rule_id="R-S2",
         profile="promo_test",
-        when=[Predicate(field="record_id", op=Operator.EQ, value="s:1")],
-        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="unclaimed summary row")],
+        when=[Predicate(field="amount", op=Operator.EQ, value="0.00")],
+        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="memo line, no movement")],
     )
     policy = _policy()
     outcome = regress(narrow, history, _profile(), policy)
     assert outcome.broken == []
     assert outcome.added == []
+    assert outcome.value_suppressed == D("0.00"), "the point of the case"
     decision = evaluate(narrow, outcome, policy)
     assert decision.allowed, decision.reasons
 

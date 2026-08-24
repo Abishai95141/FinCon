@@ -43,6 +43,8 @@ from recon.contracts import (
     Record,
     TaxonomyRegistry,
 )
+from recon.contracts.rule import Rule
+from recon.engine import rulestore
 from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
 from recon.engine.completeness import CompletenessReport
@@ -225,7 +227,9 @@ def _model_edge():
     return ModelEdge()
 
 
-def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
+def close(
+    batch: str, journal_dir: Path | None = None, rules: list[Rule] | None = None
+) -> CloseResult:
     """One close: matched, posted, recorded, scored.
 
     The order matters. Posting happens before the log is derived, because a
@@ -268,6 +272,10 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         sides.provenance,
         candidates,
         sides.scope,
+        # Promoted rules are part of the system, not an experiment beside it:
+        # the default close reads the store, so a rule that changes nothing
+        # shows up as a scorecard that did not move.
+        rulestore.load(SETTLEMENT_3WAY.name) if rules is None else rules,
     )
 
     by_external = {ext: rec for ext, rec in sides.bank + sides.settlement}
@@ -342,7 +350,7 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         taxonomy_digest=_digest(TAXONOMY_FILE),
         source_digests=sides.digests,
         sources=sides.proofs,
-        scope=sides.scope,
+        scope=ours.scope,
         matches=list(ours.matches),
         rejected=list(ours.rejected),
         exceptions=list(ours.exceptions),
@@ -371,7 +379,7 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
             rejected=len(ours.rejected),
             exceptions=len(ours.exceptions),
             postings=len(entries),
-            out_of_scope=len(sides.scope),
+            out_of_scope=len(ours.scope),
             scorecard_digest=scorecard_digest(card),
             complete=complete,
         ),
@@ -387,7 +395,7 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         bank_records=[rec for _, rec in sides.bank],
         settlement_records=group_records,
         external_of=external_of,
-        scope=sides.scope,
+        scope=ours.scope,
         records=records,
         matches=list(ours.matches),
         entries=entries,

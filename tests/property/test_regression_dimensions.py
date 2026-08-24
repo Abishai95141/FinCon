@@ -25,6 +25,7 @@ are what has to hold for a delta to mean anything on inputs nobody has seen.
 from __future__ import annotations
 
 import random
+import re
 from decimal import Decimal
 
 import pytest
@@ -218,3 +219,70 @@ def test_book_to_outside_the_chart_is_refused(history, account):
     decision = evaluate(rule, outcome, SETTLEMENT_POLICY)
     assert not decision.allowed
     assert any("not an account role" in r for r in decision.reasons), decision.reasons
+
+
+# --------------------------------------------------------------------------
+# what the model is told must be what the engine can read
+# --------------------------------------------------------------------------
+
+
+def test_the_induction_prompt_offers_every_readable_field():
+    """The drift that made three induced rules look like model failure.
+
+    The predicate vocabulary was a hand-written sentence in the tool schema. The
+    engine grew `key_occurrence` and `natural_key`; the sentence did not. So the
+    model could not write a duplicate-suppression rule — the only correct rule
+    available on this corpus — because it was never told the field existed, and
+    the refusals read as incompetence rather than as a stale string.
+
+    Same rule as `DERIVED_CODES` and the chart of accounts: facts about a
+    vocabulary come from the thing that owns it.
+    """
+    from recon.engine.rules import FIELDS
+    from recon.triage.induce import _FIELD_HELP, readable_fields
+
+    assert set(readable_fields()) == set(FIELDS)
+    for name in FIELDS:
+        assert name in _FIELD_HELP, f"{name} is readable but the prompt never mentions it"
+
+
+def test_the_model_is_shown_every_field_it_is_told_it_may_use():
+    """Telling and showing must agree. Showing less is how it wrote predicates
+    that selected nothing: `side eq "bank"` on a rule meant to act on settlement
+    rows is a coherent sentence about facts it could not see."""
+    from recon.engine.rules import FIELDS
+    from recon.triage.induce import fact_of
+
+    sides = load_sides("A")
+    record = next(r for _, r in sides.settlement)
+    fact = fact_of(record)
+    assert set(FIELDS) <= set(fact)
+    assert all(f"keys.{k}" in fact for k in record.keys)
+
+
+def test_the_proposer_is_told_every_threshold_it_is_judged_by():
+    """A criterion the gate enforces and the prompt omits produces a refusal the
+    proposer could not have avoided. Both drifts have the same shape: a sentence
+    about a control, retyped away from the control."""
+    from recon.engine.promotion import MODELLED_ACTIONS
+    from recon.triage.induce import acceptance_criteria
+
+    text = acceptance_criteria(SETTLEMENT_POLICY)
+    assert f"{Decimal(SETTLEMENT_POLICY.max_reference_selectivity):.0%}" in text
+    assert str(SETTLEMENT_POLICY.max_added_matches) in text
+    assert SETTLEMENT_POLICY.ref in text
+    for action in MODELLED_ACTIONS:
+        assert action in text, f"the gate simulates {action} but the proposer is never told"
+
+
+def test_the_criteria_state_the_standard_and_never_the_answer():
+    """The line between publishing a policy and teaching to the test. If this
+    paragraph ever names a readable field, it has stopped stating what makes a
+    rule acceptable and started dictating which rule to write — and a promotion
+    after that measures the prompt, not the model."""
+    from recon.engine.rules import FIELDS
+    from recon.triage.induce import acceptance_criteria
+
+    text = acceptance_criteria(SETTLEMENT_POLICY)
+    named = [f for f in FIELDS if re.search(rf"\b{re.escape(f)}\b", text)]
+    assert not named, f"the criteria name {named}; that is the answer, not the standard"

@@ -27,6 +27,8 @@ from ..contracts import (
     ReconException,
     Record,
 )
+from ..contracts.rule import Rule
+from . import rulestore
 from .blocking import CandidateSet
 from .completeness import CompletenessReport, audit
 from .subsetsum import Outcome, SolverBounds, solve
@@ -101,6 +103,17 @@ class MatchRun:
     """Invariant 8, computed by set arithmetic over inputs and outputs rather
     than by asking this function whether it handled everything."""
 
+    scope: dict[str, str] = field(default_factory=dict)
+    """Every exclusion this run actually made — the caller's, plus whatever a
+    promoted rule suppressed. Downstream reads *this*, never the mapping it
+    passed in: those two diverged the moment rules could exclude a row, and the
+    decision log went on describing the caller's copy. Two answers to one
+    question, and the control over the stale one goes quietly dead."""
+
+    rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
+    """Actions a promoted rule carries that a close does not perform. Absent,
+    not zero: a rule half-applied must not read as a rule applied."""
+
     candidates: CandidateSet | None = None
     """The candidate set the tiers were restricted to, when one was supplied.
     Carried so a scorecard can print its recall beside the match rate."""
@@ -138,6 +151,7 @@ def _build_proof(
     profile: MatchProfile,
     budget: ToleranceBudget,
     provenance: ProofTier,
+    rule: Rule | None = None,
 ) -> Proof:
     group_total = sum((r.amount for r in group), ZERO)
     return Proof(
@@ -145,6 +159,8 @@ def _build_proof(
         match_id=match_id,
         tier=tier,
         provenance=provenance,
+        rule_id=rule.rule_id if rule is not None else None,
+        rule_version=rule.version if rule is not None else None,
         legs=[
             ProofLeg(side=anchor.side, record_ids=[anchor.record_id], subtotal=anchor.amount),
             ProofLeg(
@@ -164,6 +180,26 @@ def _build_proof(
     )
 
 
+def _provenance_for(
+    group_ref: str, applied: rulestore.Applied, base: ProofTier
+) -> tuple[ProofTier, Rule | None]:
+    """A group a rule reshaped cannot claim the tier of one it did not.
+
+    The residual closes to zero either way; what differs is whose word the zero
+    rests on. `P0 ARITHMETIC` says a third party re-deriving from raw records
+    reaches this. After a suppression they do not — they reach it from the raw
+    records *and* the rule. That is exactly `P1 RULE`, and the ladder is only
+    worth having if the difference is recorded rather than rounded away.
+    """
+    rule = applied.ruled_groups.get(group_ref)
+    if rule is None:
+        return base, None
+    # The weaker of the two. An unverified-intake close is already P3; a rule
+    # firing inside it does not promote it to P1.
+    tier = ProofTier.P1_RULE if base.outranks(ProofTier.P1_RULE) else base
+    return tier, (rule if tier is ProofTier.P1_RULE else None)
+
+
 def run(
     anchors: list[Record],
     group_records: list[Record],
@@ -172,6 +208,7 @@ def run(
     candidates: CandidateSet | None = None,
     policy: Policy | None = None,
     out_of_scope: Mapping[str, str] | None = None,
+    rules: list[Rule] | None = None,
 ) -> MatchRun:
     """T0 then T1. A group already claimed by an earlier tier is not offered to
     a later one — a group can back exactly one anchor.
@@ -197,6 +234,12 @@ def run(
         policy.check_profile(profile)
 
     scope = dict(out_of_scope or {})
+    # A promoted rule acts here or nowhere. Merging its suppressions into the
+    # same `scope` the caller uses means a rule cannot remove a row by a route
+    # the completeness audit does not walk — invariant 8 sees a rule's effect on
+    # exactly the terms it sees an operator's.
+    applied = rulestore.apply(list(rules or []), group_records, profile=profile.name)
+    scope.update(applied.scope)
     in_scope_anchors = [a for a in anchors if a.record_id not in scope]
     grouped, ungrouped = _groups_of([r for r in group_records if r.record_id not in scope])
     claimed: set[str] = set()
@@ -227,6 +270,7 @@ def run(
             return False
 
         match_id = f"M-{len(matches) + 1:05d}"
+        tier_for_group = _provenance_for(group_ref, applied, provenance)
         matches.append(
             Match(
                 match_id=match_id,
@@ -234,7 +278,15 @@ def run(
                 anchor_id=anchor.record_id,
                 group_ref=group_ref,
                 group_ids=sorted(r.record_id for r in group),
-                proof=_build_proof(match_id, tier, anchor, group, profile, budget, provenance),
+                proof=_build_proof(
+                    match_id,
+                    tier,
+                    anchor,
+                    group,
+                    profile,
+                    budget,
+                    *tier_for_group,
+                ),
             )
         )
         claimed.add(group_ref)
@@ -258,6 +310,8 @@ def run(
         ungrouped_records=ungrouped,
         candidates=candidates,
         exceptions=exceptions,
+        scope=scope,
+        rules_unapplied=applied.unapplied,
         completeness=audit(
             anchors=anchors,
             group_records=group_records,

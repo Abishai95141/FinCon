@@ -31,6 +31,9 @@ class ArmResult:
     """Invariant 8. An arm that cannot account for its inputs has not finished,
     whatever its match rate says."""
 
+    scope: dict[str, str] = field(default_factory=dict)
+    """The exclusions the arm actually made, rules included. See MatchRun.scope."""
+
     tiers: dict[str, int] = field(default_factory=dict)
     """How this arm found what it found. Required of any arm reporting a match:
     the scorecard refuses a match count no tier accounts for. The baselines have

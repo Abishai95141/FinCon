@@ -203,8 +203,19 @@ def test_the_duplicate_rule_creates_a_real_proven_match(sides):
     assert verify(match.proof, records, SETTLEMENT_POLICY).proven
 
 
-def test_the_duplicate_rule_survives_the_whole_promotion_gate(sides):
-    """Regression, generality and every other control, on the real batch."""
+def test_the_duplicate_rule_clears_every_control_but_the_one_that_matters(sides):
+    """Regression, generality and every other control, on the real batch.
+
+    This asserted `decision.allowed` until 2026-08-24, and it was true: the rule
+    is expressible, it breaks nothing, it adds a match, it fires on a batch it
+    has never seen. It was also strictly harmful — scored against the
+    generator's labels the match it adds is *false* and the planted `E06` it
+    destroys is worth exactly the value it removes.
+
+    So the assertion inverts, and pins the reason. What makes this rule
+    unacceptable is not visible in any match delta, which is why every
+    match-shaped control passed it.
+    """
     a, b = sides["A"], sides["B"]
     rows = [r for _, r in a.settlement]
     candidates = build_candidates([r for _, r in a.anchors], rows, BlockingPolicy())
@@ -235,7 +246,12 @@ def test_the_duplicate_rule_survives_the_whole_promotion_gate(sides):
         held_out=[r for _, r in b.settlement],
         induced_on=rows,
     )
-    assert decision.allowed, decision.reasons
+    assert not decision.allowed
+    assert len(decision.reasons) == 1, (
+        "every control except one passes this rule; if a second now fires, the "
+        "refusal is being reached for a reason this test does not describe"
+    )
+    assert str(outcome.value_suppressed) in decision.reasons[0]
 
 
 # --------------------------------------------------------------------------
