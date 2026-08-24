@@ -478,7 +478,19 @@ def test_classification_improves_on_the_deterministic_baseline(closed, triaged):
 
     print(f"\nclassification  before {before.classification}  after {after.classification}")
     print(f"coverage        before {before.coverage}  after {after.coverage}")
-    assert before.classified == 1, f"P10's baseline moved: {before.classification}"
+    # P10's 1/5 was the *unruled* engine — no rule could be promoted then. It is
+    # still 1/5, and that is the number this phase set out to move. The shipped
+    # baseline is higher because `R-DUP-06` moved part of it already, so the
+    # model's lift is measured on top of what the rule achieved, never on top of
+    # a baseline the system has already left behind.
+    from bench.run import close as _close
+
+    unruled = score_planted(planted, _close("A", rules=[]).exceptions, in_scope_legs={"bank"})
+    assert unruled.classified == 1, f"P10's baseline moved: {unruled.classification}"
+    assert before.classified >= unruled.classified, (
+        f"the promoted rule made classification worse: {unruled.classification} -> "
+        f"{before.classification}"
+    )
     assert after.classified >= before.classified, (
         f"the model edge made classification worse: {before.classification} -> "
         f"{after.classification}"
@@ -634,7 +646,15 @@ def test_a_derived_code_is_never_offered_to_the_model(closed, triaged):
     # carries no derivation at all.
     derived = [e for e in closed.exceptions if e.code_provenance.outranks(PROPOSAL_TIER)]
     assert derived, "batch A must contain a derived exception or this proves nothing"
-    assert all(e.code_provenance is ProofTier.P0_ARITHMETIC for e in derived)
+    assert any(e.code_provenance is ProofTier.P0_ARITHMETIC for e in derived), (
+        "the solver's E09 is the original case and must still be protected"
+    )
+    # Two rungs sit above a proposal now, not one. `R-DUP-06` labels at
+    # `P1 RULE` — a promoted, regression-tested rule fired — and a proposal does
+    # not talk over that either. Asserting every protected exception is `P0`
+    # would have made the guard narrower than the ladder it is derived from,
+    # which is how it came to be a list of code ids the first time.
+    assert all(e.code_provenance.outranks(PROPOSAL_TIER) for e in derived)
     for exception in derived:
         assert not reclassifiable(exception)
         proposal = next(c for c in triaged if c.exception_id == exception.exception_id)
