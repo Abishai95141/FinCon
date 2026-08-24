@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Current phase** | `P12` — the model edge ◆ the lift number. **RED: two of three parts built.** |
-| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **327 offline + 60 live tests.** Contract **4.0.0**. |
+| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **329 offline + 58 live tests.** Contract **5.0.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
 | **Updated** | 2026-08-24 |
@@ -62,6 +62,71 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### Problem #3 closed: the taxonomy stops being hardcoded shut · 2026-08-24
+
+```
+$ pytest -q tests/property/   10 passed      $ make test  329 passed
+$ make verify  P0-P11, 12 gates             $ make lint  clean
+$ gate P=12 + P=12b            58 passed     contract 4.0.0 -> 5.0.0
+```
+
+P11 established that facts about a code are registry data. P12 then wrote two
+frozensets of code ids back into Python, in two different modules, and I shipped
+a STATUS entry celebrating P11 while doing it. Both are gone, and they needed
+**different** fixes because they were different mistakes.
+
+**`DERIVED_CODES = {"E09", "E13"}` was the right rule keyed on the wrong thing.**
+It said "a proposal may not overwrite a derived answer" — correct — by listing
+which codes are derived. But *derived* is a property of how a particular
+exception got its label, not of the label: a model can propose `E09` too, and
+such an exception carries no derivation at all and should be freely
+reclassifiable. `ReconException.code_provenance: ProofTier` now records it, the
+solver stamps `P0` on what it enumerated or measured, and `reclassifiable` asks
+`not exception.code_provenance.outranks(PROPOSAL_TIER)`. The ordering was
+always there — `P0` is stronger evidence than `P3` — and nothing had ever
+expressed it, so `ProofTier.outranks()` exists now.
+
+Behaviour is identical (`E09` at `P0` refused, `E14` at `P3` offered) and no
+longer depends on a list anyone can forget to update.
+
+**`HONESTY_CODES` had no production consumer at all** — `is_honesty_code` was
+read only by three gate tests. It encodes something real, though: whether
+escalating is the correct outcome is a fact about the *category*, so it is
+`CodeDefinition.escalation_is_correct` and answered by
+`TaxonomyRegistry.escalates()`. While it was a frozenset in this package, a code
+minted through P11's lifecycle could never be an honesty code however honest it
+was — the property existed and was unreachable through the lifecycle.
+
+**Two guards, because prose is what rotted the first time.**
+
+`test_no_module_outside_the_registry_holds_a_literal_set_of_code_ids` walks the
+AST of `src/recon` and fails on any collection literal holding two or more code
+ids. Same technique that already enforces ADR-001 in `gate_p2`, so no new
+dependency. Reintroducing `DERIVED_CODES` verbatim now fails it.
+
+`test_a_minted_code_can_carry_every_property_a_seeded_code_can` is the relation
+stated behaviourally: mint an `X-` code through propose → accept → promote, set
+`escalation_is_correct`, and require `escalates()` to return True for it.
+
+**The second guard was a shallow proxy on first writing, and mutation caught
+it.** It originally asserted `fresh.escalation_is_correct` after a
+`model_copy` — which tests that a field can be *assigned*, and stays true even
+if `escalates()` ignores the field and reads a hardcoded set. Rewriting
+`escalates()` to `return code in {"E09","E13","E14"}` passed all ten property
+tests. Two fixes: the test now asserts the **behaviour** follows the property,
+and the AST guard no longer exempts `taxonomy.py` — the registry module defines
+the schema, not the instances, so it has no business holding code-id literals
+either. Both mutations are now caught.
+
+**Contract 4.0.0 → 5.0.0.** Removing a public property is major.
+
+**Not addressed:** #1 (the rule grammar cannot express "duplicate" and identity
+predicates are banned), #2 (positional record ids), #4 (the regression is
+match-shaped), #5 (`SETTLEMENT_CHART` in kernel code), #10 (STATUS's own rot).
+Seven of ten problems stand.
+
+---
 
 ### Selectivity cap deleted; metamorphic relations added · 2026-08-24
 
@@ -1488,7 +1553,7 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | ~~A novel finding cannot be named~~ | **Closed at P11.** An open registry with a `PROPOSED → PROVISIONAL → PROMOTED → RETIRED` lifecycle; naming grants nothing. | resolved |
 | **Routing dispersion is 1** | The router works and has nothing to route: every code the engine raises is an honesty code, and they all belong to the controller. Classification is the bottleneck, not the machinery. | P12 |
 | **No regression gate on code promotion** | A rule cannot be promoted while it breaks history (P8). Promoting a *code* changes where money books from that moment and nothing replays past closes to show what would move. | when a corpus of closes exists |
-| **`is_honesty_code` reads the seeded set** | `E09`/`E13`/`E14` are structural, so honesty is not a registry attribute. A novel code that also means "I do not know" cannot say so. | when one exists |
+| ~~`is_honesty_code` reads the seeded set~~ | **Closed.** `CodeDefinition.escalation_is_correct` + `TaxonomyRegistry.escalates()`; an AST guard fails on any code-id literal outside the registry. | — |
 | **Taxonomy loaded and pinned, not signed** | Same limit as the policy: the digest proves what ran, not who approved it. | signing: post-v1 |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
 | `triage/`, `mcp/`, `api/` | Skeleton — every module raises `NotImplementedError` naming its phase | P12–P14 |

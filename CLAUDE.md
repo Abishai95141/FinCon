@@ -53,6 +53,8 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | A rule that fires on nothing, or on everything | Both look identical to a delta check. One does nothing; the other floods the worklist | Assert it fires on its own batch, and cap selectivity by policy |
 | A wall clock inside a decision | The same close records `4ms` then `1ms` and stops being replayable — found at P9, caught only intermittently | Timing is a fact about our machine. Keep it in metrics; a *stated bound that was hit* is a finding and stays |
 | Computing the same fact twice | The copy nobody reads rots, and a control over it goes quietly dead — found at P9 | Extend the one answer; never recompute it beside itself |
+| A fact about a code living outside the registry | P11 made codes data; P12 wrote two frozensets of ids back into Python one phase later, in two modules | Facts about a category go in `data/taxonomy/`. An AST guard in `tests/property/` fails on any code-id literal elsewhere |
+| A design commitment that lives only in prose | ADR-001, invariant 7, "codes are data" — each was contradicted within a phase or two of being written | Every architectural claim needs a test that fails when it is violated, or it is a preference |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
 

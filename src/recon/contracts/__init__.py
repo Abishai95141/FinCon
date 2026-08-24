@@ -19,7 +19,20 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "4.0.0"
+CONTRACT_VERSION = "5.0.0"
+# 5.0.0 — P11's claim enforced. `HONESTY_CODES` and `ReconException.is_honesty_code`
+#         are REMOVED: whether escalating is correct is a fact about the
+#         category, so it is `CodeDefinition.escalation_is_correct` and answered
+#         by `TaxonomyRegistry.escalates()`. While it lived as a frozenset of ids
+#         in this package, a code minted through the P11 lifecycle could never be
+#         an honesty code however honest it was.
+#         `ReconException.code_provenance: ProofTier` added (default P3) and
+#         `ProofTier.outranks()` with it. It replaces `DERIVED_CODES = {"E09",
+#         "E13"}` in the triage module — which was the proof-tier ordering
+#         written down in the wrong place and in terms of the wrong thing: a
+#         model can propose `E09` too, and what matters is how the label was
+#         arrived at, not which label it is.
+#         Removing a public property is MAJOR.
 # 4.0.0 — P12 removed Policy.max_selectivity_pct, added one commit earlier. A
 #         metamorphic relation refuted it: the SAME rule, still firing on the
 #         same 502 rows, went from refused to allowed when 1,500 unrelated rows

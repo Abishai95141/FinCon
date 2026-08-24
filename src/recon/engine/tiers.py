@@ -374,6 +374,11 @@ def _subset_pass(
                 ReconException(
                     exception_id=f"EXC-{len(exceptions) + 1:05d}",
                     code=code,
+                    # The solver *derived* this label — it enumerated the
+                    # subsets, or it measured the bound it hit. That is
+                    # arithmetic a third party can re-run, so it outranks any
+                    # proposal and `reclassifiable` refuses to offer it.
+                    code_provenance=ProofTier.P0_ARITHMETIC,
                     as_of=subject.posted_on,
                     amount=abs(subject.amount),
                     record_ids=[subject.record_id],

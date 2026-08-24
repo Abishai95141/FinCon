@@ -9,6 +9,7 @@ whose validators pass everything is documentation, not a contract.
 
 from __future__ import annotations
 
+import pathlib
 from datetime import UTC, date, datetime
 from decimal import Decimal as D
 
@@ -272,8 +273,17 @@ def test_e09_must_show_its_competing_subsets():
     ok = ReconException(
         code=ExceptionCode.E09_NETTING_AMBIGUITY, alternatives=[["a", "b"], ["c", "d"]], **common
     )
-    assert ok.is_honesty_code
-    assert not ReconException(code=ExceptionCode.E01_TIMING, **common).is_honesty_code
+    # Whether escalating is the right answer is a fact about the *category*, so
+    # since P12 it is registry data rather than a frozenset of ids in this
+    # package. An exception carries a code; what the code means is not its to
+    # know.
+    from recon.contracts import TaxonomyRegistry
+
+    taxonomy = TaxonomyRegistry.model_validate_json(
+        pathlib.Path("data/taxonomy/codes.json").read_text(encoding="utf-8")
+    )
+    assert taxonomy.escalates(ok.code)
+    assert not taxonomy.escalates(ExceptionCode.E01_TIMING)
 
 
 def test_rule_cannot_be_promoted_while_it_breaks_history():

@@ -560,7 +560,7 @@ def test_the_decision_not_to_triage_is_itself_recorded(closed, edge, tmp_path):
     events = read(tmp_path / "skip.jsonl")
     assert [e.kind for e in events] == [EventKind.PROPOSAL_REFUSED]
     assert events[0].outcome == "not_offered"
-    assert "derived" in json.dumps(events[0].payload.model_dump(mode="json"))
+    assert "does not outrank" in json.dumps(events[0].payload.model_dump(mode="json"))
 
 
 def test_a_retired_code_is_not_even_offered_on_the_menu(closed):
@@ -580,6 +580,10 @@ def test_a_retired_code_is_not_even_offered_on_the_menu(closed):
 def test_a_derived_code_is_never_offered_to_the_model(closed, triaged):
     """Found by measuring, and it is the finding of this phase.
 
+    Reworked at contract 5.0.0: the rule is unchanged, but it now asks about
+    *evidence* rather than consulting a hardcoded list of code ids in the triage
+    module — see `ProofTier.outranks`.
+
     The first triage pass scored a net lift of **zero**: it correctly renamed
     one `E14` to `E08`, and destroyed the solver's `E09` by guessing "timing"
     where the engine had enumerated two valid subsets. The engine's answer was
@@ -590,16 +594,22 @@ def test_a_derived_code_is_never_offered_to_the_model(closed, triaged):
     tier does not overwrite a higher one. Not a special case for one code, and
     not prompt engineering.
     """
-    from recon.triage.classify import DERIVED_CODES, reclassifiable
+    from recon.contracts import ProofTier
+    from recon.triage.classify import PROPOSAL_TIER, reclassifiable
 
-    derived = [e for e in closed.exceptions if e.code in DERIVED_CODES]
+    # Selected by *provenance*, not by a list of code ids. Until the contract
+    # 5.0.0 change this read `e.code in DERIVED_CODES` — the right rule keyed on
+    # the wrong thing, since a model can propose `E09` too and such an exception
+    # carries no derivation at all.
+    derived = [e for e in closed.exceptions if e.code_provenance.outranks(PROPOSAL_TIER)]
     assert derived, "batch A must contain a derived exception or this proves nothing"
+    assert all(e.code_provenance is ProofTier.P0_ARITHMETIC for e in derived)
     for exception in derived:
         assert not reclassifiable(exception)
         proposal = next(c for c in triaged if c.exception_id == exception.exception_id)
         assert proposal.code == exception.code, "the derived code was changed"
         assert proposal.refusals, "it was sent to the model anyway"
-        assert any("derived" in r for r in proposal.refusals)
+        assert any("does not outrank" in r for r in proposal.refusals), proposal.refusals
 
 
 def test_the_guard_does_not_swallow_the_codes_triage_exists_for(closed, triaged):

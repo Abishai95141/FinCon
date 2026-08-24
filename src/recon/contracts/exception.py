@@ -26,6 +26,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import CONTRACT_VERSION, Money
+from .proof import ProofTier
 from .taxonomy import CodeId
 
 
@@ -60,19 +61,6 @@ class ExceptionCode(StrEnum):
     row count — and leaves classification to triage."""
 
 
-#: Codes where escalating is the correct outcome, not a failure to match.
-#: E09 has no unique answer; E13 is a compute bound, and a capacity limit must
-#: never be reported as a data finding; E14 is "I do not know", which is a
-#: better answer than a confident wrong one.
-HONESTY_CODES = frozenset(
-    {
-        ExceptionCode.E09_NETTING_AMBIGUITY,
-        ExceptionCode.E13_SOLVER_TIMEOUT,
-        ExceptionCode.E14_UNEXPLAINED,
-    }
-)
-
-
 class Resolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -95,6 +83,18 @@ class ReconException(BaseModel):
     is a separate versioned input the proposer cannot supply."""
 
     as_of: date
+
+    code_provenance: ProofTier = ProofTier.P3_DECLARED
+    """How this exception came by its code — not how confident we are in it.
+
+    `P0` means the engine *derived* the label: `E09` from an enumeration that
+    found two valid subsets, `E13` from a bound it measured. `P3` is the default
+    and means nobody vouched for it — `E14` is exactly that, the absence of a
+    derivation.
+
+    It exists so `reclassifiable` can ask about *evidence* instead of consulting
+    a hardcoded list of code ids. A proposal is `P2` at best, so it may overwrite
+    `P3` and never `P0`."""
 
     amount: Money
     """Cash impact. Drives ranking and must tie to the balance-assertion gap
@@ -147,8 +147,3 @@ class ReconException(BaseModel):
         if self.leg not in {"bank", "orders"}:
             raise ValueError(f"leg must be 'bank' or 'orders', got {self.leg!r}")
         return self
-
-    @property
-    def is_honesty_code(self) -> bool:
-        """True where escalating is correct behaviour rather than a shortfall."""
-        return self.code in HONESTY_CODES

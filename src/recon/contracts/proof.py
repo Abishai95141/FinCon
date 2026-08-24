@@ -44,6 +44,19 @@ class ProofTier(StrEnum):
     P3_DECLARED = "P3"
     """Accepted with a stated gap — unverified intake, out-of-policy tolerance."""
 
+    def outranks(self, other: ProofTier) -> bool:
+        """Whether this provenance may overwrite that one.
+
+        The tiers were always ordered — `P0` is stronger evidence than `P3` —
+        but nothing expressed it, so P12 encoded the ordering as a hardcoded set
+        of exception codes (`DERIVED_CODES = {"E09", "E13"}`) inside the triage
+        module. That was the ordering, written down in the wrong place and in
+        terms of *which codes* rather than *what evidence*. A model can propose
+        `E09` too; what matters is how the label was arrived at, not the label.
+        """
+        order = list(ProofTier)
+        return order.index(self) < order.index(other)
+
 
 class ProofLeg(BaseModel):
     """One side of the match."""

@@ -120,6 +120,16 @@ class CodeDefinition(BaseModel):
     """The queue this routes to. Honoured only once the status permits it — a
     proposal naming an owner is a claim about someone else's workload."""
 
+    escalation_is_correct: bool = False
+    """Whether raising this is the right answer rather than a shortfall.
+
+    `E09` (no unique subset exists), `E13` (we hit a compute bound) and `E14` (we
+    do not know) are all correct outcomes, not failures to match. Until P12 this
+    lived as `HONESTY_CODES` — a frozenset of ids in `contracts/exception.py` —
+    so a code minted through this lifecycle could never be one, however honest it
+    was. That is the failure P11 was built to remove, reintroduced one phase
+    later in a different module."""
+
     books_to: str | None = None
     """An `AccountRole` value. Also a claim: read only when the code may direct a
     posting, so a proposed code asking for a revenue account gets suspense."""
@@ -241,6 +251,15 @@ class TaxonomyRegistry(BaseModel):
         if not entry.authority.may_direct_posting or not entry.books_to:
             return None
         return AccountRole(entry.books_to)
+
+    def escalates(self, code: str) -> bool:
+        """Is raising this code a correct outcome rather than a shortfall?
+
+        Answered by the registry rather than by the exception, because the
+        meaning of a code is registry data. An exception carries an id; what the
+        id *means* is not its to know.
+        """
+        return self.resolve(code).escalation_is_correct
 
     def assignable(self, code: str) -> bool:
         return self.resolve(code).authority.assignable

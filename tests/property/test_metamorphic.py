@@ -313,3 +313,121 @@ def test_the_order_relation_is_vacuous_on_this_corpus_and_says_so(sides):
         f"batch A now has {len(contested)} contested anchor(s) — the order relation "
         f"is no longer vacuous, update its docstring"
     )
+
+
+# --------------------------------------------------------------------------
+# the registry is the only place that knows what a code means
+# --------------------------------------------------------------------------
+
+
+def test_no_module_outside_the_registry_holds_a_literal_set_of_code_ids():
+    """The architectural fitness function for P11's claim.
+
+    P11 established that facts about a code are registry data. P12 then wrote
+    `DERIVED_CODES = frozenset({"E09", "E13"})` into the triage module and left
+    `HONESTY_CODES` in the contracts package — the same failure, one phase later,
+    in two files. Nothing caught it because the claim lived only in prose.
+
+    An AST walk is the check: any collection literal containing two or more code
+    ids, outside the registry, is a fact about codes living somewhere it cannot
+    be governed. Uses the same technique that already enforces ADR-001 in
+    `gate_p2`, so it costs no new dependency.
+    """
+    import ast
+    import re as _re
+    from pathlib import Path
+
+    code_id = _re.compile(r"^(E[0-9]{2}|X-[A-Z][A-Z0-9-]{2,31})$")
+    # Only the seeded-id enum. The registry *module* defines the schema, not the
+    # instances — ids come from `data/taxonomy/codes.json`. Mutation found this:
+    # exempting `taxonomy.py` let `escalates()` be rewritten to read a hardcoded
+    # set and every test still passed.
+    allowed = {Path("src/recon/contracts/exception.py")}
+    offenders: list[str] = []
+
+    for path in sorted(Path("src/recon").rglob("*.py")):
+        if path in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Set | ast.List | ast.Tuple):
+                continue
+            literals = [
+                e.value
+                for e in node.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            ]
+            hits = [v for v in literals if code_id.match(v)]
+            if len(hits) >= 2:
+                offenders.append(f"{path}:{node.lineno} {hits}")
+
+    assert not offenders, (
+        "facts about exception codes must live in the registry, not in a literal "
+        f"collection of ids: {offenders}"
+    )
+
+
+def test_a_minted_code_can_carry_every_property_a_seeded_code_can():
+    """The relation that would have caught it, stated behaviourally.
+
+    P11's claim is that a code discovered later is a first-class code. That is
+    only true if every question the system asks about a code can be answered for
+    a minted one. While `escalation_is_correct` lived as `HONESTY_CODES` in
+    Python, no `X-` code could ever be an honesty code however honest it was —
+    the property existed and was unreachable through the lifecycle.
+    """
+    import json
+    from pathlib import Path
+
+    from recon.contracts import TaxonomyRegistry
+    from recon.engine.taxonomy import accept, promote, propose
+
+    registry = TaxonomyRegistry.model_validate(
+        json.loads(Path("data/taxonomy/codes.json").read_text(encoding="utf-8"))
+    )
+    minted = promote(
+        accept(
+            propose(
+                registry,
+                code="X-CANNOT-DETERMINE",
+                title="the source does not carry enough to decide",
+                definition="A finding we can see but cannot attribute from the data present.",
+                actor="agent:triage",
+            ),
+            "X-CANNOT-DETERMINE",
+            actor="meera",
+            owner="controller",
+        ),
+        "X-CANNOT-DETERMINE",
+        actor="meera",
+        definition="A finding we can see but cannot attribute from the data present.",
+    )
+
+    seeded = registry["E14"]
+    fresh = minted["X-CANNOT-DETERMINE"]
+    assert set(type(fresh).model_fields) == set(type(seeded).model_fields)
+
+    # Every behavioural question, asked of both.
+    for probe in (minted.escalates, minted.route, minted.assignable, minted.booking_for):
+        probe("E14")
+        probe("X-CANNOT-DETERMINE")
+
+    # Set the property on the minted code and require the *behaviour* to follow.
+    # Asserting `fresh.escalation_is_correct` alone was a shallow proxy: it tests
+    # that a field can be assigned, which stays true even if `escalates()` reads
+    # a hardcoded set of seeded ids and ignores the field entirely. Mutation
+    # caught exactly that.
+    assert not minted.escalates("X-CANNOT-DETERMINE")
+    honest = minted.model_copy(
+        update={
+            "codes": {
+                **minted.codes,
+                "X-CANNOT-DETERMINE": fresh.model_copy(update={"escalation_is_correct": True}),
+            }
+        }
+    )
+    assert honest.escalates("X-CANNOT-DETERMINE"), (
+        "a minted code cannot be an honesty code — the property is declared but "
+        "the behaviour does not read it"
+    )
+    assert honest.escalates("E14"), "seeded codes must keep working"

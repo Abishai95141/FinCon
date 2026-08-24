@@ -12,6 +12,7 @@ the capacity path is exercised rather than dead.
 from __future__ import annotations
 
 import json
+import pathlib
 from datetime import date as _date
 from decimal import Decimal as D
 
@@ -84,7 +85,12 @@ def test_ambiguous_payout_raises_e09_with_the_labelled_subsets(env, batch):
     assert len(e09) == 1
     exc = e09[0]
     assert exc.blocks_close
-    assert exc.is_honesty_code
+    from recon.contracts import TaxonomyRegistry
+
+    taxonomy = TaxonomyRegistry.model_validate_json(
+        pathlib.Path("data/taxonomy/codes.json").read_text(encoding="utf-8")
+    )
+    assert taxonomy.escalates(exc.code)
 
     ext = _ext(settlement)
     got = sorted(

@@ -12,6 +12,7 @@ collected nothing at P2. It is asserted directly, and mutation-tested at the end
 from __future__ import annotations
 
 import json
+import pathlib
 from datetime import date as _date
 from decimal import Decimal as D
 from pathlib import Path
@@ -153,10 +154,15 @@ def test_e14_states_facts_rather_than_guessing_a_cause():
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
+    from recon.contracts import TaxonomyRegistry
+
+    taxonomy = TaxonomyRegistry.model_validate_json(
+        pathlib.Path("data/taxonomy/codes.json").read_text(encoding="utf-8")
+    )
     e14 = [e for e in outcome.exceptions if e.code == ExceptionCode.E14_UNEXPLAINED]
     assert e14
     for exc in e14:
-        assert exc.is_honesty_code
+        assert taxonomy.escalates(exc.code)
         assert exc.blocks_close
         assert exc.amount > 0
         assert exc.evidence, "an E14 must carry the facts it does have"

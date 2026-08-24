@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from ..contracts import PolicyViolation, ReconException, Record, TaxonomyRegistry
+from ..contracts import PolicyViolation, ProofTier, ReconException, Record, TaxonomyRegistry
 from ..contracts.event import (
     ClassificationProposedPayload,
     EventKind,
@@ -43,27 +43,25 @@ from .client import ModelEdge, ProposalRefused
 
 ACTOR = "agent:triage"
 
-#: Codes the engine reaches by *proof*, not by exhaustion. `E09` comes from an
-#: enumeration that found two distinct valid subsets; `E13` from a stated
-#: compute bound. Both are derived answers carrying `P0 ARITHMETIC`, and a model
-#: proposal is at best `P2 ATTESTED` — **a lower proof tier must not overwrite a
-#: higher one.**
-#:
-#: `E14` is the opposite and is exactly what triage is for: not a derived
-#: answer, but the absence of one. The engine says "I do not know"; the model is
-#: allowed to have an opinion.
-#:
-#: Found by measuring. The first triage pass scored a net lift of zero — it
-#: fixed one `E14` and destroyed the solver's `E09`, guessing "timing" where the
-#: engine had enumerated the ambiguity. The guard is not prompt engineering and
-#: not a special case for one code: it is the proof-tier ordering this project
-#: already runs on, applied to classification.
-DERIVED_CODES = frozenset({"E09", "E13"})
+#: The best a model proposal can ever carry — a named human attesting it.
+PROPOSAL_TIER = ProofTier.P2_ATTESTED
 
 
 def reclassifiable(exception: ReconException) -> bool:
-    """Whether a proposal may speak about this exception at all."""
-    return exception.code not in DERIVED_CODES
+    """Whether a proposal may speak about this exception at all.
+
+    A lower proof tier does not overwrite a higher one. That is the ordering
+    this project already runs on, so the question is about *evidence*, not about
+    which code happens to be there.
+
+    P12 first wrote this as `DERIVED_CODES = {"E09", "E13"}` — the right rule
+    expressed as a hardcoded list of ids, in the triage module, one phase after
+    P11 established that facts about codes are registry data. It also modelled
+    the wrong thing: a model can propose `E09` too, and such an exception would
+    carry no derivation and should be freely reclassifiable. What matters is how
+    the label was arrived at.
+    """
+    return not exception.code_provenance.outranks(PROPOSAL_TIER)
 
 
 SCHEMA = {
@@ -191,8 +189,9 @@ def check_proposal(
         reasons.append(f"exception_id {exception_id!r} is not one we asked about")
     elif not reclassifiable(exception):
         reasons.append(
-            f"{exception_id} carries {exception.code}, which the engine derived by "
-            f"proof — a proposal cannot overwrite a higher proof tier"
+            f"{exception_id} carries {exception.code} at "
+            f"{exception.code_provenance.value} — a proposal ({PROPOSAL_TIER.value}) "
+            f"cannot overwrite a higher proof tier"
         )
 
     code = proposal.get("code")
@@ -248,7 +247,9 @@ def classify(
             # have spent the call, and would invite the argument that the model
             # "would have been right" — it does not get the chance to be wrong.
             reason = (
-                f"not offered for triage: {exception.code} is a derived answer, not an absent one"
+                f"not offered for triage: {exception.code} carries "
+                f"{exception.code_provenance.value} provenance, which a proposal "
+                f"({PROPOSAL_TIER.value}) does not outrank"
             )
             results.append(
                 Classification(
