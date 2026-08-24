@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Current phase** | `P9` — the record ([plan v2](docs/06-PLAN-V2.md)) |
-| **Last green gate** | **P8** — 15/15. `make verify` runs P0–P8, 161 tests. Contract **2.0.0**. |
+| **Last green gate** | **P8** — 15/15. `make verify` runs P0–P8. **171 tests, 93% coverage** over 2,356 statements. Contract **2.0.0**. |
 | **Build runs?** | All of the above, now under a `Policy` loaded from `data/policy/`. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-21 |
@@ -693,7 +693,9 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
 | Defect rates unvalidated | Counts are exact; realism vs production formats is unchecked | ongoing — needs real format samples |
 | Only 2 gateways, 1 currency | Generator is INR-only by design (ADR: FX deferred, build plan P17) | P17 decision, post-v1 |
-| `bench/arms/`, `bench/metrics.py`, `bench/run.py` | Stubs | P6 |
+| **Everything is validated at toy scale** | 22 payouts, 517 settlement rows, 2 gateways, 1 currency, 1 loop. Blocking constants, solver bounds and tolerance policy are all unvalidated above a few hundred rows. | needs a large corpus |
+| **No application surface** | No UI (P14), no MCP (P13), no persistence, no API. This is a library plus a benchmark harness, not something anyone can operate. | P13–P14 |
+| **Zero model code** | `triage/` is three stubs at 0% coverage. The entire agentic claim is unbuilt. | P12 |
 
 ---
 
