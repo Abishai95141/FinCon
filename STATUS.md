@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: all three parts built. A model rule promoted end to end and was strictly harmful — the gate had no dimension for value leaving a close. It does now; no rule stands promoted.** |
+| **Current phase** | `P12` — the model edge ◆ the lift number. **Rule induction closed 2026-08-25: `R-DUP-06` is promoted and shipping, classification 1/5 → 2/5 on A and held-out B. Gate still RED overall — three exceptions resolved, one rule, and the lift table is not yet written.** |
 | **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **346 offline + 63 live tests.** Contract **6.0.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B **90.9% auto-match, 0.00% false-match, 0 unprovable**. `llm_only` scores **95.5%** and **1 unprovable** — its whole advantage. Coverage **80% vs 0%**. Classification with triage: **40%–80%, n=5** (a range, not a point) |
@@ -62,6 +62,73 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### A model-induced rule is promoted and running · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green    $ make test    407 passed, 46 deselected, 1 xfailed
+$ make lint    clean                     $ make mutate  p12d 12/12 · p9 20/20 · p10 15/15 · p11 24/24
+$ make replay  coverage 80.0% (4/5) · classification 40.0% (2/5) · ambiguity 100.0% (1/1)
+```
+
+**`R-DUP-06` — deepseek-v4-flash, from a controller's own words, promoted by a
+named human, stored in `data/rules/settlement_3way.json` and loaded by every
+close.**
+
+```
+when side eq "settlement" · keys.row_type eq "fee" · key_occurrence gt "0"
+then raise_advisory -> E06  "Fee row appears twice with identical natural_key"
+     fires A=1/517  B=1/536    0 broken · 0 added · 0.00 suppressed · 1 advisory
+```
+
+| | batch A | held-out B |
+|---|---|---|
+| exception classification | 1/5 → **2/5** | 1/5 → **2/5** |
+| correct / false matches | 20 / 0 → 20 / **0** | 20 / 0 → 20 / **0** |
+| worklist owners | 1 → **2** (gateway-ops) | — |
+
+The improvement is attributable to one rule, holds on a batch the rule never
+saw, moves no money, and creates no false match. That is P12's gate sentence
+for rule induction.
+
+**It took two refusals to get there, and both were the system working.**
+
+*First:* the rule that suppressed the duplicate row — 0 broken, 1 added, clean
+on every dimension the gate had — added a **false** match and destroyed the
+planted `E06` worth exactly the ₹5,489.75 it removed. The gate now measures
+value leaving a close and refuses it on tier: raw records cannot prove a row is
+spurious, because they contain it.
+
+*Second:* the advisory rule named no code, so it re-coded nothing. `target` was
+optional for `raise_advisory` and the schema never said what it was for.
+Contract **6.2.0** requires it.
+
+**Three actions could be promoted and then do nothing.** `MODELLED_ACTIONS` said
+the regression could *measure* an action; nothing said a close could *perform*
+one. `set_tolerance`, `book_to` and `normalize_key` promoted on clean
+regressions and were reported `unapplied` at close, with no one reading the
+report. `raise_advisory` was worse — declared modelled, implemented nowhere, and
+a rule using it scored better than any real rule by doing nothing at all. All
+five are implemented now, in `rulestore`, as the single implementation the
+regression calls too. The gate refuses an action outside `APPLIED_ACTIONS`, and
+that set is enumerated by hand rather than `frozenset(ActionKind)` — the short
+version certified every action as implemented by construction and would have
+auto-approved the sixth.
+
+**A regression I introduced and mutation caught.** Applying suppression by
+rebinding `group_records` to a filtered list took those rows out of the
+completeness audit's input entirely: not disposed, not undisposed, *gone*, with
+the run finishing clean over records nobody accounted for. This is the banned
+pattern in CLAUDE.md, written by the person who added the row. Normalisation now
+runs over every record and exclusion stays where the audit can see it.
+
+**What is still not true.** Exception *coverage* is unchanged at 4/5 — the rule
+improves how an exception is labelled, not how many are found. The `E02` fee
+variance is still uncovered and still not expressible: detecting "billed above
+contract tier" needs a fee compared against a rate on another record, and
+predicates are single-record comparisons. And there is no attestation path, so
+the duplicate itself is still reported rather than resolved — which is what the
+generator's labels say should happen, but by refusal rather than by design.
 
 ### A promoted rule finally acts, and the first one was harmful · 2026-08-24
 
