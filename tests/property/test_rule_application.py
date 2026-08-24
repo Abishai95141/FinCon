@@ -70,10 +70,26 @@ def test_a_rule_that_removes_value_from_a_close_is_refused():
     assert any(str(outcome.value_suppressed) in r for r in decision.reasons)
 
 
-def test_exceptions_cleared_counts_exceptions():
+def test_exceptions_cleared_counts_exceptions_and_not_added_matches():
     """It was `len(added)` — a field named for exceptions that had never counted
-    one, reported in the record a human reads before approving. A rule that
-    suppresses nothing and adds nothing must clear nothing."""
+    one, reported in the record a human reads before approving.
+
+    Asserting it on an inert rule proves nothing: no matches added and no
+    exceptions cleared are both zero, so the alias passes too. This is the case
+    where the two numbers genuinely differ, which is the only kind that can tell
+    a real delta from a relabelled one.
+    """
+    history, _ = _history()
+    outcome = regress(_rule(), history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY)
+
+    assert len(outcome.added) == 1
+    assert outcome.exceptions_cleared == 2, (
+        "suppressing the duplicate resolves the payout's own exception and the "
+        "one raised over its unclaimed group; only one match is added"
+    )
+
+
+def test_an_inert_rule_clears_nothing_and_removes_nothing():
     history, _ = _history()
     inert = _rule(when=[{"field": "source", "op": Operator.EQ, "value": "nothing-is-called-this"}])
     outcome = regress(inert, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY)
