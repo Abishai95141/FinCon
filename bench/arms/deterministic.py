@@ -15,6 +15,7 @@ from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
 from recon.engine.tiers import run as run_tiers
 from recon.engine.verifier import verify
+from recon.journal.derive import RejectedMatch
 
 from . import ArmResult
 
@@ -39,6 +40,8 @@ def run(
 
     pairs: dict[str, frozenset[str]] = {}
     proofs = []
+    kept: list = []
+    refusals: list[RejectedMatch] = []
     refuted: list[str] = []
     # The split of what we *report*, not of what the tiers produced. A match the
     # verifier refused must leave both numbers together, or the scorecard would
@@ -51,10 +54,20 @@ def run(
             # An unverified match is not a match. Recorded so the count of
             # rejections is visible rather than silently absorbed.
             refuted.append(f"{match.match_id}: {verdict}")
+            refusals.append(
+                RejectedMatch(
+                    match_id=match.match_id,
+                    proof_id=match.proof.proof_id,
+                    anchor_id=match.anchor_id,
+                    group_ids=list(match.group_ids),
+                    reasons=list(verdict.reasons) or [str(verdict)],
+                )
+            )
             continue
         pairs[external[match.anchor_id]] = frozenset(external[r] for r in match.group_ids)
         proofs.append(match.proof)
         tiers[match.tier.value] = tiers.get(match.tier.value, 0) + 1
+        kept.append(match)
 
     exceptions = outcome.exceptions
     notes = [
@@ -79,4 +92,7 @@ def run(
         notes=notes,
         exceptions=exceptions,
         completeness=outcome.completeness,
+        matches=kept,
+        rejected=refusals,
+        run=outcome,
     )

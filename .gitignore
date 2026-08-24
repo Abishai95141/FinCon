@@ -12,3 +12,6 @@ uv.lock
 # coverage artifacts — binary, machine-local
 .coverage
 htmlcov/
+
+# decision logs from local runs — the record is per-run, not a repo artifact
+data/runs/

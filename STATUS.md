@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P9` — the record ([plan v2](docs/06-PLAN-V2.md)). P10 was taken first — see the note under its evidence. |
-| **Last green gate** | **P10 ◆ SHIP LINE** — 40/40. `make verify` runs P0–P8 and P10. **211 tests, 96% coverage** over 2,640 statements. Contract **2.0.0**. |
-| **Build runs?** | `make eval` closes A and B from a clean checkout, one command, four arms, eight metrics. |
+| **Current phase** | `P11` — open taxonomy ([plan v2](docs/06-PLAN-V2.md)). **P6–P10 are all green: the ship line is closed.** |
+| **Last green gate** | **P9** — 47/47. `make verify` runs P0–P10. **259 tests, 97% coverage** over 3,179 statements. Contract **2.1.0**. |
+| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, **posted**, **recorded**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
 | **Updated** | 2026-08-24 |
 
@@ -36,7 +36,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | `not started` | — |
 | **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | **`GREEN`** | [below](#p7--policy--2026-08-21) |
 | **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | **`GREEN`** | [below](#p8--promotion-gate--2026-08-21) |
-| **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | `not started` | — |
+| **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | **`GREEN`** | [below](#p9--the-record--2026-08-24) |
 | **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | **`GREEN`** | [below](#p10--measurement--ship-line--2026-08-24) |
 | — | **◆ SHIP LINE** — everything below is upside | | |
 | **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | `not started` | — |
@@ -62,6 +62,161 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P9 — the record · 2026-08-24
+
+```
+$ make verify   P0 11 · P1 19 · P2 29 · P3 24 · P4 14 · P5 17 · P6 21 · P7 21 · P8 16 · P9 47 · P10 40
+$ pytest -q     259 passed        $ make lint   All checks passed!
+$ pytest --cov  97% over 3,179 statements
+
+$ make eval
+disposition [complete]  anchors={'excepted': 3, 'matched': 20, 'out_of_scope': 3}
+                        records={'excepted': 64, 'matched': 453}  postings={'posted': 20}
+
+journal: 23 entries, balanced, 23 loaded by beancount
+  not posted: EXC-00004 (E14, ₹90259.47): no bank line — the money never reached the
+              account, so this is a receivable and posting it would put cash in the
+              books that is not in the bank
+  not posted: EXC-00005 (E14, ₹43684.26): [same]
+record: data/runs/A/decisions.jsonl
+  event kinds with no producer yet: RuleInduced (P12), AdapterAuthored (P12), CodeProposed (P11)
+
+56 events: CloseStarted=1 · SourceIngested=1 · IntakeUnverified=1 · OutOfScope=3
+           MatchProven=20 · ExceptionRaised=5 · PostingWritten=23 · CloseBlocked=1
+           CloseCompleted=1
+
+$ make replay                                                            EXIT=0
+replayed data/runs/A/decisions.jsonl
+  batch A · profile settlement_3way · policy settlement-in@v1
+  policy digest 410d4556f14782d3  (2 sources)
+  deterministic: auto-match 90.9% (20/22)  false-match 0.0% (0/20)  tiers T0=18 T1=2
+  exceptions: coverage 80.0% (4/5) · classification 20.0% (1/5) · ambiguity 100.0% (1/1)
+  postings 23 · out of scope 3
+  UNVERIFIED gateway-settlement: no substantive check could run — the source carries
+             no control total and no balances
+```
+
+**The gate, executed.** `make replay` reads the file and nothing else, rebuilds
+what was decided, and produces a scorecard identical to the run's — same match
+count, same tier split, same coverage, same classification, same ambiguity. The
+engine is made to raise while a replay runs, and the replay still returns; an
+AST check keeps the replay path off the matcher's imports so the property
+survives a refactor the monkeypatch would miss. Delete one `MatchProven` line
+and the replayed match count drops by one, which is how you can tell the answer
+came from the log rather than from recomputing it.
+
+**Derived, not instrumented.** A log written where someone remembered to call
+`emit()` records what the author was thinking about, and the refusals are exactly
+what nobody is thinking about. `derive()` walks the same structures the
+completeness audit walks, then checks itself against that audit: **every input
+the audit gave a disposition to must be named by at least one event**, and the
+close refuses to finish otherwise. That check is also what makes replay total —
+the record-id → external-id map is rebuilt from the events themselves, so a
+record named by no event would be unmappable on the way back.
+
+**The books, finally.** Until this phase nothing in the close path posted. The
+ledger existed and only tests used it, so "writes double-entry journal entries
+for everything it can prove" was a claim with no code behind it and invariant 1
+could not be evaluated. Now:
+
+| | |
+|---|---|
+| a proven payout | `Dr Bank / Cr Clearing` — the gateway held it, the bank has it |
+| a credit nobody can attribute | `Dr Bank / Cr Liabilities:UnappliedCash` |
+| settlement the bank never received | **not posted**, with the reason printed |
+
+The third is the one that matters. A group the gateway says it sent and no
+anchor claims is a receivable, not cash; posting it would put money in the books
+that is not in the account. It stays an exception and the rule says out loud why
+it declined, because a posting rule that quietly skips what it cannot handle is
+indistinguishable from one that has no case for it. 23 entries, balanced, loaded
+by the real beancount loader. **Invariant 1 is checkable for the first time**:
+the suspense balance is asserted equal to the anchor-side exception total,
+derived from two different places so it cannot agree with itself.
+
+**Append-only, and what that is worth.** Events are hash-chained: the hash covers
+the content, the link covers the order, and opening a log verifies it so an
+append cannot launder a tamper. An edit, a deletion, a reorder and a splice from
+another run are each caught, and a finished log refuses further writes. **The
+limit, stated rather than glossed:** an actor who can rewrite the whole file can
+recompute the chain over anything they like. A chain proves internal
+consistency, not custody — real custody needs an external anchor and there is
+none. Truncating the tail is the one edit a chain alone cannot see, which is why
+the log terminates in `CloseCompleted` carrying its own count.
+
+**Policy provenance, the gap P7 left open.** P7 shipped with policy loaded from
+disk and trusted. The header event now pins a sha256 of the policy *file*, and
+every judged decision names the policy ref it ran under. A run judged under a
+version nobody approved is visible in the record instead of invisible in memory.
+
+**Refusals are first-class.** `R-EVIL` being turned away is the most interesting
+thing that happens in a governed system, so `promote()` writes `ProposalRefused`
+**before** it raises, and a verifier refusal writes `MatchRejected`. A log that
+contains only what worked is a marketing document. Mutation confirms it: drop
+either and the gate goes red.
+
+**A kind with no producer is declared, not absent.** Three of the fifteen event
+kinds — `RuleInduced`, `AdapterAuthored`, `CodeProposed` — are written by a model
+that does not exist yet. `PRODUCERS` names the phase instead, the close prints
+which kinds it could not produce, and the registry is asserted complete against
+the enum at import. Same discipline as P10's absent arm.
+
+**Two real bugs found in P8, both by chasing coverage.**
+
+1. **`Decimal("0.00")` is falsy**, so `_tolerance_asked_for` filtered out a rule
+   asking for a tolerance of exactly zero. `_apply` then left the profile alone
+   and the regression reported that a rule *tightening* tolerance to zero
+   changes nothing. Tightening is a legitimate proposal and the gate could not
+   see what it did — audit finding `F3` pointing the other way.
+2. **A P8 test that could pass by not running.**
+   `test_a_rule_that_breaks_history_is_refused` was guarded by
+   `if outcome.broken:` over a history where nothing could break, so the "would
+   break" branch had never executed in any run. Rewritten unconditionally against
+   a history built wide enough that narrowing genuinely takes a match away.
+
+**Mutation-tested, 21/21 on P9 and 15/15 on P10 re-run.** Four survivors on the
+first pass, all genuine holes, all now closed: nothing checked the stream against
+its own terminator; dropping the `prev_hash` link left every test green because
+deletions are also caught by the seq check (a **splice** is the case only the
+link can see); the seq check itself needed a self-consistent forged log to
+exercise; and the close's posting audit could be fed the very ids it was
+checking — the shallow-proxy shape, in the phase that exists to make checking
+possible.
+
+**One audit, not two.** The first version re-audited from scratch after posting,
+which quietly made the engine's own audit dead weight — a P10 mutation that had
+been red went green. Replaced with `CompletenessReport.extend()`: the engine does
+the set arithmetic over records once, and the close adds what the engine could
+not know. Two answers to the same question drift, and the one nobody reads is
+the one that rots.
+
+**Contract 2.0.0 → 2.1.0.** New models only — `Event`, `EventKind`, the
+per-kind payloads, `PRODUCERS`. The log is a public artifact: an external
+auditor reads it without our code, so it is versioned like everything else.
+
+**P10's numbers unchanged**: 90.9% / 0.00%, coverage 80%, classification 20%,
+and both batches still reproduce to the committed manifest.
+
+**Not built, and it matters:**
+- **Retention is not built.** `data/runs/` is local scratch and gitignored. One
+  log describes one close; re-running replaces it. There is no archive, no
+  external anchor, and no custody story — see the chain's stated limit above.
+- **`ProposalRefused` has one producer.** `promote()` writes it.
+  `Policy.check_profile` and the verifier's own refusals raise without recording,
+  because the contracts layer has no journal and giving it one would make the log
+  a dependency of the control rather than a record of it. Wiring belongs with the
+  MCP surface at P13, where every mutating call has a session to record into.
+- **The postings are the settlement leg only.** `Dr Bank / Cr Clearing` is what
+  this loop's sources support. The fee and revenue split belongs to the capture
+  side, which is not reconciled here; inventing it would put numbers in the books
+  that no source in this close supports.
+- **No concurrency story.** Two closes writing one log would interleave and the
+  chain would break — correctly, but the failure would be confusing rather than
+  informative.
+- Still toy scale: 56 events per close.
+
+---
 
 ### P10 — measurement ◆ SHIP LINE · 2026-08-24
 
@@ -835,13 +990,16 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
 | **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
 | **`NORMALIZE_KEY` regresses as a no-op** | `regress()` models `SET_TOLERANCE` only. A key-rewriting rule can add matches whose delta the cap never sees. | P12 |
-| **Policy provenance unverified** | `Policy` is loaded from disk and trusted. Nothing checks a signature, so a tampered policy file governs. | P9 |
-| **Completeness does not cover postings** | The audit accounts for anchors, records and sources. Nothing asserts every proven match produced a journal entry. | P9 |
+| ~~Policy provenance unverified~~ | **Closed at P9.** The header event pins a sha256 of the policy file and every judged decision names its policy ref, so a run under an unapproved version is visible in the record. A *signature* is still absent — the digest proves what ran, not who approved it. | signing: post-v1 |
+| ~~Completeness does not cover postings~~ | **Closed at P9.** The close posts, and the audit gained a postings dimension: a proven match with no journal entry makes it fail. | resolved |
 | **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
 | **A novel finding still cannot be named** | `E14` is the honest placeholder; a real registry with a lifecycle is P11. | P11 |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
-| `events.py` | Skeleton — raises `NotImplementedError`. The decision log is the next phase. | P9 |
 | `triage/`, `mcp/`, `api/` | Skeleton — every module raises `NotImplementedError` naming its phase | P12–P14 |
+| **No retention or custody for the log** | `data/runs/` is local scratch. One log per close, replaced on re-run. No archive, no external anchor: the chain proves internal consistency, not custody. | post-v1 |
+| **`ProposalRefused` has one producer** | `promote()` records it. `check_profile` and verifier refusals raise without recording — the contracts layer has no journal by design. | P13 (a session to record into) |
+| **Postings cover the settlement leg only** | `Dr Bank / Cr Clearing`. The fee/revenue split belongs to the capture side, which this loop does not reconcile. | P15 |
+| **No concurrency story for the log** | Two closes writing one log interleave and break the chain — correctly, but confusingly. | when a server exists |
 | Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
 | `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
 | Splink not integrated | Deferred with a reason — no corpus case where probabilistic scoring changes an outcome. See the P4 entry. | when a case needs it |
@@ -891,31 +1049,29 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Back to P9 — the record.** P10 was taken out of order and is green; P9 is now
-the only unmet gate before the ship line is fully closed.
+**The ship line is closed.** P6–P10 are all green: the system measures itself,
+accounts for every input, posts what it proves, and can be re-derived from its
+own record. Everything from here is upside.
 
-1. **Append-only decision log**, typed events: `MatchProven`, `MatchRejected`,
-   `ExceptionRaised`, `RuleInduced`, `RulePromoted`, `AdapterAuthored`,
-   `IntakeUnverified`, `CloseBlocked`, `ProposalRefused`, `CodeProposed`.
-2. Every event carries **actor, input hash, policy version, outcome**.
+**Start P11 — open taxonomy.** Before the agent, because the agent needs to name
+a novel finding without crashing.
 
-**The gate is replay**: reconstruct the same scorecard from the log alone. P10
-made that target concrete — the scorecard is now a defined artifact with eight
-metrics, four arms and a decomposition, so "the same scorecard" is checkable
-rather than a figure of speech.
+1. **Exception-code registry** with a lifecycle replacing the closed enum:
+   `PROPOSED → PROVISIONAL → PROMOTED → RETIRED`.
+2. `PROPOSED` may label and route; **cannot fire a rule or affect a posting**.
+3. Contract **major bump** — breaking. Do it while there are no external
+   consumers.
 
-Three things to get right. **Do not log by instrumenting the happy path** — a log
-written only where someone remembered to call it will miss exactly the refusals
-that matter; derive the events from the same structures the completeness audit
-walks. **Record refusals as first-class events**: `R-EVIL` being turned away is
-the most interesting thing that happens in a governed system, and a log
-containing only successes is a marketing document. And **log the scope
-declarations** — P10 found a filter upstream of the accountability boundary, and
-an out-of-scope declaration nobody records is that bug with a reason attached.
+**Gate:** a novel finding gets a `PROPOSED` code, appears in triage, routes to an
+owner, and is proven unable to affect a posting. Promotion requires a named human
+and a written definition.
 
-P9 also closes the P7 gap: policy is loaded from disk and trusted today, with
-nothing verifying provenance. Once every event carries a policy ref, a tampered
-policy becomes visible as a run judged under a version nobody approved.
+Three things P9 leaves ready for it. `CodeProposed` already exists as an event
+kind with `P11` named as its producer, so the registry has somewhere to write.
+The posting rules are now the place to prove a `PROPOSED` code cannot reach the
+books — a claim that was unfalsifiable while nothing posted. And `E14` is doing
+the registry's job badly today: 4 of 5 planted defects surface and 1 is named,
+so **classification 20% is the number P11 and P12 have to move.**
 
 ---
 
@@ -925,6 +1081,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-24 | **P9 GREEN — the ship line is closed (P6–P10 all green).** Append-only decision log, hash-chained; 15 typed event kinds derived by set arithmetic over the audit's own structures, not by instrumenting the happy path. `make replay` rebuilds the scorecard from the log alone with the engine made to raise. **The close now posts** — 23 balanced entries, unattributable credits to suspense, settlement the bank never received deliberately not posted with the reason printed — which makes invariant 1 checkable for the first time. Policy bytes pinned in the header, closing P7's provenance gap. **Found two real bugs in P8: `Decimal("0.00")` is falsy so a tolerance-tightening rule regressed as a no-op, and a P8 test that could pass by not running.** 21/21 mutations caught after closing four genuine holes; coverage 96% → 97%. Contract → 2.1.0. |
 | 2026-08-24 | **P10 GREEN ◆ SHIP LINE.** `make eval` from a clean checkout: 4 arms, 8 metrics, A and B. Rates carry their decomposition; the LLM arm reports absent and refuses to produce a number; the tier split must account for every match. **Found: the runner was filtering the bank side before the completeness audit could see it, so the planted `E08` — a ₹1,160 credit with nothing behind it — left every run undisposed while invariant 8 read `complete`.** First measurement of the differentiator: exception coverage 80% vs the baseline's 0%; classification 20%, which is P12's denominator. 15/15 mutations caught; coverage 93% → 96%. |
 | 2026-08-21 | **P8 GREEN.** Promotion gate: regression re-run rather than read, additions counted and capped, added matches must verify, promotion is an event with an evidence hash. `R-EVIL` refused, narrow rule promotes. Contract → **2.0.0** (first major). Mutation found a weak test of mine that changed two fields at once. |
 | 2026-08-21 | **P7 GREEN.** `Policy` as a versioned frozen asset; `verify(proof, records, policy)`; profile validators + `check_profile`; rejection budget; rounding threshold. All four audit bypasses closed and mutation-tested 1:1. Contract → 1.5.0. Also fixed a missing-file crash P6's gate had missed, and a vacuous assertion in my own P7 gate. |

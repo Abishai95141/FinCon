@@ -105,6 +105,23 @@ def history():
     )
 
 
+@pytest.fixture
+def wide_history(history):
+    """The same records, matched under a tolerance wide enough that `b:1` is in
+    the history. Narrowing then has something to take away."""
+    profile, policy = _profile("0.30"), _policy()
+    baseline = run_tiers(
+        history.anchors, history.group_records, profile, ProofTier.P0_ARITHMETIC, policy=policy
+    )
+    assert len(baseline.matches) == 2, "both anchors must match for a narrowing rule to break one"
+    return MatchHistory(
+        anchors=history.anchors,
+        group_records=history.group_records,
+        records=history.records,
+        matches=baseline.matches,
+    )
+
+
 def _rule(rule_id: str, action: RuleAction, **over) -> Rule:
     base = dict(
         rule_id=rule_id,
@@ -205,13 +222,35 @@ def test_every_added_match_must_verify_under_policy(history):
     assert outcome.added
 
 
-def test_a_rule_that_breaks_history_is_refused(history):
-    """The one direction the old gate did check. It must keep working."""
+def test_a_rule_that_breaks_history_is_refused(wide_history):
+    """The one direction the old gate did check. It must keep working.
+
+    Rewritten at P9: this was guarded by `if outcome.broken:` over a history
+    where nothing could break — `b:0` matches at T0 with a zero residual, so
+    narrowing the tolerance never touched it. The test passed by not running,
+    and coverage showed the "would break" branch had never executed. The
+    history here is built *wide*, so `b:1` exists only because of tolerance and
+    narrowing genuinely takes it away.
+    """
     narrowing = _rule("R-N", RuleAction(kind=ActionKind.SET_TOLERANCE, amount="0.00"))
     policy = _policy()
-    outcome = regress(narrowing, history, _profile("0.30"), policy)
-    if outcome.broken:
-        assert not evaluate(narrowing, outcome, policy).allowed
+    outcome = regress(narrowing, wide_history, _profile("0.30"), policy)
+
+    assert outcome.broken == ["b:1"], outcome.broken
+    decision = evaluate(narrowing, outcome, policy)
+    assert not decision.allowed
+    assert any("would break" in r for r in decision.reasons), decision.reasons
+    with pytest.raises(PolicyViolation):
+        promote(narrowing, outcome, policy, actor="meera")
+
+
+def test_a_promotion_event_is_required_before_one_can_be_re_verified(history):
+    """`verify_promotion` on a rule that was never promoted. Untested until P9
+    found the branch unexercised — and it is the branch that decides whether an
+    unpromoted rule can pass for a promoted one."""
+    draft = _rule("R-DRAFT", RuleAction(kind=ActionKind.SET_TOLERANCE, amount="0.30"))
+    assert draft.promotion is None
+    assert not verify_promotion(draft, history, _profile(), _policy())
 
 
 # --------------------------------------------------------------------------

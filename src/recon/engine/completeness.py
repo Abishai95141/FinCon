@@ -34,6 +34,12 @@ class Disposition(StrEnum):
     """Deliberately excluded, with a stated reason. Never a bare exclusion."""
     REJECTED = "rejected"
     """Refused at intake, with a reason. Counted by row conservation."""
+    POSTED = "posted"
+    """A proof that reached the books. Added at P9: until then the audit covered
+    anchors, records and sources, and nothing asserted that a match the system
+    calls proven ever produced a journal entry — which is the thing the product
+    claims to do."""
+
     UNDISPOSED = "undisposed"
     """The bug. An input the run neither handled nor mentioned."""
 
@@ -51,6 +57,9 @@ class CompletenessReport:
     sources: dict[str, str]
     """source name -> intake strength (verified / declared / failed)."""
 
+    postings: dict[str, Disposition] = field(default_factory=dict)
+    """proof id -> whether it reached the books."""
+
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -66,11 +75,20 @@ class CompletenessReport:
         return sorted(k for k, v in self.sources.items() if v == "failed")
 
     @property
+    def undisposed_postings(self) -> list[str]:
+        return sorted(k for k, v in self.postings.items() if v is Disposition.UNDISPOSED)
+
+    @property
     def complete(self) -> bool:
-        return not (self.undisposed_anchors or self.undisposed_records or self.failed_sources)
+        return not (
+            self.undisposed_anchors
+            or self.undisposed_records
+            or self.failed_sources
+            or self.undisposed_postings
+        )
 
     def tally(self, side: str = "anchors") -> dict[str, int]:
-        pool = self.anchors if side == "anchors" else self.records
+        pool = {"anchors": self.anchors, "records": self.records, "postings": self.postings}[side]
         counts: dict[str, int] = {}
         for disposition in pool.values():
             counts[disposition.value] = counts.get(disposition.value, 0) + 1
@@ -94,7 +112,44 @@ class CompletenessReport:
                 f"  UNDISPOSED records ({len(self.undisposed_records)}): "
                 f"{self.undisposed_records[:5]}"
             )
+        if self.postings:
+            lines[0] += f"  postings={self.tally('postings')}"
+        if self.undisposed_postings:
+            lines.append(
+                f"  PROVEN BUT NOT POSTED ({len(self.undisposed_postings)}): "
+                f"{self.undisposed_postings[:5]}"
+            )
         return "\n".join(lines + [f"  {n}" for n in self.notes])
+
+    def extend(
+        self,
+        *,
+        sources: Mapping[str, str] | None = None,
+        proof_ids: Iterable[str] = (),
+        posted_proof_ids: Iterable[str] = (),
+    ) -> CompletenessReport:
+        """Add what the engine could not know yet.
+
+        The postings do not exist while the tiers are running, and the intake
+        strengths belong to the caller that read the sources. Extending the
+        engine's report rather than recomputing one keeps a single piece of set
+        arithmetic over the records — two audits of the same inputs can drift,
+        and the one nobody reads is the one that rots.
+        """
+        posted = set(posted_proof_ids)
+        return CompletenessReport(
+            anchors=dict(self.anchors),
+            records=dict(self.records),
+            sources={**self.sources, **dict(sources or {})},
+            postings={
+                **self.postings,
+                **{
+                    pid: (Disposition.POSTED if pid in posted else Disposition.UNDISPOSED)
+                    for pid in proof_ids
+                },
+            },
+            notes=list(self.notes),
+        )
 
     def raise_if_incomplete(self) -> None:
         if not self.complete:
@@ -111,6 +166,8 @@ def audit(
     out_of_scope: Mapping[str, str] | None = None,
     rejected_ids: Iterable[str] = (),
     source_strengths: Mapping[str, str] | None = None,
+    proof_ids: Iterable[str] = (),
+    posted_proof_ids: Iterable[str] = (),
 ) -> CompletenessReport:
     """Set arithmetic over what went in and what came out.
 
@@ -150,9 +207,14 @@ def audit(
             f"not count as disposed: {unreasoned[:5]}"
         )
 
+    posted = set(posted_proof_ids)
     return CompletenessReport(
         anchors={rec.record_id: classify(rec.record_id) for rec in anchors},
         records={rec.record_id: classify(rec.record_id) for rec in group_records},
         sources=dict(source_strengths or {}),
+        postings={
+            pid: (Disposition.POSTED if pid in posted else Disposition.UNDISPOSED)
+            for pid in proof_ids
+        },
         notes=notes,
     )

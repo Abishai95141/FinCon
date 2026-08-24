@@ -19,7 +19,13 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "2.0.0"
+CONTRACT_VERSION = "2.1.0"
+# 2.1.0 — P9 added the decision-log surface: Event, EventKind, the per-kind
+#         payload models, and PRODUCERS (which kind is written by what, and for
+#         the three with no producer yet, the phase that will build them). All
+#         new models, so minor — nothing existing changed shape. The log is a
+#         public artifact: an external auditor reads it without our code, so it
+#         is versioned like everything else here.
 # 2.0.0 — P8 tightened the Rule promotion validator: PROMOTED now requires a
 #         PromotionEvent produced by recon.engine.promotion.promote(), which
 #         re-runs the regression against real history under a named policy. A
@@ -88,6 +94,25 @@ from .adapter import (  # noqa: E402
     ReaderSpec,
     RejectRule,
 )
+from .event import (  # noqa: E402
+    GENESIS,
+    PAYLOADS,
+    PRODUCERS,
+    CloseBlockedPayload,
+    CloseCompletedPayload,
+    CloseStartedPayload,
+    Event,
+    EventKind,
+    ExceptionRaisedPayload,
+    IntakeUnverifiedPayload,
+    MatchProvenPayload,
+    MatchRejectedPayload,
+    OutOfScopePayload,
+    PostingWrittenPayload,
+    ProposalRefusedPayload,
+    RulePromotedPayload,
+    SourceIngestedPayload,
+)
 from .exception import ExceptionCode, ReconException, Resolution  # noqa: E402
 from .policy import Policy, PolicyViolation, Ratio  # noqa: E402
 from .proof import MatchTier, Proof, ProofLeg, ProofTier  # noqa: E402
@@ -103,20 +128,35 @@ from .rule import (  # noqa: E402
 
 __all__ = [
     "CONTRACT_VERSION",
+    "GENESIS",
+    "PAYLOADS",
+    "PRODUCERS",
     "AdapterSpec",
     "CanonicalField",
+    "CloseBlockedPayload",
+    "CloseCompletedPayload",
+    "CloseStartedPayload",
+    "Event",
+    "EventKind",
     "ExceptionCode",
+    "ExceptionRaisedPayload",
     "FieldMap",
+    "IntakeUnverifiedPayload",
+    "MatchProvenPayload",
+    "MatchRejectedPayload",
     "MatchTier",
     "Money",
+    "OutOfScopePayload",
     "ParseVerb",
     "Policy",
     "PolicyViolation",
+    "PostingWrittenPayload",
     "Predicate",
     "PromotionEvent",
     "Proof",
     "ProofLeg",
     "ProofTier",
+    "ProposalRefusedPayload",
     "Ratio",
     "ReaderKind",
     "ReaderSpec",
@@ -127,5 +167,7 @@ __all__ = [
     "Resolution",
     "Rule",
     "RuleAction",
+    "RulePromotedPayload",
     "RuleStatus",
+    "SourceIngestedPayload",
 ]

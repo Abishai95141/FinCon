@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES := 0 1 2 3 4 5 6 7 8 10
+GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10
 
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 
@@ -19,6 +19,7 @@ help:
 	@echo "  e2e       end-to-end on a generated batch"
 	@echo "  lint      ruff + the no-float rule"
 	@echo "  graph     refresh the graphify code graph"
+	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  status    print the tracker header"
 
 setup:
@@ -56,6 +57,10 @@ gen:
 # print a number if they do not tie.
 eval:
 	uv run python -m bench.run
+
+# The gate's own claim, runnable by hand: rebuild the scorecard from the record.
+replay:
+	uv run python -m bench.replay_cli $(or $(B),A)
 
 test:
 	uv run pytest -q tests/unit tests/property tests/gates

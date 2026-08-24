@@ -45,6 +45,8 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | An input that ends a run with no disposition | The run exits zero and the scorecard looks clean — see invariant 8 | Every source, record and anchor is matched, excepted, or explicitly out of scope |
 | An unmeasured thing reported as **zero** | A zero says we ran it and got nothing. That is a claim, and it flatters us for free — found at P10 on the LLM arm | Report **absent**, naming the phase that will measure it, and make the number *raise* rather than return |
 | Filtering an input before the completeness audit can see it | Invariant 8 only sees what it is handed; a filter in the caller is a silent drop with extra steps — found at P10 | Hand the engine everything; declare exclusions `out_of_scope` with a reason, and print the count |
+| A log written by instrumenting the happy path | It records what the author was thinking about, and the refusals are what nobody is thinking about — found at P9 | Derive events by set arithmetic over the structures the audit walks, and fail the run on an input no event names |
+| Computing the same fact twice | The copy nobody reads rots, and a control over it goes quietly dead — found at P9 | Extend the one answer; never recompute it beside itself |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
 
@@ -147,13 +149,14 @@ src/recon/
   engine/        blocking · tiers T0–T3 · subset-sum · tolerance budget · verifier
   triage/        model edge — normalize, classify, induce. Proposals only.
   profiles/      loop definitions as data (settlement_3way, gstr2b)
+  journal/       append-only decision log — hash chain, derivation, replay
   mcp/           FastMCP server — verify_proof is stateless and public
   api/           FastAPI + OpenAPI
-  events.py      typed event emission
 bench/
   generator/     synthetic batches + complete labels + manifest verification
   adversarial/   authored at P0, before the engine. Never edited to match it.
   arms/          four ablation arms incl. the securo baseline and the absent LLM arm
+  replay.py      score a close from its decision log alone
   planted.py     exception coverage / classification / ambiguity, scored vs P0 labels
   rate.py        a rate that cannot be printed without its decomposition
   metrics.py     the eight metrics
@@ -198,6 +201,7 @@ make gen          # regenerate synthetic batches from seed
 make test         # unit + property
 make e2e          # end-to-end on a generated batch
 make lint         # ruff + the no-float rule
+make replay       # re-derive a close from its decision log alone
 make graph        # refresh the graphify code graph
 ```
 

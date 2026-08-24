@@ -28,10 +28,22 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from ..contracts import Policy, PolicyViolation, ProofTier, Record
+from ..contracts.event import EventKind, ProposalRefusedPayload, RulePromotedPayload
 from ..contracts.rule import ActionKind, PromotionEvent, Rule, RuleStatus
 from .verifier import verify
 
 SAMPLE_SIZE = 5
+
+
+def _record(journal, kind, **fields) -> None:
+    """Write to the journal when one was supplied.
+
+    Optional on purpose: the gate exists whether or not anyone is recording, and
+    a promotion path that could not run without a log would make the log a
+    dependency of the control rather than a record of it.
+    """
+    if journal is not None:
+        journal.append(kind, **fields)
 
 
 @dataclass(frozen=True)
@@ -75,13 +87,6 @@ class RegressionOutcome:
     exceptions_cleared: int = 0
     evidence_hash: str = ""
 
-    def summary(self) -> str:
-        return (
-            f"{self.rule_ref} under {self.policy_ref}: {self.matches_checked} checked, "
-            f"{len(self.broken)} broken, {len(self.added)} added, "
-            f"{len(self.unverifiable)} unverifiable"
-        )
-
 
 @dataclass(frozen=True)
 class Decision:
@@ -90,7 +95,15 @@ class Decision:
 
 
 def _tolerance_asked_for(rule: Rule) -> Decimal | None:
-    asked = [a.amount for a in rule.then if a.kind is ActionKind.SET_TOLERANCE and a.amount]
+    """`is not None`, not truthiness. Found at P9 by a coverage gap: a rule
+    asking for a tolerance of exactly `0.00` was filtered out here, because
+    `Decimal("0.00")` is falsy — so `_apply` left the profile alone and the
+    regression reported that a rule tightening tolerance to zero changes
+    nothing. Tightening is a legitimate proposal, and the gate could not see
+    what it did: audit finding `F3` pointing the other way."""
+    asked = [
+        a.amount for a in rule.then if a.kind is ActionKind.SET_TOLERANCE and a.amount is not None
+    ]
     return max(asked) if asked else None
 
 
@@ -188,21 +201,42 @@ def evaluate(rule: Rule, outcome: RegressionOutcome, policy: Policy) -> Decision
     return Decision(allowed=not reasons, reasons=reasons)
 
 
-def promote(rule: Rule, outcome: RegressionOutcome, policy: Policy, actor: str) -> Rule:
+def promote(
+    rule: Rule,
+    outcome: RegressionOutcome,
+    policy: Policy,
+    actor: str,
+    journal: object | None = None,
+) -> Rule:
     """Promote, or refuse and say why.
 
     Raises rather than returning a flag: a caller able to ignore a boolean would
     be granting its own permission, which is the failure this whole layer exists
     to close.
+
+    The refusal is written to the journal *before* the raise. `R-EVIL` being
+    turned away is the most interesting thing that happens in a governed system,
+    and a log that records only what succeeded is a marketing document.
     """
     if not actor or not actor.strip():
         raise PolicyViolation("a promotion must name who granted it")
 
     decision = evaluate(rule, outcome, policy)
     if not decision.allowed:
+        _record(
+            journal,
+            EventKind.PROPOSAL_REFUSED,
+            actor=actor,
+            outcome="refused",
+            input_hash=outcome.evidence_hash,
+            policy_ref=policy.ref,
+            payload=ProposalRefusedPayload(
+                subject=rule.ref, proposal_kind="rule", reasons=list(decision.reasons)
+            ),
+        )
         raise PolicyViolation(f"refused to promote {rule.ref}: " + "; ".join(decision.reasons))
 
-    return rule.model_copy(
+    promoted = rule.model_copy(
         update={
             "status": RuleStatus.PROMOTED,
             "promotion": PromotionEvent(
@@ -218,6 +252,23 @@ def promote(rule: Rule, outcome: RegressionOutcome, policy: Policy, actor: str) 
             ),
         }
     )
+    _record(
+        journal,
+        EventKind.RULE_PROMOTED,
+        actor=actor,
+        outcome="promoted",
+        input_hash=outcome.evidence_hash,
+        policy_ref=policy.ref,
+        payload=RulePromotedPayload(
+            rule_ref=rule.ref,
+            evidence_hash=outcome.evidence_hash,
+            matches_checked=outcome.matches_checked,
+            matches_broken=len(outcome.broken),
+            matches_added=len(outcome.added),
+            sample_added=outcome.added[:SAMPLE_SIZE],
+        ),
+    )
+    return promoted
 
 
 def verify_promotion(rule: Rule, history: MatchHistory, profile, policy: Policy) -> bool:

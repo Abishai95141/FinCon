@@ -88,13 +88,16 @@ Blocks rule induction. Must land before anything authors a rule.
 ### P9 — The record
 Moved earlier from the old P8. You cannot audit an agent you did not log.
 
-- [ ] **Append-only decision log**, typed events: `MatchProven`, `MatchRejected`, `ExceptionRaised`,
+- [x] **Append-only decision log**, typed events: `MatchProven`, `MatchRejected`, `ExceptionRaised`,
       `RuleInduced`, `RulePromoted`, `AdapterAuthored`, `IntakeUnverified`, `CloseBlocked`,
-      `ProposalRefused`, `CodeProposed`.
-- [ ] Every event carries actor, input hash, policy version, outcome.
+      `ProposalRefused`, `CodeProposed`. Plus five the replay needs: `CloseStarted`,
+      `SourceIngested`, `OutOfScope`, `PostingWritten`, `CloseCompleted`.
+- [x] Every event carries actor, input hash, policy version, outcome.
+- [x] *Added:* the close posts, and the completeness audit covers postings — closing the gap P6
+      left open. A decision log for a reconciliation that never reached the books is half a log.
 
 **Gate:** replay a full close from the log alone and reconstruct the same scorecard. An event stream
-that cannot reproduce the run is not an audit trail.
+that cannot reproduce the run is not an audit trail. **GREEN 2026-08-24** — evidence in STATUS.md.
 
 ### P10 — Measurement ◆ SHIP LINE
 The old P6, unchanged in content. Everything after this is upside.

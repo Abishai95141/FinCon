@@ -21,6 +21,7 @@ appear in the match count, and the tiers are how the count is decomposed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -242,6 +243,38 @@ def score(
         records_scored=records_scored,
         notes=list(result.notes),
     )
+
+
+def scorecard_digest(card: Scorecard) -> str:
+    """A stable fingerprint of what a run scored.
+
+    Written into the log's terminator so a replay that disagrees with the run is
+    detectable rather than a matter of opinion. Deliberately excludes timing:
+    wall clock is not a decision, and a digest that moved every run would say
+    nothing about whether the answers matched.
+    """
+    body = {
+        "arm": card.arm,
+        "true_pairs": card.true_pairs,
+        "produced": card.produced,
+        "correct": card.correct,
+        "false_matches": card.false_matches,
+        "missed": card.missed,
+        "tiers": dict(sorted((card.tiers or {}).items())),
+        "exceptions": None
+        if card.exceptions is None
+        else {
+            "planted_in_scope": card.exceptions.planted_in_scope,
+            "surfaced": card.exceptions.surfaced,
+            "classified": card.exceptions.classified,
+            "missed": sorted(card.exceptions.missed),
+            "ambiguity_planted": card.exceptions.ambiguity_planted,
+            "ambiguity_detected": card.exceptions.ambiguity_detected,
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def render_table(cards: list[Scorecard]) -> str:

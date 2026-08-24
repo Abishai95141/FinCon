@@ -37,6 +37,19 @@ class ArmResult:
     exactly one tier, which is a fact about them worth stating rather than a
     reason to exempt them."""
 
+    matches: list = field(default_factory=list)
+    """The engine `Match` objects behind `pairs`, kept so the close can post
+    them and the log can name them. Baseline arms produce pairs and no matches:
+    an arm with no proof has nothing to post, which is the difference being
+    measured."""
+
+    rejected: list = field(default_factory=list)
+    """Matches the verifier refused. First-class, so a log cannot contain only
+    what worked."""
+
+    run: object | None = None
+    """The engine's own `MatchRun`, when there is one."""
+
     absent: str | None = None
     """Why this arm produced nothing — set only when the arm was never run. An
     absent arm is rendered as absent and refuses to produce a rate. A zero would

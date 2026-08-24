@@ -25,30 +25,53 @@ still read `complete`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from recon.contracts import Policy, ProofTier, ReconException, Record
+from recon.contracts import (
+    PRODUCERS,
+    CloseCompletedPayload,
+    EventKind,
+    Policy,
+    ProofTier,
+    ReconException,
+    Record,
+)
 from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
 from recon.engine.completeness import CompletenessReport
 from recon.engine.tiers import MatchProfile
 from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
+from recon.journal import Journal
+from recon.journal.derive import Decisions, derive
+from recon.ledger.accounts import SETTLEMENT_CHART
+from recon.ledger.beancount_io import CloseResult as LedgerResult
+from recon.ledger.beancount_io import JournalEntry, post_and_assert
+from recon.ledger.posting_rules import entries_for
 
 from .arms import deterministic, llm_only, securo_baseline
-from .metrics import EIGHT_METRICS, Scorecard, render_table, score, truth_groups, truth_pairs
+from .metrics import (
+    EIGHT_METRICS,
+    Scorecard,
+    render_table,
+    score,
+    scorecard_digest,
+    truth_groups,
+    truth_pairs,
+)
 from .planted import load_planted, score_planted
 
 BATCHES = Path("data/batches")
 POLICY_DIR = Path("data/policy")
+POLICY_FILE = POLICY_DIR / "settlement_3way.json"
+RUNS = Path("data/runs")
 #: Authority, loaded from disk like an adapter spec so a change shows in a diff.
-SETTLEMENT_POLICY = Policy.model_validate_json(
-    (POLICY_DIR / "settlement_3way.json").read_text(encoding="utf-8")
-)
+SETTLEMENT_POLICY = Policy.model_validate_json(POLICY_FILE.read_text(encoding="utf-8"))
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 
 #: Which planted defects this loop is able to see. The bank<->settlement leg is
@@ -82,6 +105,13 @@ class Sides:
     scope: dict[str, str]
     """record id -> why this loop does not reconcile it. Never a bare drop."""
 
+    proofs: list = field(default_factory=list)
+    """The intake proof per source. Carried so the record can say what each
+    source was worth, rather than the close asserting it second-hand."""
+
+    digests: dict[str, str] = field(default_factory=dict)
+    strengths: dict[str, str] = field(default_factory=dict)
+
     @property
     def anchors(self) -> list[tuple[str, Record]]:
         """The bank side this loop actually reconciles. `bank` keeps everything
@@ -93,6 +123,10 @@ class Sides:
         """Anchors, group rows, weakest provenance — the three things a caller
         that only wants to match needs."""
         return self.anchors, self.settlement, self.provenance
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -107,6 +141,14 @@ class CloseResult:
     settlement_records: list[Record] = field(default_factory=list)
     external_of: dict[str, str] = field(default_factory=dict)
     scope: dict[str, str] = field(default_factory=dict)
+    records: dict[str, Record] = field(default_factory=dict)
+    matches: list = field(default_factory=list)
+    entries: list[JournalEntry] = field(default_factory=list)
+    not_posted: list[str] = field(default_factory=list)
+    ledger: LedgerResult | None = None
+    journal_path: Path | None = None
+    decisions: Decisions | None = None
+    unproduced_kinds: dict[str, str] = field(default_factory=dict)
     ok: bool = True
 
 
@@ -147,11 +189,27 @@ def load_sides(batch: str) -> Sides:
         (bank_result.proof.provenance, settle_result.proof.provenance),
         key=lambda t: 0 if t is ProofTier.P0_ARITHMETIC else 1,
     )
-    return Sides(bank=bank, settlement=settlement, provenance=weakest, scope=scope)
+    proofs = [bank_result.proof, settle_result.proof]
+    return Sides(
+        bank=bank,
+        settlement=settlement,
+        provenance=weakest,
+        scope=scope,
+        proofs=proofs,
+        digests={p.source: p.doc_hash for p in proofs},
+        strengths={p.source: p.strength for p in proofs},
+    )
 
 
-def close(batch: str) -> CloseResult:
-    """One close, scored. Every arm sees the same records and the same labels."""
+def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
+    """One close: matched, posted, recorded, scored.
+
+    The order matters. Posting happens before the log is derived, because a
+    decision log for a reconciliation that never reached the books is a log of
+    half the system. Deriving happens before scoring, because `derive` refuses
+    to finish while any input the audit disposed of is named by no event — so a
+    scorecard cannot be produced over a run the record does not account for.
+    """
     sides = load_sides(batch)
     labels = BATCHES / batch / "labels.json"
     truth = truth_pairs(labels)
@@ -200,19 +258,95 @@ def close(batch: str) -> CloseResult:
     ]
     cards.append(score(llm_only.absent(), truth))
 
-    complete = ours.completeness is not None and ours.completeness.complete
+    # --- the books -------------------------------------------------------
+    records = {rec.record_id: rec for _, rec in sides.bank + sides.settlement}
+    entries, not_posted = entries_for(
+        matches=ours.matches,
+        exceptions=list(ours.exceptions),
+        records=records,
+        anchor_side=SETTLEMENT_3WAY.anchor_side,
+    )
+    ledger = post_and_assert(
+        entries,
+        SETTLEMENT_CHART,
+        opened_on=date(2026, 7, 1),
+        period_end=WINDOW[1],
+        policy=SETTLEMENT_POLICY,
+    )
+
+    # Extended, not recomputed. The engine's audit already did the set
+    # arithmetic over records; the postings and the intake strengths are what it
+    # could not know. Auditing twice would leave two answers to the same
+    # question, and the one nobody reads is the one that rots.
+    completeness = ours.completeness.extend(
+        sources=sides.strengths,
+        proof_ids=[m.proof.proof_id for m in ours.matches],
+        posted_proof_ids=[e.proof_id for e in entries if e.proof_id],
+    )
+
+    # --- the record ------------------------------------------------------
+    decisions = Decisions(
+        batch=batch,
+        profile=SETTLEMENT_3WAY.name,
+        policy=SETTLEMENT_POLICY,
+        policy_digest=_digest(POLICY_FILE),
+        source_digests=sides.digests,
+        sources=sides.proofs,
+        scope=sides.scope,
+        matches=list(ours.matches),
+        rejected=list(ours.rejected),
+        exceptions=list(ours.exceptions),
+        entries=entries,
+        completeness=completeness,
+        records=records,
+        external_of=external_of,
+        blocked_reasons=[f"{e.kind}: {e.message}" for e in ledger.errors],
+        label_digest=_digest(labels),
+        period=[WINDOW[0].isoformat(), WINDOW[1].isoformat()],
+    )
+    journal = Journal((journal_dir or RUNS) / batch / "decisions.jsonl", fresh=True)
+    journal.extend(derive(decisions))
+
+    complete = completeness.complete
+    card = {c.arm: c for c in cards}["deterministic"]
+    journal.append(
+        EventKind.CLOSE_COMPLETED,
+        actor="engine",
+        outcome="complete" if complete else "incomplete",
+        input_hash=decisions.label_digest,
+        policy_ref=SETTLEMENT_POLICY.ref,
+        payload=CloseCompletedPayload(
+            events_before_this=journal.count,
+            matches=card.produced,
+            rejected=len(ours.rejected),
+            exceptions=len(ours.exceptions),
+            postings=len(entries),
+            out_of_scope=len(sides.scope),
+            scorecard_digest=scorecard_digest(card),
+            complete=complete,
+        ),
+    )
+
     return CloseResult(
         batch=batch,
         cards=cards,
         blocking=blocking,
         candidates=candidates,
-        completeness=ours.completeness,
+        completeness=completeness,
         exceptions=list(ours.exceptions),
         bank_records=[rec for _, rec in sides.bank],
         settlement_records=group_records,
         external_of=external_of,
         scope=sides.scope,
-        ok=not blocking.dropped and complete,
+        records=records,
+        matches=list(ours.matches),
+        entries=entries,
+        not_posted=not_posted,
+        ledger=ledger,
+        journal_path=journal.path,
+        decisions=decisions,
+        unproduced_kinds={k.value: v for k, v in PRODUCERS.items() if v.startswith("P")},
+        ok=not blocking.dropped and complete and not ledger.blocked,
     )
 
 
@@ -243,6 +377,26 @@ def render(result: CloseResult) -> str:
         lines += ["", "planted defects, one line each (labels authored at P0):"]
         lines += [f"  {line}" for line in card.exceptions.detail]
         lines.append(f"  {card.cost_line()}")
+
+    if result.ledger is not None:
+        lines += [
+            "",
+            f"journal: {len(result.entries)} entries, "
+            f"{'BLOCKED' if result.ledger.blocked else 'balanced'}, "
+            f"{result.ledger.entries_loaded} loaded by beancount",
+        ]
+        lines += [f"  not posted: {reason}" for reason in result.not_posted]
+
+    if result.journal_path is not None:
+        lines.append(
+            f"record: {result.journal_path} — replay with "
+            f"`python -m bench.replay_cli {result.batch}`"
+        )
+        if result.unproduced_kinds:
+            lines.append(
+                "  event kinds with no producer yet: "
+                + ", ".join(f"{k} ({v.split(' ')[0]})" for k, v in result.unproduced_kinds.items())
+            )
 
     if result.exceptions:
         lines.append("\nexceptions raised (deterministic arm):")
