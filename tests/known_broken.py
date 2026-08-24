@@ -64,9 +64,16 @@ def test_no_domain_constants_in_kernel_code():
 
 @pytest.mark.xfail(
     strict=True,
-    reason="P12: zero rules have been promoted end-to-end, so nothing attributes "
-    "improvement rule by rule  -  which is the gate's own sentence. The dedup rule "
-    "promotes when constructed by hand; the model has not yet written one that does.",
+    reason="P12: no rule stands promoted, so nothing attributes improvement rule "
+    "by rule  -  the gate's own sentence. Status changed on 2026-08-24 without the "
+    "row going green: a model-induced rule DID promote end to end (key_occurrence "
+    "gt 0, suppressing a duplicated export row; 0 broken, 1 added, fires on "
+    "held-out B), and against the generator's labels it added a false match and "
+    "destroyed a planted E06 worth the exact value it removed. The gate had no "
+    "dimension for value leaving a close; it does now, and the rule is correctly "
+    "refused. What is missing is no longer the rule but the attestation path  -  "
+    "a suppression that removes value needs a named human, and P12 has no route "
+    "for one to sign a firing.",
 )
 def test_a_model_induced_rule_has_been_promoted():
     from pathlib import Path as _P

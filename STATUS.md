@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: all three parts built, zero rules promoted end to end.** |
+| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: all three parts built. A model rule promoted end to end and was strictly harmful — the gate had no dimension for value leaving a close. It does now; no rule stands promoted.** |
 | **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **346 offline + 63 live tests.** Contract **6.0.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B **90.9% auto-match, 0.00% false-match, 0 unprovable**. `llm_only` scores **95.5%** and **1 unprovable** — its whole advantage. Coverage **80% vs 0%**. Classification with triage: **40%–80%, n=5** (a range, not a point) |
@@ -62,6 +62,95 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### A promoted rule finally acts, and the first one was harmful · 2026-08-24
+
+```
+$ make verify  P2-P11, all green     $ make test    366 passed, 2 xfailed
+$ make lint    clean                 $ make mutate  SET=p12d 7/7 caught
+                                     $ make mutate  p9 20/20 · p10 15/15 · p11 24/24
+```
+
+**Promotion was ceremony.** `promote()` returned a signed record with an
+evidence hash and nothing read it: `close()` took no rules, and `fires_on` was
+reached only from the regression simulator. Four phases of controls — the
+regression gate, the generality check, the selectivity cap — were deciding
+whether to grant a permission that was never exercised. Every test written
+against them passed, because their inputs were real; nothing asserted their
+output changed anything.
+
+**A model-induced rule promoted end to end, on the first honest attempt.**
+deepseek-v4-flash, from a controller's own words ("the gateway sent the same
+payment through in two rows"), with no hint at the mechanism:
+
+```
+when side eq "settlement" · key_occurrence gt "0" · source eq "gateway-settlement"
+then suppress
+     fires A=2/517  B=2/536      regression: 0 broken, 1 added, unmodelled=-
+     promotable: True            PROMOTED by meera — evidence f3d5ccca7c7beb68
+```
+
+It generalises: +1 match on batch A *and* on held-out B, residual `0.00`, tier
+`P1` naming the rule. On A the suppression closes the payout to exactly the
+bank credit — ₹90,259.47 − ₹5,489.75 = ₹84,769.72.
+
+**Scored against the generator's labels it is strictly harmful.**
+
+| | without rule | with rule |
+|---|---|---|
+| correct | 20/22 | 20/22 |
+| **false matches** | **0** | **1** |
+| **exception coverage** | **4/5** | **3/5** |
+
+The generator plants this as `E06` — *"charge ch_00228 duplicated as ch_00493 in
+the export"*, `unreconciled: 5489.75`. The right answer is to **report the
+duplicate**, not to make it disappear. The rule adds a false match and destroys
+a true finding worth exactly the value it removed, on both batches.
+
+**Why the gate passed it.** It measured matches broken, matches added, and
+postings moved. Nothing measured *value removed from the close*, so deleting a
+real discrepancy and removing noise looked identical. Same shape as the P12
+finding where a proposal overwrote a derived answer: one gained, one destroyed.
+
+**The fix refuses on tier, not on outcome.** Raw records cannot prove a row is
+spurious — they contain it. "This row is a duplicate" is a claim about the
+counterparty's data that only a named human can attest, so removing value is
+`P2 ATTESTED` and never `P1 RULE`. Zero-value rows need no signature and still
+promote. That keeps *never move silently* rather than sliding into *refuse what
+you can't prove*.
+
+**Three more defects the wiring exposed**, none visible while promotion was inert:
+
+- A rule-assisted match claimed `P0 ARITHMETIC`. The `Proof` contract already
+  refused a P1 proof naming no rule and caught the half-wiring on the first run.
+- The decision log read a stale copy of `scope`. `close()` handed the journal
+  `sides.scope` while the engine matched against its own; they diverged the
+  moment a rule could exclude a row. P9's `derive` refused to finish over inputs
+  no event named — the control worked. `MatchRun` now carries the one answer.
+- `exceptions_cleared` was `len(added)`: a field named for exceptions that had
+  never counted one, printed in the record a human reads before approving.
+
+**Two tests inverted, both of which had encoded the blind spot.** gate_p8's
+"a narrow suppress rule still promotes" suppressed a row worth ₹199.80 on the
+reasoning that it *"backs no match, so removing it costs nothing"* — breaking no
+match is not the same as costing nothing. It now uses a memo line carrying no
+movement, so the gate is still proven not to be a blanket refusal.
+
+**Anti-drift, same class as `DERIVED_CODES`.** The model could not write a
+duplicate rule because the induction prompt's field list was a hand-typed
+sentence that never mentioned `key_occurrence`; three refusals read as model
+incompetence and were a stale string. The prompt's vocabulary and its fact rows
+are now generated from `engine.rules.FIELDS`, and the acceptance criteria from
+`policy` and the gate's own constants. Guards fail if either diverges — plus one
+asserting the criteria never name a field, which is the line between publishing
+a standard and dictating the answer.
+
+**Still red, and the reason changed.** No rule stands promoted, so nothing
+attributes improvement rule by rule. What is missing is no longer a rule the
+model can write — it wrote one — but the **attestation path**: a suppression
+that removes value needs a named human, and P12 has no route for one to sign a
+firing. `make eval` is unchanged at 90.9% / 0 false / coverage 4/5, which is the
+honest baseline with the harmful rule out of the store.
 
 ### #4, #5, and P12's last third · 2026-08-24
 
