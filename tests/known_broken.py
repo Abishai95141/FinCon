@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import ast
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -61,35 +60,6 @@ def test_no_domain_constants_in_kernel_code():
         "domain constants in the engine belong in a profile or an adapter spec "
         f"(invariant 7): {offenders}"
     )
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="CLAUDE.md rule 6 promises end-to-end tests. `tests/e2e/` is empty and "
-    "`make e2e` exits non-zero. The gates are the de-facto e2e suite, so the fix "
-    "is probably to reconcile the wording, not to fill a directory.",
-)
-def test_make_e2e_succeeds():
-    assert subprocess.run(["make", "e2e"], capture_output=True).returncode == 0
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="CLAUDE.md rule 6 promises unit tests on real inputs. `tests/unit/` is empty.",
-)
-def test_unit_tests_exist():
-    assert list(Path("tests/unit").glob("test_*.py"))
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="P12: adapter-spec synthesis is the last third and is unbuilt, so the "
-    "gate's 'an unseen format ingests with no configuration' half is unmet.",
-)
-def test_adapter_synthesis_has_a_producer():
-    from recon.contracts import PRODUCERS, EventKind
-
-    assert not PRODUCERS[EventKind.ADAPTER_AUTHORED].startswith("P")
 
 
 @pytest.mark.xfail(

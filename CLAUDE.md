@@ -80,6 +80,8 @@ Adapters are **declarative specs** interpreted by hand-written code with a close
 
 Unit tests on real inputs. Property tests on invariants. E2E against a generated batch with known labels. A test that only exercises a mock has tested the mock.
 
+Where each lives, because naming directories that stayed empty is how this rule rotted: **unit** tests sit inside the gate files next to what they check (`gate_p2.py` on every parse verb, `gate_p1.py` on every contract validator); **property** tests are `tests/property/` — metamorphic relations and invariants, generated inputs, and each one labels the state it constrains so a relation that cannot reach it fails; **e2e** is `make e2e`, the gates that run a full close against a generated batch. **Known-broken** items are `xfail(strict=True)` reproducers in `tests/known_broken.py`, so a fix breaks CI rather than quietly aging in a table.
+
 ---
 
 ## Vocabulary

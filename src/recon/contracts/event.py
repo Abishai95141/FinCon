@@ -73,7 +73,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CODE_ACCEPTED: "recon.engine.taxonomy.accept",
     EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
     EventKind.RULE_INDUCED: "recon.triage.induce.induce",
-    EventKind.ADAPTER_AUTHORED: "P12 — adapter synthesis has no producer until a model authors one",
+    EventKind.ADAPTER_AUTHORED: "recon.triage.normalize.author_spec",
 }
 
 
@@ -295,6 +295,20 @@ class RuleInducedPayload(_Payload):
     model: str = ""
 
 
+class AdapterAuthoredPayload(_Payload):
+    spec_id: str
+    source: str
+    delimiter: str = ","
+    header_row: int = 1
+    mappings: list[str] = Field(default_factory=list)
+    reasoning: str = ""
+    model: str = ""
+    needs_approval: bool = True
+    """Always true for a model-authored spec. Set by the engine, never read from
+    the proposal — a spec that could name its own author could declare itself
+    human-written and walk past first-use approval."""
+
+
 class UnproducedPayload(_Payload):
     """For kinds whose producer has not been built. Carries the phase, so an
     event of this shape appearing in a log is itself a bug worth seeing."""
@@ -320,7 +334,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CODE_ACCEPTED: CodeAcceptedPayload,
     EventKind.CODE_PROMOTED: CodePromotedPayload,
     EventKind.RULE_INDUCED: RuleInducedPayload,
-    EventKind.ADAPTER_AUTHORED: UnproducedPayload,
+    EventKind.ADAPTER_AUTHORED: AdapterAuthoredPayload,
 }
 
 # Asserted at import, like the parse-verb registry: a kind added without a

@@ -5,7 +5,8 @@
       "bank_csv": "73f598ad8e8fd1fadddfc04a21262aaa3918103ad2dfe031903ce3f6cd44eb4d",
       "labels": "2e95cf3ce938388be44341710d3b451b76fead24a0b9891720d1d738ba3a1ea3",
       "orders": "cbbf6d4b5b7a10eed076e26187c8886d11dba92180af995e253ef00dfc6fdbfc",
-      "settlement": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba"
+      "settlement": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+      "settlement_novel": "62dcfff945c9c0502da0cdb3fecafb6786c91a5b2d641a6809992065acaa73fc"
     },
     "seed": 20260801
   },
@@ -15,7 +16,8 @@
       "bank_csv": "bb857bb69cc2f564936f91bf380d890470d62c5f69d26762b4dc2d1a4415dd68",
       "labels": "de18ca6e6c9bfed71a9cc068da9593a9f0aafa416f73403583635a0ae20ea75e",
       "orders": "cbe3d63cb2c6b703287f1cf6c50156470988928bb7c9cdb863d05910f66808a7",
-      "settlement": "42f1ccddfbe3b3671435c2d53ae2f778b4446f0168189c1358f60f39fdea2da6"
+      "settlement": "42f1ccddfbe3b3671435c2d53ae2f778b4446f0168189c1358f60f39fdea2da6",
+      "settlement_novel": "6a1bea3e104639dd29618746ade59e58b6fa7943c76c8b31cbcd74fea2c9b35d"
     },
     "seed": 20260901
   }

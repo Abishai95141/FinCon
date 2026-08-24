@@ -9,7 +9,7 @@
     "encoding": [
       "utf-8"
     ],
-    "header_row": 1,
+    "header_row": 3,
     "delimiter": ";"
   },
   "fields": [
@@ -17,7 +17,7 @@
       "to": "date",
       "source": "booking_timestamp",
       "parse": "date",
-      "fmt": "YYYY-MM-DDTHH:mm:SSZ"
+      "fmt": "DD.MM.YYYY"
     },
     {
       "to": "amount",
@@ -36,20 +36,20 @@
     },
     {
       "to": "reference",
-      "source": "transaction_reference",
+      "source": "txn_ref",
       "parse": "text"
     },
     {
-      "to": "counterparty",
-      "source": "counterparty_name",
+      "to": "key",
+      "as_key": "payment_id",
+      "source": "auth_code",
       "parse": "text"
     },
     {
       "to": "key",
       "as_key": "gateway",
-      "source": "counterparty_name",
-      "parse": "regex",
-      "pattern": "^([A-Za-z]+)"
+      "source": "psp",
+      "parse": "lower"
     },
     {
       "to": "key",
@@ -72,7 +72,7 @@
   ],
   "natural_key": [
     "keys.row_type",
-    "source_row_id",
+    "keys.payment_id",
     "amount"
   ]
 }

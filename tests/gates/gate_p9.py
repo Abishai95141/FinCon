@@ -371,29 +371,32 @@ def test_every_event_kind_declares_who_produces_it():
     )
 
 
-def test_a_kind_with_no_producer_yet_names_the_phase_that_will_build_it():
-    """Same discipline as P10's absent arm: a missing thing is declared missing,
-    with the phase that fills it, rather than being quietly absent."""
+def test_no_event_kind_is_left_without_a_producer():
+    """The list this asserted has emptied, one phase at a time.
+
+    `CodeProposed` left it at P11, `RuleInduced` at P12 part 2, and
+    `AdapterAuthored` with adapter synthesis. The property was always the point
+    and the membership never was: a kind either names the thing that writes it
+    or names the phase that will, and a kind that quietly did neither would be a
+    hole in the vocabulary nobody could see.
+
+    Now that every kind has a producer, the discipline is inverted: adding a kind
+    without one fails here rather than being noticed later.
+    """
     from recon.contracts import PRODUCERS, EventKind
 
-    unbuilt = {k: v for k, v in PRODUCERS.items() if v.startswith("P")}
-    # The list shrinks as phases land — `CodeProposed` left it at P11,
-    # `RuleInduced` at P12. The property is the point, not the membership: a
-    # kind either names a producer or names the phase that will build one.
-    assert EventKind.CODE_PROPOSED not in unbuilt
-    assert EventKind.RULE_INDUCED not in unbuilt
-    assert EventKind.ADAPTER_AUTHORED in unbuilt, (
-        "adapter synthesis is the last third of P12 and must still say so"
-    )
-    for kind, phase in unbuilt.items():
-        assert phase[:3] == "P12", f"{kind} claims phase {phase}"
+    unbuilt = {k.value: v for k, v in PRODUCERS.items() if v.startswith("P")}
+    assert unbuilt == {}, f"kinds still naming a phase rather than a producer: {unbuilt}"
+    assert set(PRODUCERS) == set(EventKind)
+    for kind, producer in PRODUCERS.items():
+        assert producer.strip(), f"{kind} names no producer at all"
 
 
 def test_the_close_reports_which_kinds_it_could_not_produce(closed):
-    assert "AdapterAuthored" in closed.unproduced_kinds
-    assert "MatchProven" not in closed.unproduced_kinds
-    assert "CodeProposed" not in closed.unproduced_kinds
-    assert "RuleInduced" not in closed.unproduced_kinds
+    # Empty now, and that is the assertion: the close reports which kinds it
+    # could not produce, and there are none left. It stays because a kind added
+    # without a producer must show up here on the page, not only in a test.
+    assert closed.unproduced_kinds == {}
 
 
 # --------------------------------------------------------------------------

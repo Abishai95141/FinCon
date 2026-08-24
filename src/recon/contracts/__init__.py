@@ -19,7 +19,13 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "6.0.0"
+CONTRACT_VERSION = "6.1.0"
+# 6.1.0 — RuleAction.value (normalize_key could say which key to rewrite and
+#         never what to, which is why it was unusable), PromotionEvent
+#         .postings_moved, AdapterAuthoredPayload, AdapterSpec.natural_key.
+#         New optional fields and a new payload, so minor. ChartOfAccounts and
+#         AdapterSpec currency became REQUIRED — that is major in isolation, and
+#         it ships inside 6.0.0's break rather than after it.
 # 6.0.0 — Identity stops being positional. `Record.record_id` was
 #         `source:ordinal`, so the same id named a different row in every batch
 #         and an id-keyed rule fired on strangers in held-out data. It is now
@@ -154,6 +160,7 @@ from .event import (  # noqa: E402
     GENESIS,
     PAYLOADS,
     PRODUCERS,
+    AdapterAuthoredPayload,
     ClassificationProposedPayload,
     CloseBlockedPayload,
     CloseCompletedPayload,
@@ -204,6 +211,7 @@ __all__ = [
     "GENESIS",
     "PAYLOADS",
     "PRODUCERS",
+    "AdapterAuthoredPayload",
     "AdapterSpec",
     "Authority",
     "CanonicalField",

@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: two of three parts built.** |
+| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: all three parts built, zero rules promoted end to end.** |
 | **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **346 offline + 63 live tests.** Contract **6.0.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B **90.9% auto-match, 0.00% false-match, 0 unprovable**. `llm_only` scores **95.5%** and **1 unprovable** — its whole advantage. Coverage **80% vs 0%**. Classification with triage: **40%–80%, n=5** (a range, not a point) |
@@ -62,6 +62,84 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### #4, #5, and P12's last third · 2026-08-24
+
+```
+$ make verify  P0-P11, 12 gates      $ make test  355 passed, 2 xfailed
+$ make e2e     113 passed            $ make lint  clean
+$ make mutate-preflight  92 mutations, 0 stale     contract 6.0.0 -> 6.1.0
+```
+
+**#5 — domain constants leave the kernel, and widening the guard found a second
+leak.** `Assets:Bank:HDFC` sat in `ledger/accounts.py` from P1 with a docstring
+admitting the violation; three phases cited that docstring and none acted. The
+chart is now `data/profiles/settlement_3way.json`. Widening the check past the
+instance that prompted it found `currency: str = "INR"` defaulted in both
+`ChartOfAccounts` and `AdapterSpec` — a source declaring no currency was read as
+rupees, which is not a missing field but a wrong number nothing downstream can
+contradict. Both required now. Probed with five constants including three the
+guard had never seen; all five caught.
+
+**#4 — the regression grows the dimension it was missing.** Two of five action
+kinds were unmeasurable and refused as such, which was safe and left a fifth of
+the vocabulary decorative. They were different problems.
+
+`normalize_key` was always match-shaped; the regression simply never applied it.
+Applied, an alias rule on this corpus **breaks a match** — which the old
+regression reported as `0 broken`. `RuleAction` gained `value`, because the
+action could say which key to rewrite and never what to.
+
+`book_to` genuinely is not match-shaped, so `regress` now replays the **posting
+layer** and diffs the journal. One `book_to` on batch A reroutes 3 entries and
+₹173,180.12 while breaking no match and adding none. The delta is *shown*, not
+gated — inventing a threshold for money moved would repeat the selectivity cap a
+relation had to refute — so `PromotionEvent` carries it, the treatment
+`sample_added` already gets. Absent stays distinct from empty.
+
+**P12 part 3 — adapter synthesis, and the finding it produced.** The novel
+format existed as a spec with no data behind it, so the "unseen format" claim had
+never been runnable. `settlement_psp_v2.csv` is the same 517 movements with a
+semicolon delimiter, a two-line preamble, renamed columns, `DD.MM.YYYY` and minor
+units — generated from the same rows, so correctness is checkable by cross-format
+agreement rather than by reading the spec.
+
+The model reads twelve raw lines and authors a spec. Across runs it gets the
+structure right — delimiter, minor units, the non-ISO date — and the semantics
+inconsistently: one run mapped `merchant_batch` to a key instead of the grouping,
+another mapped `reference` to `auth_code`. `header_row` came back 3, 3 and 4.
+
+**And the five ingest proofs did not catch the semantic error.** They could not:
+this source states no control total and carries no balances, so roll-forward and
+tie-out both skip and the strongest honest verdict is `declared`. That is
+build-plan `P4` working as designed — and it is the first concrete argument for
+first-use approval, which was a field with a rationale and no demonstration until
+a wrong spec walked through intake unchallenged.
+
+A wrong `header_row` *is* caught: off by one in either direction yields **zero**
+records and a `failed` intake, named by row conservation. So the gate asserts the
+**disposition** of a wrong spec rather than the correctness of a right one, and
+reports `header_row` instead of pinning a number the model does not hold steady.
+
+**A crash I introduced today, found by building on it.** `ingest()` has promised
+since P2 that it never raises. `natural_key` reopened that the day it was added:
+a model-authored spec proposing `key<txn_ref>` crashed the close on its first
+outing — the same class P6 closed for readers, reopened for interpretation. It
+now returns a failed source.
+
+**Every event kind has a producer.** `AdapterAuthored` was the last naming a
+phase rather than a writer. The P9 test that tracked the shrinking list is
+inverted: adding a kind without a producer now fails.
+
+**`make e2e` measures behaviour instead of layout.** It pointed at an empty
+`tests/e2e/`; it runs the gates that execute a full close against a generated
+batch. CLAUDE.md rule 6 now names where each category actually lives, because
+naming directories that stayed empty is how the rule rotted.
+
+**Two known-broken items remain**, both real: no model-induced rule has been
+promoted end to end, and policy and taxonomy are pinned by digest but not signed.
+
+---
 
 ### Identity, one grammar production, and the arm that broke the metric · 2026-08-24
 
@@ -1661,14 +1739,9 @@ the row out. A fix cannot land unnoticed.
 | Problem | Reproducer | State |
 |---|---|---|
 | P12: zero rules have been promoted end-to-end, so nothing attributes improvement rule by rule - which is the gate's own sentence. The dedup rule promotes when constructed by hand; the model has not yet written one that does. | `test_a_model_induced_rule_has_been_promoted` | **open** |
-| P12: adapter-spec synthesis is the last third and is unbuilt, so the gate's 'an unseen format ingests with no configuration' half is unmet. | `test_adapter_synthesis_has_a_producer` | **open** |
-| #4 the regression is match-shaped: `book_to` changes where money posts, not which rows match, so a match-delta regression cannot measure it. It is refused rather than measured. Closing this needs a posting-delta regression. | `test_book_to_is_measurable_by_the_regression` | **open** |
-| CLAUDE.md rule 6 promises end-to-end tests. `tests/e2e/` is empty and `make e2e` exits non-zero. The gates are the de-facto e2e suite, so the fix is probably to reconcile the wording, not to fill a directory. | `test_make_e2e_succeeds` | **open** |
-| #4 (second half) `normalize_key` can add matches by making records comparable that were not. The regression does not simulate it. | `test_normalize_key_is_measurable_by_the_regression` | **open** |
 | Policy and taxonomy are pinned by digest but not signed. The digest proves what ran, not who approved it. | `test_policy_carries_a_signature` | **open** |
-| CLAUDE.md rule 6 promises unit tests on real inputs. `tests/unit/` is empty. | `test_unit_tests_exist` | **open** |
 
-_7 reproducible problems, each an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
+_2 reproducible problems, each an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
 
 **Not policed by this table.** Problems with no minimal reproducer stay prose below and stay unchecked: toy scale, one model and one prompt, single-sample timing, defect rates unvalidated against production formats, and every audit being one person auditing their own design. Naming them here is the only guard they have.
 

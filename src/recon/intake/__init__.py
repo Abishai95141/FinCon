@@ -18,7 +18,7 @@ from pathlib import Path
 from ..contracts import AdapterSpec, ParseVerb, Policy, Record
 from .proofs import Check, CheckStatus, IntakeProof, prove
 from .readers import ReaderError, SourceDocument, read
-from .spec import Interpreted, Rejection, interpret
+from .spec import Interpreted, Rejection, SpecError, interpret
 
 ADAPTER_DIR = Path("data/adapters")
 
@@ -120,7 +120,16 @@ def ingest(
         # never happened — raises FileNotFoundError from read_bytes() and sailed
         # past. Permission and is-a-directory take the same path.
         return _unreadable(spec, path, exc)
-    out: Interpreted = interpret(spec, document)
+    try:
+        out: Interpreted = interpret(spec, document)
+    except SpecError as exc:
+        # A spec naming a field outside the closed vocabulary is a bad *spec*,
+        # not a bad document — and it must still be a failed source rather than
+        # a failed run. Added the same day `natural_key` was: a model-authored
+        # spec proposing `key<txn_ref>` crashed the close on its first outing,
+        # which is precisely the class P6 closed for readers and I reopened for
+        # interpretation.
+        return _unreadable(spec, path, exc)
     return IngestResult(
         spec=spec,
         document=document,
