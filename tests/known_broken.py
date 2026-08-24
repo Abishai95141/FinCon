@@ -1,9 +1,9 @@
 """Known-broken items, as reproducers that fail on purpose.
 
 STATUS.md carried a hand-maintained table of open problems and roughly a quarter
-of its rows were wrong: `F1`–`F4` sat there marked **CRITICAL** for four phases
+of its rows were wrong: `F1`-`F4` sat there marked **CRITICAL** for four phases
 after being closed at P7/P8, and "No control plane" stayed open while three
-modules enforced one. Nobody was lying — writing the row felt like discharging
+modules enforced one. Nobody was lying  -  writing the row felt like discharging
 the obligation, and nothing ever asked again.
 
 So the table stops being written by hand. Each machine-checkable problem is an
@@ -64,9 +64,12 @@ def test_no_domain_account_names_in_kernel_code():
     for path in sorted(Path("src/recon").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if node.value.startswith(("Assets:", "Liabilities:", "Income:", "Expenses:")):
-                    offenders.append(f"{path}:{node.lineno} {node.value}")
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and (node.value.startswith(("Assets:", "Liabilities:", "Income:", "Expenses:")))
+            ):
+                offenders.append(f"{path}:{node.lineno} {node.value}")
     assert not offenders, offenders
 
 
@@ -102,7 +105,7 @@ def test_adapter_synthesis_has_a_producer():
 @pytest.mark.xfail(
     strict=True,
     reason="P12: zero rules have been promoted end-to-end, so nothing attributes "
-    "improvement rule by rule — which is the gate's own sentence. The dedup rule "
+    "improvement rule by rule  -  which is the gate's own sentence. The dedup rule "
     "promotes when constructed by hand; the model has not yet written one that does.",
 )
 def test_a_model_induced_rule_has_been_promoted():
