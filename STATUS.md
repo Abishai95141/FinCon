@@ -66,7 +66,7 @@ Notes: anything surprising, anything still weak.
 ### A promoted rule finally acts, and the first one was harmful · 2026-08-24
 
 ```
-$ make verify  P2-P11, all green     $ make test    366 passed, 2 xfailed
+$ make verify  P2-P11, all green     $ make test    393 passed, 46 deselected, 2 xfailed
 $ make lint    clean                 $ make mutate  SET=p12d 7/7 caught
                                      $ make mutate  p9 20/20 · p10 15/15 · p11 24/24
 ```
@@ -151,6 +151,22 @@ model can write — it wrote one — but the **attestation path**: a suppression
 that removes value needs a named human, and P12 has no route for one to sign a
 firing. `make eval` is unchanged at 90.9% / 0 false / coverage 4/5, which is the
 honest baseline with the harmful rule out of the store.
+
+
+**Half the live-gate suite had never run offline.** The P12 gates are excluded
+from `make test` because they can call DeepSeek and rule 1 forbids an offline
+mode — but excluding the *file* excluded the assertions inside it that never
+touch a model. Four had gone stale unnoticed, one of them the ADR-001 guard
+keeping model-authored text out of the posting layer. That guard was also a
+substring grep, which a comment documenting the constraint tripped and which
+`getattr(exc, "hypo" + "thesis")` would have walked straight past; it is an AST
+walk now, with a mutation pinning it.
+
+The split is computed from each test's fixture closure — a test is `live` if it
+constructs a `ModelEdge`, in its own body or in any fixture it pulls in. The
+first version keyed on a fixture *named* `edge` and mis-marked `gate_p12c`
+immediately, which is the same hand-kept-list failure it was written to fix.
+`make test` is 366 → 393.
 
 ### #4, #5, and P12's last third · 2026-08-24
 

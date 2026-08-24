@@ -89,10 +89,9 @@ status-table:
 	uv run python -m tools.status_table
 
 test:
-	@echo "note: gate(s) P$(LIVE_GATES) need a live model and are excluded here."
-	@echo "      run them with: DEEPSEEK_API_KEY=... make gate P=12"
-	uv run pytest -q tests/property tests/gates tests/known_broken.py \
-	  $(foreach p,$(LIVE_GATES),--ignore=tests/gates/gate_p$(p).py)
+	@echo "note: tests that construct a ModelEdge are deselected here (-m 'not live')."
+	@echo "      the rest of P$(LIVE_GATES) does run. all of it: DEEPSEEK_API_KEY=... make gate P=12"
+	uv run pytest -q tests/property tests/gates tests/known_broken.py -m "not live"
 
 # The gates that run a full close against a generated batch with known labels.
 # `tests/e2e/` was an empty directory this target pointed at, so the command

@@ -43,11 +43,19 @@ WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 KEY = os.environ.get("DEEPSEEK_API_KEY")
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _preconditions():
-    if not NOVEL.exists():
+@pytest.fixture(autouse=True)
+def _preconditions(request):
+    """Fails loudly for tests that reach a model, and gets out of the way for
+    the ones that do not.
+
+    Was module-scoped and unconditional, so half this file — the closed parse
+    vocabulary, the producer table, the AST guard keeping model-authored text
+    out of the posting layer — ran only when someone had a key and chose to pay
+    for a run. Four of those assertions were stale by 2026-08-24.
+    """
+    if not (BATCHES / "A" / "labels.json").exists():
         pytest.skip("run `make gen` first")
-    if not KEY:
+    if request.node.get_closest_marker("live") and not KEY:
         pytest.fail("DEEPSEEK_API_KEY is not set — P12 has no offline mode (CLAUDE.md rule 1)")
 
 
