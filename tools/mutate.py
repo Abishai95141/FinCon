@@ -62,6 +62,23 @@ def run_set(name: str, env: dict) -> tuple[int, int]:
         return 0, len(mutations)
 
     baseline = {p: pathlib.Path(p).read_text(encoding="utf-8") for p in files}
+
+    def restore(*_args) -> None:
+        """Put every file back, whatever happened.
+
+        A `finally` block is not enough: a timeout kills the process and the
+        mutation stays on disk, which is how one got committed. Registered for
+        SIGINT and SIGTERM as well as normal exit.
+        """
+        for path, text in baseline.items():
+            target = pathlib.Path(path)
+            if target.read_text(encoding="utf-8") != text:
+                target.write_text(text, encoding="utf-8")
+
+    atexit.register(restore)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *a: (restore(), sys.exit(130)))
+
     caught = 0
     width = max(len(label) for label, _, _, _ in mutations)
 
