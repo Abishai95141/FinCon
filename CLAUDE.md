@@ -113,6 +113,7 @@ These must hold at all times. A change that breaks one is a bug, not a trade-off
 5. **A rule cannot be promoted if it breaks a historical match.** The regression gate is not advisory.
 6. **Blocking recall is reported on every run.** An unmeasured blocker silently caps the whole system.
 7. **The engine is domain-agnostic.** Anything domain-specific belongs in a profile, not in `engine/`.
+8. **Every input has a disposition.** When a run ends, every source is verified/declared/failed, every record is matched / attached to an exception / explicitly out of scope with a reason, and every anchor is matched or carries an exception. A run that completes with an undisposed input is a bug in the system, not a finding about the data. Crash and silence are both violations — see `docs/05-FAILURE-REGISTER.md`.
 
 ---
 

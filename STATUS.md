@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Current phase** | **control-plane remediation** — 5 audit findings, blocks P7 |
+| **Current phase** | **remediation** — 5 bypasses + 10 failure cases, blocks P7 |
 | **Last green gate** | **P5** — 17/17. `make verify` runs P0–P5, 104 tests. |
 | **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine. Contract 1.2.0. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
@@ -447,6 +447,12 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **F3 regression gate blind to widening** | **HIGH.** `promotable` only checks `matches_broken == 0`; widening tolerance adds matches without breaking any. A ₹1,000,000 tolerance rule promotes cleanly. | before P7 — blocks it |
 | **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
 | **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
+| **Readers raise instead of reporting** | 4 crash cases: unsupported kind, malformed XML, empty file, bad `header_row`. `ingest()`'s docstring claims it never raises. One bad file kills a close. | remediation |
+| **Header-only file reports `ok=True`** | Zero-rows guard is `rows_in_file > 0 and not records`, so an empty export passes as clean. A failed fetch reads as a quiet month. | remediation |
+| **Partial payment is silent** | `matches=0 exceptions=[] unmatched=1`. `E04` exists in the taxonomy and nothing ever produces it. Violates invariant 8. | remediation |
+| **1:N settlement is silent** | T2 reconstructs N:1 only. The inverse has no strategy and raises no exception. Violates invariant 8. | remediation |
+| **A finding with no code crashes** | `ExceptionCode("E14")` → `ValueError`. The agent can only force-fit or stay silent. | code registry |
+| **Sub-paisa residue posts silently** | Entry off by ₹0.005 → `blocked=False`, zero errors. Build-plan P16 (rounding account + threshold) never built. | remediation |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
 | `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P6–P10 |
 | Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
@@ -492,31 +498,38 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start the control-plane remediation, before P7.** An adversarial audit at P5
-([docs/04-CONTROL-PLANE-AUDIT.md](docs/04-CONTROL-PLANE-AUDIT.md)) found five
-reproducible bypasses, two of which defeat the proof verifier. They are not five
-bugs — they are one missing layer showing through five times: **the system checks
-artifacts against themselves and takes its policy from whoever calls it.**
+**Remediation, before P7.** Two audits at P5 found the same thing from two
+directions: [04-CONTROL-PLANE-AUDIT.md](docs/04-CONTROL-PLANE-AUDIT.md) (five
+control bypasses) and [05-FAILURE-REGISTER.md](docs/05-FAILURE-REGISTER.md) (19
+probes: 5 crash, 3 silent, 2 wrong, 9 handled).
 
-That is survivable while a human writes every config file, which is the situation
-today. It stops being survivable at P7, because every input the checks trust is
-an input the agent would be writing.
+**Do this one first, ahead of everything:** the **completeness audit** for
+invariant 8 — assert at end of run that every source, record and anchor has a
+disposition, computed independently of the code paths that produced them. It is
+small, and it is the only item on either list that catches failures nobody has
+enumerated. It would have found both silent matching cases without anyone
+writing a partial-payment test.
 
-Order, and the first four are not optional before P7:
+Then, in order:
 
-1. **`Policy` as a versioned, human-owned object.** `verify(proof, records,
-   policy)` replaces `verify(proof, records, side_signs)`. The proof's declared
-   tolerance becomes a claim to check against policy, not a permission to
-   honour. Closes F1 and F2 together.
-2. **Validators on `MatchProfile`** — signs must be ±1, tolerance must sit under
-   the policy ceiling. Should have existed at P1.
-3. **Rejection budget in policy**; intake fails above it rather than reporting
-   `declared`.
-4. **Regression gate v2** — count added matches as well as broken, re-run under
-   current policy rather than trusting the shipped report, cap the delta.
+1. Readers return a failed `IntakeProof` instead of raising — makes `ingest()`'s
+   docstring true and stops one bad file killing a close.
+2. A source producing zero records fails regardless of row count.
+3. `Policy` as a versioned, human-owned object; `verify(proof, records, policy)`
+   replaces `verify(proof, records, side_signs)`. Closes F1 and F2 together.
+4. Validators on `MatchProfile` — signs ±1, tolerance under the policy ceiling.
+5. Rejection budget in policy; intake fails above it.
+6. `UNMAPPABLE` verb outcome carrying column name and sample values.
+7. Rounding threshold in policy; residue above it becomes `E03`.
+8. Regression gate v2 — count added matches, re-run under policy, cap the delta.
 
-Write the attack first in each case. All five findings reproduce from a clean
+Write the attack first in every case. All of it reproduces from a clean
 checkout, so each fix has a failing case to turn green before it is believable.
+
+Deferred with reasons: exception-code registry (contract-breaking, major bump),
+declarative strategy pipeline (larger; wait until a second loop needs it), P6
+ablation runner (still the ship line, but it would be measuring a system whose
+governance is known-broken).
 
 ---
 
@@ -526,6 +539,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **Failure register.** 19 novel inputs probed: 5 crash, 3 finish silently, 2 finish wrong, 9 handled. Added **invariant 8** (every input has a disposition) to CLAUDE.md — one completeness check that catches unenumerated cases. |
 | 2026-08-21 | **Audit.** Attacked the system at P5: five reproducible control bypasses, two defeating the verifier. Root cause — artifacts check themselves, policy comes from the caller. Remediation 1–4 blocks P7. Contract → 1.3.0 (DECIMAL_MINOR). |
 | 2026-08-21 | **P5 GREEN.** T2 subset-sum with CP-SAT, five outcomes, cohesion constraint, E09/E13 split. Contract → 1.2.0 (disjoint→distinct, correcting a P1 modelling error). No-float rule caught a float in engine. |
 | 2026-08-20 | **P4 GREEN.** Blocking with unioned blocks, ~70% search reduction, 100% recall on reachable pairs, P3 numbers unchanged. `dropped` vs `unreachable` split, mutation-tested both ways. Splink deferred with a reason. |

@@ -10,6 +10,7 @@ document below answers the question in front of you.
 | 02 | [Architecture addendum](02-ARCHITECTURE-ADDENDUM.md) | Why deterministic verification does not constrain intake. Proof tiers P0–P3. The MCP substrate. **Amends 01 §3 and §7.** |
 | 03 | [Build plan](03-BUILD-PLAN.md) | Ten phases with gates, the Python stack with per-choice risk, model config and cost, 26 named failure modes. |
 | 04 | [Control-plane audit](04-CONTROL-PLANE-AUDIT.md) | Five reproducible bypasses found by attacking the system at P5, the single root cause, and the three-trust-class redesign. **Blocks P7.** |
+| 05 | [Failure register](05-FAILURE-REGISTER.md) | 19 probes: where a novel input crashes, finishes silently, or finishes wrong — plus invariant 8 and the disposition ladder that routes every case. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Published artifacts
@@ -26,6 +27,7 @@ Republishing to the same URL requires passing it as `url` to the Artifact tool.
 | One Close, End to End | https://claude.ai/code/artifact/7b3e968e-888c-419c-bdf4-9729e32b228a | walkthrough — no markdown mirror |
 | Build Order and Blast Radius | https://claude.ai/code/artifact/ee939959-bd65-471c-a4fe-992687fe1fbf | `03-BUILD-PLAN.md` |
 | Five Ways Past the Gate | https://claude.ai/code/artifact/20d9bec6-36ef-4f70-bd87-278812c1ab80 | `04-CONTROL-PLANE-AUDIT.md` |
+| Where the Run Goes Quiet | https://claude.ai/code/artifact/f23cb3b6-be3a-400b-9be4-999162743893 | `05-FAILURE-REGISTER.md` |
 
 The walkthrough has no markdown mirror in this repo; its numbers are illustrative and internally
 consistent (verified with a script at authoring time), not measurements. Real numbers come from
