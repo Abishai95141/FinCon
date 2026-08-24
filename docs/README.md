@@ -29,7 +29,7 @@ Republishing to the same URL requires passing it as `url` to the Artifact tool.
 | Build Order and Blast Radius | https://claude.ai/code/artifact/ee939959-bd65-471c-a4fe-992687fe1fbf | `03-BUILD-PLAN.md` |
 | Five Ways Past the Gate | https://claude.ai/code/artifact/20d9bec6-36ef-4f70-bd87-278812c1ab80 | `04-CONTROL-PLANE-AUDIT.md` |
 | Where the Run Goes Quiet | https://claude.ai/code/artifact/f23cb3b6-be3a-400b-9be4-999162743893 | `05-FAILURE-REGISTER.md` |
-| The Route From Here | https://claude.ai/code/artifact/PENDING | `06-PLAN-V2.md` |
+| The Route From Here | https://claude.ai/code/artifact/b43c41e6-fd0a-4fb8-8422-bd0c327b14a8 | `06-PLAN-V2.md` |
 
 The walkthrough has no markdown mirror in this repo; its numbers are illustrative and internally
 consistent (verified with a script at authoring time), not measurements. Real numbers come from
