@@ -234,11 +234,14 @@ def test_suppression_is_actually_simulated_and_creates_a_real_match(closed):
     from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
     from recon.engine.promotion import MatchHistory, regress
 
-    dupes = ["gateway-settlement:266", "gateway-settlement:267"]
+    # Stated as a property, not as two hardcoded ids. The old version named
+    # `gateway-settlement:266/267`, which stopped meaning anything the moment
+    # identity became content-derived — and naming them was the thing that had
+    # no path through the gate anyway.
     rule = Rule(
         rule_id="R-DUP",
         profile="settlement_3way",
-        when=[Predicate(field="record_id", op=Operator.IN, value=dupes)],
+        when=[Predicate(field="key_occurrence", op=Operator.GT, value="0")],
         then=[RuleAction(kind=ActionKind.SUPPRESS, reason="duplicated export rows")],
     )
     anchors = [r for r in closed.records.values() if r.side == "bank"]
@@ -260,41 +263,57 @@ def test_suppression_is_actually_simulated_and_creates_a_real_match(closed):
 
 
 def test_a_rule_keyed_on_specific_rows_is_refused_as_a_correction(closed, held_out):
-    """Residual risk `P19`, caught before promotion instead of after.
+    """Residual risk `P19`, caught before promotion instead of after — and now
+    caught **behaviourally**, which is the whole point of fixing identity.
 
-    An id-specific rule breaks no history and adds exactly what it was written
-    to add, so the P8 regression passes it cleanly. Held-out B is where it has
-    nothing to say."""
+    A structural ban on identity predicates used to sit in front of this check,
+    because record ids were positional: `gateway-settlement:266` existed in
+    every batch and named a different row in each, so an id-keyed rule fired on
+    strangers and the firing count called it general. Identity is content-derived
+    now, so a rule naming rows from batch A finds nothing to say about batch B,
+    and the shape judgment is gone.
+    """
     from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
     from recon.engine.promotion import generalises
 
+    victims = [r.record_id for r in closed.settlement_records if r.key_occurrence > 0]
+    assert len(victims) == 2, "batch A's duplicate rows are the fixture"
     rule = Rule(
         rule_id="R-DUP",
         profile="settlement_3way",
-        when=[
-            Predicate(
-                field="record_id",
-                op=Operator.IN,
-                value=["gateway-settlement:266", "gateway-settlement:267"],
-            )
-        ],
+        when=[Predicate(field="record_id", op=Operator.IN, value=victims)],
         then=[RuleAction(kind=ActionKind.SUPPRESS, reason="duplicated export rows")],
     )
     on_a = generalises(rule, closed.settlement_records)
     on_b = generalises(rule, held_out.settlement_records)
-    assert on_a.fires > 0, "the rule does not even fire on the batch it came from"
-    assert not on_b.generalises
-    assert on_b.pinned_fields == ["record_id"]
-
-    # And the reason a firing count alone would not have caught it: record ids
-    # here are positional, so `gateway-settlement:266` exists in *both* batches
-    # and names a different row in each. The rule fires on held-out data — on
-    # rows that have nothing to do with the case it came from, which is worse
-    # than not firing at all.
-    assert on_b.fires > 0, (
-        "positional ids mean this rule DOES fire on B; the structural check is "
-        "what catches it, and this assertion records why"
+    assert on_a.fires == 2, "the rule does not even fire on the batch it came from"
+    assert on_b.fires == 0, (
+        "an id-keyed rule still reaches held-out data — identity is positional again"
     )
+    assert not on_b.generalises
+    assert "CORRECTION" in on_b.summary()
+
+
+def test_the_same_intent_expressed_as_a_property_does_generalise(closed, held_out):
+    """The half that makes the refusal above mean something. The *identical
+    intent* — suppress what the export asserted twice — stated as a property
+    rather than as two row ids fires on both batches and passes.
+
+    Before `key_occurrence` existed there was no way to say this, so a correct
+    rule had no path through the system at all: unsayable as a property, refused
+    as a list of rows.
+    """
+    from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
+    from recon.engine.promotion import generalises
+
+    general = Rule(
+        rule_id="R-DEDUP",
+        profile="settlement_3way",
+        when=[Predicate(field="key_occurrence", op=Operator.GT, value="0")],
+        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="asserted twice")],
+    )
+    assert generalises(general, closed.settlement_records).fires == 2
+    assert generalises(general, held_out.settlement_records).generalises
 
 
 def test_a_rule_keyed_on_a_property_does_generalise(closed, held_out):

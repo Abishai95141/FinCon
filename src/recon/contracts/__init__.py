@@ -19,7 +19,23 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "5.0.0"
+CONTRACT_VERSION = "6.0.0"
+# 6.0.0 — Identity stops being positional. `Record.record_id` was
+#         `source:ordinal`, so the same id named a different row in every batch
+#         and an id-keyed rule fired on strangers in held-out data. It is now
+#         `source:natural-key-hash:occurrence` — stable and unique.
+#         `Record.natural_key` and `Record.key_occurrence` added, and
+#         `AdapterSpec.natural_key` declares which fields build it.
+#         `key_occurrence` is `row_number() over (partition by natural_key)`
+#         evaluated once at intake, which is the one production that makes
+#         "suppress the row the export asserted twice" sayable with a UNARY
+#         predicate. That rule was maximally general and previously unsayable:
+#         two constraints on different axes — arity and generality — were being
+#         enforced as one.
+#         Identity is deliberately NOT the natural key: on batch A exactly two
+#         natural keys collide and they are the planted duplicate, so a
+#         content-keyed id would delete the rows it exists to find.
+#         Retyping a required field is MAJOR.
 # 5.0.0 — P11's claim enforced. `HONESTY_CODES` and `ReconException.is_honesty_code`
 #         are REMOVED: whether escalating is correct is a fact about the
 #         category, so it is `CodeDefinition.escalation_is_correct` and answered

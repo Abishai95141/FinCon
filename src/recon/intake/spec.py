@@ -11,6 +11,7 @@ dropped line: row conservation depends on every departure being counted.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from decimal import Decimal
@@ -19,6 +20,11 @@ from ..contracts import AdapterSpec, CanonicalField, Record
 from ..contracts.adapter import RejectWhen
 from . import verbs
 from .readers import SourceDocument
+
+
+class SpecError(ValueError):
+    """The spec names something outside the closed vocabulary. A spec error,
+    never an execution — ADR-001."""
 
 
 @dataclass(frozen=True)
@@ -123,6 +129,9 @@ def interpret(spec: AdapterSpec, doc: SourceDocument) -> Interpreted:
 
         records.append(
             Record(
+                # Placeholder. Real identity needs the natural key and this
+                # row's position within it, and neither is knowable until every
+                # row is parsed — see `_assign_identity` below.
                 record_id=f"{spec.source}:{ordinal}",
                 side=spec.side,
                 source=spec.source,
@@ -138,4 +147,75 @@ def interpret(spec: AdapterSpec, doc: SourceDocument) -> Interpreted:
             )
         )
 
+    records = _assign_identity(records, spec)
     return Interpreted(records=records, rejections=rejections, running_balances=balances)
+
+
+def _natural_key_of(record: Record, names: list[str]) -> str:
+    """Read the declared fields off a parsed record.
+
+    Closed vocabulary, like everything else a spec can name: `keys.<name>` reads
+    a match key, anything else must be a canonical field. An unknown name is a
+    spec error rather than an attribute lookup, so a model-authored spec cannot
+    reach `raw` — which is untrusted source text — and make the *engine* branch
+    on it.
+    """
+    parts: list[str] = []
+    for name in names:
+        if name.startswith("keys."):
+            parts.append(str(record.keys.get(name[5:], "")))
+        elif name in _NATURAL_KEY_FIELDS:
+            parts.append(str(_NATURAL_KEY_FIELDS[name](record)))
+        else:
+            raise SpecError(
+                f"natural_key names {name!r}, which is not a readable field. "
+                f"Known: {sorted(_NATURAL_KEY_FIELDS)} or keys.<name>"
+            )
+    return "|".join(parts)
+
+
+#: What a natural key may be built from. `raw` is absent on purpose.
+_NATURAL_KEY_FIELDS = {
+    "source": lambda r: r.source,
+    "side": lambda r: r.side,
+    "source_row_id": lambda r: r.source_row_id or "",
+    "group_ref": lambda r: r.group_ref or "",
+    "amount": lambda r: f"{r.amount:.2f}",
+    "currency": lambda r: r.currency,
+    "posted_on": lambda r: r.posted_on.isoformat(),
+}
+
+
+def _assign_identity(records: list[Record], spec: AdapterSpec) -> list[Record]:
+    """Give every row a stable, unique id and its position within its partition.
+
+    Identity was `source:ordinal`, which is neither stable nor meaningful:
+    `gateway-settlement:266` names a different row in every batch, so a rule
+    keyed on it fires happily on held-out data — on rows unrelated to the case
+    it came from. That made the behavioural generality check unsound, which is
+    why a structural ban on identity predicates existed at all.
+
+    `source:natural-key-hash:occurrence` is stable (the same event yields the
+    same id wherever it appears) and unique (occurrence separates repeats). A
+    source declaring no natural key keeps positional ids and its proof says so.
+    """
+    if not spec.natural_key:
+        return records
+
+    seen: dict[str, int] = {}
+    out: list[Record] = []
+    for record in sorted(records, key=lambda r: r.row_ordinal):
+        key = _natural_key_of(record, spec.natural_key)
+        occurrence = seen.get(key, 0)
+        seen[key] = occurrence + 1
+        digest = hashlib.sha256(f"{spec.source}|{key}".encode()).hexdigest()[:12]
+        out.append(
+            record.model_copy(
+                update={
+                    "record_id": f"{spec.source}:{digest}:{occurrence}",
+                    "natural_key": key,
+                    "key_occurrence": occurrence,
+                }
+            )
+        )
+    return out

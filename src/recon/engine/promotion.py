@@ -170,41 +170,40 @@ def _suppressed_by(rule: Rule, records: list[Record]) -> set[str]:
 class GeneralisationOutcome:
     fires: int
     sampled: int
-    pinned_fields: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
 
     @property
     def generalises(self) -> bool:
-        return not self.pinned_fields and self.fires >= MIN_HELD_OUT_FIRINGS
+        return self.fires >= MIN_HELD_OUT_FIRINGS
 
     def summary(self) -> str:
-        if self.pinned_fields:
-            return (
-                f"CORRECTION — pins {self.pinned_fields}, which names rows rather "
-                f"than describing them"
-            )
         if self.fires < MIN_HELD_OUT_FIRINGS:
             return f"CORRECTION — fires on 0/{self.sampled} held-out rows"
         return f"generalises — fires on {self.fires}/{self.sampled} held-out rows"
 
 
-def pinned_fields(rule: Rule) -> list[str]:
-    """Identity predicates, found structurally rather than statistically."""
-    return sorted(
-        {p.field for p in rule.when if p.field in IDENTITY_FIELDS and p.op.value in PINNING_OPS}
-    )
-
-
 def generalises(rule: Rule, held_out: list[Record]) -> GeneralisationOutcome:
-    """Does this rule describe a property, and does it have anything to say
-    about data it did not come from? Both, and the first matters more."""
+    """Does this rule have anything to say about data it did not come from?
+
+    Purely behavioural since identity became content-derived. A structural ban
+    on `eq`/`in` predicates over `record_id` sat in front of this, because
+    positional ids meant `gateway-settlement:266` existed in every batch and an
+    id-keyed rule fired on strangers — a firing count called it general. With
+    stable ids the count is sound on its own, and the shape judgment is gone: a
+    rule keyed on ids that genuinely recur *is* saying something about data it
+    did not come from, and refusing it for how it looked was the wrong axis.
+
+    Two constraints were being enforced as one. ADR-001 stratifies the
+    vocabulary by arity; this stratifies by generality. "Suppress the row the
+    export asserted twice" is maximally general and was not unary — which is why
+    it had no path through the system until `key_occurrence` existed.
+    """
     from .rules import select
 
     selection = select(rule, held_out)
     return GeneralisationOutcome(
         fires=selection.count,
         sampled=len(held_out),
-        pinned_fields=pinned_fields(rule),
         examples=selection.matched[:SAMPLE_SIZE],
     )
 

@@ -32,6 +32,19 @@ FIELDS: dict[str, callable] = {
     "amount": lambda r: r.amount,
     "currency": lambda r: r.currency,
     "posted_on": lambda r: r.posted_on.isoformat(),
+    # Partition-relative. `key_occurrence` is `row_number() over (partition by
+    # natural_key)`, computed once at intake where the whole source is in hand
+    # and carried as a per-record fact — so a rule can ask about duplication
+    # with a *unary* predicate and the aggregation never happens at rule time.
+    #
+    # This is the production that closes the hole. "Suppress the duplicated
+    # row" was previously expressible only by naming the row, because nothing
+    # in the vocabulary could say "another row already asserted this". It was
+    # maximally general — it names no row, holds of any batch, transfers to a
+    # second loop unchanged — and it was unsayable. Two constraints on
+    # different axes (arity, and generality) were being enforced as one.
+    "key_occurrence": lambda r: r.key_occurrence,
+    "natural_key": lambda r: r.natural_key,
 }
 
 MAX_SUBJECT = 500

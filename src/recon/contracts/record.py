@@ -82,6 +82,27 @@ class Record(BaseModel):
             raise ValueError("row_ordinal must be >= 0")
         return v
 
+    natural_key: str = ""
+    """What this row *claims to be*, from the fields the spec declares — not
+    which row it is. Two rows sharing it assert the same economic event twice,
+    which is what a duplicate is.
+
+    Deliberately separate from `record_id`. Making identity *be* the natural key
+    was the obvious move and it is wrong: on batch A exactly two natural keys
+    collide, and they are precisely the planted duplicate — so a content-keyed
+    id would delete the rows it exists to find, and invariant 8 would never see
+    them go. Identity must stay unique; the collision is the signal."""
+
+    key_occurrence: int = 0
+    """This row's position among rows sharing its natural key, in file order.
+    `0` is the first assertion of the event; anything above is a repeat.
+
+    It is a window function — `row_number() over (partition by natural_key)` —
+    evaluated once here, where the whole source is in hand, and carried as a
+    per-record fact. That is what lets a rule ask about duplication with a
+    *unary* predicate: the aggregation happens in the interpreter, never in a
+    rule."""
+
     @property
     def lineage(self) -> str:
         """Where this row came from, in one string, for evidence lines."""

@@ -1,19 +1,78 @@
 {
-  "spec_id": "novel-psp", "source": "novel-psp", "side": "settlement",
-  "authored_by": "human", "currency": "INR",
-  "reader": { "kind": "csv", "encoding": ["utf-8"], "header_row": 1, "delimiter": ";" },
+  "spec_id": "novel-psp",
+  "source": "novel-psp",
+  "side": "settlement",
+  "authored_by": "human",
+  "currency": "INR",
+  "reader": {
+    "kind": "csv",
+    "encoding": [
+      "utf-8"
+    ],
+    "header_row": 1,
+    "delimiter": ";"
+  },
   "fields": [
-    { "to": "date", "source": "booking_timestamp", "parse": "date", "fmt": "YYYY-MM-DDTHH:mm:SSZ" },
-    { "to": "amount", "source": "amount_minor", "parse": "decimal_minor" },
-    { "to": "currency", "source": "ccy", "parse": "text" },
-    { "to": "group_ref", "source": "merchant_batch", "parse": "text" },
-    { "to": "reference", "source": "transaction_reference", "parse": "text" },
-    { "to": "counterparty", "source": "counterparty_name", "parse": "text" },
-    { "to": "key", "as_key": "gateway", "source": "counterparty_name", "parse": "regex", "pattern": "^([A-Za-z]+)" },
-    { "to": "key", "as_key": "row_type", "source": "kind", "parse": "lower" }
+    {
+      "to": "date",
+      "source": "booking_timestamp",
+      "parse": "date",
+      "fmt": "YYYY-MM-DDTHH:mm:SSZ"
+    },
+    {
+      "to": "amount",
+      "source": "amount_minor",
+      "parse": "decimal_minor"
+    },
+    {
+      "to": "currency",
+      "source": "ccy",
+      "parse": "text"
+    },
+    {
+      "to": "group_ref",
+      "source": "merchant_batch",
+      "parse": "text"
+    },
+    {
+      "to": "reference",
+      "source": "transaction_reference",
+      "parse": "text"
+    },
+    {
+      "to": "counterparty",
+      "source": "counterparty_name",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "gateway",
+      "source": "counterparty_name",
+      "parse": "regex",
+      "pattern": "^([A-Za-z]+)"
+    },
+    {
+      "to": "key",
+      "as_key": "row_type",
+      "source": "kind",
+      "parse": "lower"
+    }
   ],
   "reject": [
-    { "when": "row_blank", "reason": "blank" },
-    { "when": "column_matches", "column": "transaction_reference", "pattern": "SUMMARY", "reason": "daily_summary_row" }
+    {
+      "when": "row_blank",
+      "reason": "blank"
+    },
+    {
+      "when": "column_matches",
+      "column": "transaction_reference",
+      "pattern": "SUMMARY",
+      "reason": "daily_summary_row"
+    }
+  ],
+  "natural_key": [
+    "keys.row_type",
+    "source_row_id",
+    "amount"
   ]
 }

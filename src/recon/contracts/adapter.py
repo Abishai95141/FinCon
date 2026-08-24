@@ -178,6 +178,16 @@ class AdapterSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    natural_key: list[str] = Field(default_factory=list)
+    """Field or key names that together say what a row of this source claims to
+    be — e.g. `["row_type", "keys.payment_id", "amount"]`.
+
+    Declared per source because it is a fact about the source, not about the
+    loop. A source that declares none gets positional identity and says so in
+    its proof; `test_every_shipped_spec_declares_a_natural_key` keeps that path
+    from being the one we actually rely on.
+    """
+
     contract_version: str = CONTRACT_VERSION
     spec_id: str
     version: int = 1

@@ -4,15 +4,55 @@
   "side": "bank",
   "authored_by": "human",
   "currency": "INR",
-  "reader": { "kind": "camt053" },
+  "reader": {
+    "kind": "camt053"
+  },
   "fields": [
-    { "to": "date", "source": "BookgDt", "parse": "date", "fmt": "YYYY-MM-DD" },
-    { "to": "amount", "source": "Amt", "parse": "sign_from_column", "sign_column": "CdtDbtInd", "sign_when_negative": "DBIT" },
-    { "to": "currency", "source": "Ccy", "parse": "text" },
-    { "to": "counterparty", "source": "AddtlNtryInf", "parse": "text" },
-    { "to": "reference", "source": "AddtlNtryInf", "parse": "regex", "pattern": "/(pout_[A-Za-z0-9]+)" },
-    { "to": "key", "as_key": "gateway", "source": "AddtlNtryInf", "parse": "regex", "pattern": "^[A-Z]+/([A-Z]+)/" },
-    { "to": "key", "as_key": "entry_ref", "source": "NtryRef", "parse": "text" }
+    {
+      "to": "date",
+      "source": "BookgDt",
+      "parse": "date",
+      "fmt": "YYYY-MM-DD"
+    },
+    {
+      "to": "amount",
+      "source": "Amt",
+      "parse": "sign_from_column",
+      "sign_column": "CdtDbtInd",
+      "sign_when_negative": "DBIT"
+    },
+    {
+      "to": "currency",
+      "source": "Ccy",
+      "parse": "text"
+    },
+    {
+      "to": "counterparty",
+      "source": "AddtlNtryInf",
+      "parse": "text"
+    },
+    {
+      "to": "reference",
+      "source": "AddtlNtryInf",
+      "parse": "regex",
+      "pattern": "/(pout_[A-Za-z0-9]+)"
+    },
+    {
+      "to": "key",
+      "as_key": "gateway",
+      "source": "AddtlNtryInf",
+      "parse": "regex",
+      "pattern": "^[A-Z]+/([A-Z]+)/"
+    },
+    {
+      "to": "key",
+      "as_key": "entry_ref",
+      "source": "NtryRef",
+      "parse": "text"
+    }
   ],
-  "reject": []
+  "reject": [],
+  "natural_key": [
+    "keys.entry_ref"
+  ]
 }
