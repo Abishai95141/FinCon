@@ -36,10 +36,10 @@ MUTATIONS = [
         """IDENTITY_FIELDS = frozenset()""",
     ),
     (
-        "generalisation ignores pinned fields",
+        "generality accepts a rule that fires nowhere",
         "src/recon/engine/promotion.py",
-        """        return not self.pinned_fields and self.fires >= MIN_HELD_OUT_FIRINGS""",
         """        return self.fires >= MIN_HELD_OUT_FIRINGS""",
+        """        return True""",
     ),
     (
         "held-out check is dropped",
@@ -58,13 +58,13 @@ MUTATIONS = [
     (
         "the selectivity cap is dropped",
         "src/recon/engine/promotion.py",
-        """        elif source.sampled and not policy.permits_selectivity(source.fires, source.sampled):""",
-        """        elif False:""",
+        """        if general.generalises and not policy.permits_reference_selectivity(""",
+        """        if False and not policy.permits_reference_selectivity(""",
     ),
     (
         "selectivity permits everything",
         "src/recon/contracts/policy.py",
-        """        return Decimal(fires) / Decimal(sampled) <= Decimal(self.max_selectivity_pct)""",
+        """        return Decimal(fires) / Decimal(sampled) <= Decimal(self.max_reference_selectivity)""",
         """        return True""",
     ),
     (

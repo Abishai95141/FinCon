@@ -28,6 +28,7 @@ help:
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p12b]"
+	@echo "  mutate-preflight  check every mutation anchor, offline and free"
 	@echo "  status-table  regenerate the known-broken table from its reproducers"
 	@echo "  status    print the tracker header"
 
@@ -75,6 +76,12 @@ replay:
 # meant every "N/N caught" in STATUS was a claim nobody could check.
 mutate:
 	uv run python -m tools.mutate $(if $(SET),--set $(SET),)
+
+# Offline, free, and the thing that keeps a ported mutation set from rotting: an
+# anchor that no longer matches is silently not applied, and a set of those
+# reports a perfect score over nothing.
+mutate-preflight:
+	uv run python -m tools.mutate --preflight
 
 # The known-broken table, generated rather than written. An xfail that starts
 # passing fails the suite and forces its row out.

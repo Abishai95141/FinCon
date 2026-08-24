@@ -125,7 +125,29 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="tools.mutate")
     ap.add_argument("--set", dest="only", choices=SETS)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument(
+        "--preflight",
+        action="store_true",
+        help="check every anchor without applying anything or calling a model",
+    )
     args = ap.parse_args(argv)
+
+    if args.preflight:
+        stale = 0
+        for name in [args.only] if args.only else SETS:
+            bad = [
+                label
+                for label, path, old, _ in _load(name)
+                if pathlib.Path(path).read_text(encoding="utf-8").count(old) != 1
+            ]
+            stale += len(bad)
+            print(f"  {name:<6} {len(_load(name)):>3} mutations, {len(bad)} stale")
+            for label in bad:
+                print(f"           - {label}")
+        # Cheap, offline, and the thing that keeps a ported set from rotting:
+        # a mutation whose anchor no longer matches is silently not applied, and
+        # a set of those reports a perfect score over nothing.
+        return 1 if stale else 0
 
     if args.list:
         for name in SETS:
