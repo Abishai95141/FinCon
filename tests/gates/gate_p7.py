@@ -36,9 +36,9 @@ from recon.engine.tiers import run as run_tiers
 from recon.engine.tolerance import TolerancePolicy
 from recon.engine.verifier import verify
 from recon.intake import ADAPTER_DIR, ingest, load_spec
-from recon.ledger.accounts import SETTLEMENT_CHART
 from recon.ledger.accounts import AccountRole as R
 from recon.ledger.beancount_io import JournalEntry, Posting, post_and_assert
+from recon.profiles.chart import load_chart
 
 pytestmark = pytest.mark.gate
 
@@ -235,7 +235,11 @@ def test_sub_paisa_residue_no_longer_posts_silently():
         [Posting(R.BANK, D("100.005")), Posting(R.INCOME, D("-100.00"))],
     )
     result = post_and_assert(
-        [drifting], SETTLEMENT_CHART, date(2026, 8, 1), date(2026, 8, 31), policy=_policy()
+        [drifting],
+        load_chart("settlement_3way"),
+        date(2026, 8, 1),
+        date(2026, 8, 31),
+        policy=_policy(),
     )
     assert not result.blocked, "0.005 is inside the 0.01 threshold — it should absorb"
     # NOT `"Expenses:Rounding" in text` — every chart account appears in the
@@ -254,7 +258,7 @@ def test_residue_above_the_threshold_blocks_rather_than_rounding():
         [Posting(R.BANK, D("105.00")), Posting(R.INCOME, D("-100.00"))],
     )
     result = post_and_assert(
-        [big], SETTLEMENT_CHART, date(2026, 8, 1), date(2026, 8, 31), policy=_policy()
+        [big], load_chart("settlement_3way"), date(2026, 8, 1), date(2026, 8, 31), policy=_policy()
     )
     assert result.blocked
     assert any("threshold" in e.message or "rounding" in e.message for e in result.errors), (
@@ -352,7 +356,7 @@ def test_a_full_close_runs_end_to_end_under_policy():
                 [Posting(R.BANK, D("100.00")), Posting(R.INCOME, D("-100.00"))],
             )
         ],
-        SETTLEMENT_CHART,
+        load_chart("settlement_3way"),
         date(2026, 8, 1),
         date(2026, 8, 31),
         {R.BANK: D("100.00")},

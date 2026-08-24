@@ -198,7 +198,10 @@ class AdapterSpec(BaseModel):
     reader: ReaderSpec
     fields: list[FieldMap]
     reject: list[RejectRule] = Field(default_factory=list)
-    currency: str = "INR"
+    currency: str
+    """Required. A default of `INR` meant a source that declared no currency was
+    read as rupees — which is not a missing field, it is a wrong number that
+    nothing downstream can contradict."""
 
     authored_by: str | None = None
     """"human" or a model id. Recorded so first-use approval can be enforced on

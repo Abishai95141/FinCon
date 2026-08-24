@@ -51,10 +51,10 @@ from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
 from recon.journal import Journal
 from recon.journal.derive import Decisions, derive
-from recon.ledger.accounts import SETTLEMENT_CHART
 from recon.ledger.beancount_io import CloseResult as LedgerResult
 from recon.ledger.beancount_io import JournalEntry, post_and_assert
 from recon.ledger.posting_rules import entries_for
+from recon.profiles.chart import load_chart
 from recon.triage.worklist import WorkItem, summarise
 from recon.triage.worklist import build as build_worklist
 
@@ -75,12 +75,15 @@ BATCHES = Path("data/batches")
 POLICY_DIR = Path("data/policy")
 POLICY_FILE = POLICY_DIR / "settlement_3way.json"
 TAXONOMY_FILE = Path("data/taxonomy/codes.json")
+CHART_FILE = Path("data/profiles/settlement_3way.json")
 RUNS = Path("data/runs")
 #: Authority, loaded from disk like an adapter spec so a change shows in a diff.
 SETTLEMENT_POLICY = Policy.model_validate_json(POLICY_FILE.read_text(encoding="utf-8"))
 #: The vocabulary, loaded like the policy — a separate versioned input, not
 #: something the thing being judged gets to supply.
 TAXONOMY = TaxonomyRegistry.model_validate_json(TAXONOMY_FILE.read_text(encoding="utf-8"))
+#: The chart is domain data (invariant 7) and loads from its profile.
+CHART = load_chart("settlement_3way")
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 
 #: Which planted defects this loop is able to see. The bank<->settlement leg is
@@ -308,7 +311,7 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
     )
     ledger = post_and_assert(
         entries,
-        SETTLEMENT_CHART,
+        CHART,
         opened_on=date(2026, 7, 1),
         period_end=WINDOW[1],
         policy=SETTLEMENT_POLICY,

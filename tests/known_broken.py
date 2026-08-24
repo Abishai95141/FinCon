@@ -22,6 +22,7 @@ which is which.
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -53,24 +54,36 @@ def test_normalize_key_is_measurable_by_the_regression():
     assert "normalize_key" in MODELLED_ACTIONS
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#5 invariant 7 says the engine is domain-agnostic. `Assets:Bank:HDFC` "
-    "is a chart of accounts for one company, sitting in kernel code since P1. It "
-    "belongs in a profile.",
-)
-def test_no_domain_account_names_in_kernel_code():
+def test_no_domain_constants_in_kernel_code():
+    """Invariant 7, enforced instead of documented.
+
+    Widened past the instance that prompted it. `Assets:Bank:HDFC` was the
+    obvious leak; a default of `currency = "INR"` was the same class and nothing
+    was looking for it — a source that declared no currency was read as rupees,
+    which is not a missing field but a wrong number nothing downstream can
+    contradict.
+
+    So the check is for domain *constants*, not for one chart: account names,
+    currency codes and counterparty names anywhere under `src/recon`. It catches
+    the next one too, which is the only reason it is worth having.
+    """
+    account = re.compile(r"^(Assets|Liabilities|Equity|Income|Expenses):")
+    iso4217 = re.compile(r"^(INR|USD|EUR|GBP|AED|SGD|JPY)$")
+    counterparty = re.compile(r"^(razorpay|cashfree|stripe|adyen|payu)$", re.IGNORECASE)
+
     offenders: list[str] = []
     for path in sorted(Path("src/recon").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and (node.value.startswith(("Assets:", "Liabilities:", "Income:", "Expenses:")))
-            ):
-                offenders.append(f"{path}:{node.lineno} {node.value}")
-    assert not offenders, offenders
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            value = node.value
+            if account.match(value) or iso4217.match(value) or counterparty.match(value):
+                offenders.append(f"{path}:{node.lineno} {value!r}")
+    assert not offenders, (
+        "domain constants in the engine belong in a profile or an adapter spec "
+        f"(invariant 7): {offenders}"
+    )
 
 
 @pytest.mark.xfail(

@@ -36,8 +36,8 @@ from recon.contracts import (
     RuleStatus,
 )
 from recon.contracts.rule import ActionKind, Operator, Predicate, RuleAction
-from recon.ledger.accounts import SETTLEMENT_CHART, ChartOfAccounts
 from recon.ledger.accounts import AccountRole as Role
+from recon.ledger.accounts import ChartOfAccounts
 from recon.ledger.beancount_io import (
     CloseBlocked,
     JournalEntry,
@@ -46,6 +46,7 @@ from recon.ledger.beancount_io import (
     post_and_assert,
     render,
 )
+from recon.profiles.chart import load_chart
 
 pytestmark = pytest.mark.gate
 
@@ -77,7 +78,7 @@ def test_journal_round_trips_through_beancount():
     assert entry.residual() == D("0.00")
 
     result = post_and_assert(
-        [entry], SETTLEMENT_CHART, OPENED, PERIOD_END, {Role.BANK: D("1842907.30")}
+        [entry], load_chart("settlement_3way"), OPENED, PERIOD_END, {Role.BANK: D("1842907.30")}
     )
     assert not result.blocked, result.errors
     assert result.entries_loaded == 1
@@ -100,7 +101,7 @@ def test_unbalanced_entry_is_rejected():
         [Posting(Role.BANK, D("100.00")), Posting(Role.INCOME, D("-90.00"))],
     )
     assert bad.residual() == D("10.00")
-    result = post_and_assert([bad], SETTLEMENT_CHART, OPENED, PERIOD_END)
+    result = post_and_assert([bad], load_chart("settlement_3way"), OPENED, PERIOD_END)
     assert result.blocked
     assert "ValidationError" in result.error_kinds
     with pytest.raises(CloseBlocked):
@@ -109,7 +110,11 @@ def test_unbalanced_entry_is_rejected():
 
 def test_wrong_closing_balance_blocks_the_close():
     result = post_and_assert(
-        [_payout_entry()], SETTLEMENT_CHART, OPENED, PERIOD_END, {Role.BANK: D("999999.00")}
+        [_payout_entry()],
+        load_chart("settlement_3way"),
+        OPENED,
+        PERIOD_END,
+        {Role.BANK: D("999999.00")},
     )
     assert result.blocked
     assert "BalanceError" in result.error_kinds
@@ -119,7 +124,11 @@ def test_wrong_closing_balance_blocks_the_close():
 
 def test_correct_closing_balance_lets_the_close_proceed():
     result = post_and_assert(
-        [_payout_entry()], SETTLEMENT_CHART, OPENED, PERIOD_END, {Role.BANK: D("1842907.30")}
+        [_payout_entry()],
+        load_chart("settlement_3way"),
+        OPENED,
+        PERIOD_END,
+        {Role.BANK: D("1842907.30")},
     )
     assert not result.blocked, result.errors
     result.raise_if_blocked()  # must not raise
@@ -134,12 +143,14 @@ def test_assertion_is_dated_after_period_end_not_on_it():
     closing = D("1842907.30")
 
     correct = post_and_assert(
-        [last_day], SETTLEMENT_CHART, OPENED, PERIOD_END, {Role.BANK: closing}
+        [last_day], load_chart("settlement_3way"), OPENED, PERIOD_END, {Role.BANK: closing}
     )
     assert not correct.blocked, correct.errors
 
     # Same journal, assertion dated ON period_end — the naive version.
-    naive = render([last_day], SETTLEMENT_CHART, OPENED, [(PERIOD_END, Role.BANK, closing)])
+    naive = render(
+        [last_day], load_chart("settlement_3way"), OPENED, [(PERIOD_END, Role.BANK, closing)]
+    )
     _, errors = load(naive)
     assert any(e.kind == "BalanceError" for e in errors), (
         "the naive same-day assertion should fail; if it passes, the offset in "
@@ -350,6 +361,7 @@ def test_adapter_spec_vocabulary_is_closed():
         reader=reader,
         fields=minimal,
         authored_by="human",
+        currency="INR",
     )
     assert spec.ref == "icici-current@v1"
     assert not spec.needs_first_use_approval
@@ -377,6 +389,7 @@ def test_model_authored_spec_needs_first_use_approval():
             FieldMap(to=CanonicalField.AMOUNT, source="a", parse=ParseVerb.DECIMAL),
         ],
         authored_by="claude-opus-5",
+        currency="INR",
     )
     assert spec.needs_first_use_approval
     assert not spec.model_copy(update={"approved_by": "meera"}).needs_first_use_approval
@@ -406,7 +419,7 @@ def test_contracts_survive_a_json_round_trip():
 def test_chart_must_be_complete_and_well_formed():
     with pytest.raises(ValidationError):  # missing roles
         ChartOfAccounts(accounts={Role.BANK: "Assets:Bank:HDFC"})
-    partial = dict(SETTLEMENT_CHART.accounts)
+    partial = dict(load_chart("settlement_3way").accounts)
     partial[Role.BANK] = "not an account"
     with pytest.raises(ValidationError):
         ChartOfAccounts(accounts=partial)

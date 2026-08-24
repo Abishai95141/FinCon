@@ -44,7 +44,10 @@ class AccountRole(StrEnum):
 class ChartOfAccounts(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    currency: str = "INR"
+    currency: str
+    """Required. A default was a domain assumption in a domain-agnostic engine:
+    a chart built without one would silently be INR, and a USD ledger would post
+    into it without a word."""
     accounts: dict[AccountRole, str]
 
     @field_validator("accounts")
@@ -65,17 +68,8 @@ class ChartOfAccounts(BaseModel):
         return sorted(set(self.accounts.values()))
 
 
-SETTLEMENT_CHART = ChartOfAccounts(
-    currency="INR",
-    accounts={
-        AccountRole.BANK: "Assets:Bank:HDFC",
-        AccountRole.CLEARING: "Assets:Clearing:Gateway",
-        AccountRole.INCOME: "Income:Sales",
-        AccountRole.FEES: "Expenses:GatewayFees",
-        AccountRole.FEE_VARIANCE: "Expenses:GatewayFees:Variance",
-        AccountRole.REFUNDS: "Income:Sales:Refunds",
-        AccountRole.DISPUTES: "Expenses:Disputes:Reserve",
-        AccountRole.ROUNDING: "Expenses:Rounding",
-        AccountRole.SUSPENSE: "Liabilities:UnappliedCash",
-    },
-)
+# SETTLEMENT_CHART used to be here. `Assets:Bank:HDFC` is one company's chart of
+# accounts, and invariant 7 says the engine is domain-agnostic — so it moved to
+# `data/profiles/settlement_3way.json`, loaded by `recon.profiles.chart`. It sat
+# in kernel code from P1 with a docstring admitting it and deferring the move,
+# which three phases then cited and none acted on.

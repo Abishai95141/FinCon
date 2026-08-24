@@ -1664,12 +1664,11 @@ the row out. A fix cannot land unnoticed.
 | P12: adapter-spec synthesis is the last third and is unbuilt, so the gate's 'an unseen format ingests with no configuration' half is unmet. | `test_adapter_synthesis_has_a_producer` | **open** |
 | #4 the regression is match-shaped: `book_to` changes where money posts, not which rows match, so a match-delta regression cannot measure it. It is refused rather than measured. Closing this needs a posting-delta regression. | `test_book_to_is_measurable_by_the_regression` | **open** |
 | CLAUDE.md rule 6 promises end-to-end tests. `tests/e2e/` is empty and `make e2e` exits non-zero. The gates are the de-facto e2e suite, so the fix is probably to reconcile the wording, not to fill a directory. | `test_make_e2e_succeeds` | **open** |
-| #5 invariant 7 says the engine is domain-agnostic. `Assets:Bank:HDFC` is a chart of accounts for one company, sitting in kernel code since P1. It belongs in a profile. | `test_no_domain_account_names_in_kernel_code` | **open** |
 | #4 (second half) `normalize_key` can add matches by making records comparable that were not. The regression does not simulate it. | `test_normalize_key_is_measurable_by_the_regression` | **open** |
 | Policy and taxonomy are pinned by digest but not signed. The digest proves what ran, not who approved it. | `test_policy_carries_a_signature` | **open** |
 | CLAUDE.md rule 6 promises unit tests on real inputs. `tests/unit/` is empty. | `test_unit_tests_exist` | **open** |
 
-_8 reproducible problems, each an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
+_7 reproducible problems, each an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
 
 **Not policed by this table.** Problems with no minimal reproducer stay prose below and stay unchecked: toy scale, one model and one prompt, single-sample timing, defect rates unvalidated against production formats, and every audit being one person auditing their own design. Naming them here is the only guard they have.
 

@@ -1,0 +1,18 @@
+{
+  "accounts": {
+    "bank": "Assets:Bank:HDFC",
+    "clearing": "Assets:Clearing:Gateway",
+    "disputes": "Expenses:Disputes:Reserve",
+    "fee_variance": "Expenses:GatewayFees:Variance",
+    "fees": "Expenses:GatewayFees",
+    "income": "Income:Sales",
+    "refunds": "Income:Sales:Refunds",
+    "rounding": "Expenses:Rounding",
+    "suspense": "Liabilities:UnappliedCash"
+  },
+  "approved_at": "2026-08-01T00:00:00Z",
+  "approved_by": "meera",
+  "currency": "INR",
+  "notes": "The chart of accounts for one company's settlement loop. Domain data: invariant 7 says it belongs in a profile, not in the engine. It lived in src/recon/ledger/accounts.py from P1 until 2026-08-24.",
+  "profile": "settlement_3way"
+}
