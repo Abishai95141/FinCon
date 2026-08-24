@@ -271,9 +271,18 @@ def test_a_rules_verdict_is_invariant_to_padding(sides, history, pad):
     fires_after = generalises(broad, padded).fires
     assert fires_after == fires_before, "the padding was supposed to be irrelevant"
 
-    assert _verdict(broad, history, rows, rows) == _verdict(broad, history, padded, rows), (
+    other = load_sides("B")
+    reference = [rec for _, rec in other.settlement]
+    # The reference denominator must be untouched by anything done to the
+    # induction set. This is now true *by construction* — breadth is measured on
+    # the reference — rather than by the padding happening to stay under a cap.
+    assert generalises(broad, reference).sampled == len(reference)
+
+    assert _verdict(broad, history, rows, reference) == _verdict(
+        broad, history, padded, reference
+    ), (
         f"the same rule, still firing on the same {fires_before} rows, changed "
-        f"verdict when {pad} unrelated rows were added"
+        f"verdict when {pad} unrelated rows were added to the induction set"
     )
 
 

@@ -85,6 +85,22 @@ class Policy(BaseModel):
     how a rule quietly rewrites a close. Above this the rule escalates instead
     of promoting."""
 
+    max_reference_selectivity: Ratio = "0.25"
+    """The share of a **reference population** a rule may fire on before it is
+    over-broad.
+
+    An earlier version of this measured the share of whatever corpus was passed
+    in, and a metamorphic relation refuted it: the same rule, still firing on the
+    same 502 rows, went from refused to allowed when 1,500 unrelated rows were
+    added. It was measuring corpus composition.
+
+    The denominator is now a fixed reference population the rule has never seen —
+    the out-of-bag form that rule-induction has used for decades. Padding the
+    batch under test cannot move it, so
+    `test_a_rules_verdict_is_invariant_to_padding` passes by construction rather
+    than by luck. Like the rest of policy, the reference is supplied by the
+    caller alongside it and never by the proposer."""
+
     approved_by: str
     approved_at: datetime
     notes: str | None = None
@@ -134,6 +150,13 @@ class Policy(BaseModel):
         if side not in self.side_signs:
             raise PolicyViolation(f"no sign convention in {self.ref} for side {side!r}")
         return self.side_signs[side]
+
+    def permits_reference_selectivity(self, fires: int, sampled: int) -> bool:
+        """Whether a rule touching `fires` of `sampled` **reference** rows is
+        narrow enough. Never called with the induction set."""
+        if not sampled:
+            return False
+        return Decimal(fires) / Decimal(sampled) <= Decimal(self.max_reference_selectivity)
 
     def permits_tolerance(self, claimed: Decimal) -> bool:
         return claimed <= self.tolerance_ceiling

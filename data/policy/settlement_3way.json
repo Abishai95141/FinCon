@@ -12,5 +12,6 @@
   "max_added_matches": 25,
   "approved_by": "meera",
   "approved_at": "2026-08-01T00:00:00Z",
-  "notes": "Ceiling covers gateway fee rounding only. Raising it needs a named approval and a re-run of the regression suite."
+  "notes": "Ceiling covers gateway fee rounding only. Raising it needs a named approval and a re-run of the regression suite. Selectivity is measured against the held-out reference population, never the batch under test.",
+  "max_reference_selectivity": "0.2500"
 }

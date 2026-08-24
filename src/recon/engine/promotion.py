@@ -325,6 +325,19 @@ def evaluate(
 
     if held_out is not None:
         general = generalises(rule, held_out)
+        # Breadth is measured HERE, on the reference population, and never on
+        # `induced_on`. That is the whole correction: a denominator the rule
+        # author can pad is a denominator that measures the padding.
+        if general.generalises and not policy.permits_reference_selectivity(
+            general.fires, general.sampled
+        ):
+            share = Decimal(general.fires) / Decimal(general.sampled)
+            reasons.append(
+                f"over-broad: fires on {general.fires}/{general.sampled} reference "
+                f"rows ({share:.1%}), above the "
+                f"{Decimal(policy.max_reference_selectivity):.0%} cap in {policy.ref}. "
+                f"A rule that fires on everything is not a rule"
+            )
         if not general.generalises:
             reasons.append(
                 f"refused as a correction, not a rule: {general.summary()}. A rule "

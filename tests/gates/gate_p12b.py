@@ -507,19 +507,14 @@ def test_a_rule_that_does_fire_clears_the_fires_check(closed):
 # --------------------------------------------------------------------------
 
 
-def test_an_over_broad_rule_is_currently_accepted(closed):
-    """This asserts the **hole**, not the fix.
+def test_an_over_broad_rule_is_refused_on_the_reference_population(closed, held_out):
+    """The control that was deleted, restored in the form that survives MR7.
 
-    A selectivity cap lived here for one commit and a metamorphic relation
-    refuted it: the same rule, still firing on the same 502 rows, went from
-    refused to allowed when 1,500 unrelated rows were added to the corpus. It
-    measured corpus composition, not the rule — see
-    `tests/property/test_metamorphic.py::test_a_rules_verdict_is_invariant_to_padding`,
-    which stays in the suite so any replacement is refuted the same way.
-
-    The concern is real: a rule firing on two thirds of the batch floods the
-    worklist, and the worklist is the product. Nothing guards it today, and this
-    test exists so that fact is asserted rather than merely written down.
+    The first version measured the share of whatever corpus was passed in, and
+    a metamorphic relation refuted it: the same rule, still firing on the same
+    502 rows, went from refused to allowed when 1,500 unrelated rows were added.
+    The denominator is now a fixed **reference** population the rule never saw —
+    the out-of-bag form — so padding the batch under test cannot move it.
     """
     from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY
 
@@ -532,8 +527,9 @@ def test_an_over_broad_rule_is_currently_accepted(closed):
         when=[Predicate(field="keys.row_type", op=Operator.IN, value=["charge", "fee"])],
         then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="everything")],
     )
-    fired = generalises(broad, closed.settlement_records)
-    assert fired.fires > len(closed.settlement_records) // 2, "fixture must be over-broad"
+    reference = held_out.settlement_records
+    fired = generalises(broad, reference)
+    assert fired.fires > len(reference) // 2, "fixture must be over-broad on the reference"
 
     history = MatchHistory(
         anchors=[r for r in closed.records.values() if r.side == "bank"],
@@ -542,11 +538,52 @@ def test_an_over_broad_rule_is_currently_accepted(closed):
         matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in closed.matches],
     )
     outcome = regress(broad, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
-    decision = evaluate(broad, outcome, SETTLEMENT_POLICY, induced_on=closed.settlement_records)
-    assert decision.allowed, (
-        "if this now fails, a breadth control was added — make sure it survives "
-        "the padding relation before deleting this test"
+    assert outcome.broken == [] and outcome.added == [], (
+        "it must look harmless to the delta checks, or this proves nothing"
     )
+
+    decision = evaluate(
+        broad,
+        outcome,
+        SETTLEMENT_POLICY,
+        held_out=reference,
+        induced_on=closed.settlement_records,
+    )
+    assert not decision.allowed
+    assert any("reference rows" in r for r in decision.reasons), decision.reasons
+
+
+def test_a_narrow_rule_still_promotes_under_the_reference_cap(closed, held_out):
+    """The other half. The dedup rule fires on 2 of 536 reference rows — general,
+    and nowhere near broad. A cap that refused it would refuse the one rule this
+    phase exists to promote."""
+    from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY
+
+    from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
+    from recon.engine.promotion import MatchHistory, evaluate, regress
+
+    dedup = Rule(
+        rule_id="R-DEDUP",
+        profile="settlement_3way",
+        when=[Predicate(field="key_occurrence", op=Operator.GT, value="0")],
+        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="asserted twice")],
+    )
+    history = MatchHistory(
+        anchors=[r for r in closed.records.values() if r.side == "bank"],
+        group_records=closed.settlement_records,
+        records=closed.records,
+        matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in closed.matches],
+    )
+    outcome = regress(dedup, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
+    assert len(outcome.added) == 1, "the dedup rule must create the bl_00011 match"
+    decision = evaluate(
+        dedup,
+        outcome,
+        SETTLEMENT_POLICY,
+        held_out=held_out.settlement_records,
+        induced_on=closed.settlement_records,
+    )
+    assert decision.allowed, decision.reasons
 
 
 def test_a_rule_cannot_reach_a_field_outside_the_closed_vocabulary(closed):
