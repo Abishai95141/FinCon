@@ -19,7 +19,9 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "3.1.0"
+CONTRACT_VERSION = "3.2.0"
+# 3.2.0 — P12 part 2 gave EventKind.RULE_INDUCED a real payload and a real
+#         producer. New model only, so minor.
 # 3.1.0 — P12 added EventKind.CLASSIFICATION_PROPOSED and its payload: the model
 #         edge proposing a code for an exception. New enum member plus a new
 #         model, so minor. `accepted` is always False at proposal time — an
@@ -128,6 +130,7 @@ from .event import (  # noqa: E402
     OutOfScopePayload,
     PostingWrittenPayload,
     ProposalRefusedPayload,
+    RuleInducedPayload,
     RulePromotedPayload,
     SourceIngestedPayload,
 )
@@ -205,6 +208,7 @@ __all__ = [
     "Resolution",
     "Rule",
     "RuleAction",
+    "RuleInducedPayload",
     "RulePromotedPayload",
     "RuleStatus",
     "SourceIngestedPayload",

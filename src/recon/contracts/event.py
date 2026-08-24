@@ -72,7 +72,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
     EventKind.CODE_ACCEPTED: "recon.engine.taxonomy.accept",
     EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
-    EventKind.RULE_INDUCED: "P12 — rule induction has no producer until a model authors one",
+    EventKind.RULE_INDUCED: "recon.triage.induce.induce",
     EventKind.ADAPTER_AUTHORED: "P12 — adapter synthesis has no producer until a model authors one",
 }
 
@@ -283,6 +283,18 @@ class CodePromotedPayload(_Payload):
     granted: str = ""
 
 
+class RuleInducedPayload(_Payload):
+    rule_id: str
+    induced_from: str
+    """The exception whose resolution produced this. A rule's justification
+    travels with it, so a later reader can see why it exists."""
+
+    rationale: str = ""
+    when: list[dict] = Field(default_factory=list)
+    then: list[dict] = Field(default_factory=list)
+    model: str = ""
+
+
 class UnproducedPayload(_Payload):
     """For kinds whose producer has not been built. Carries the phase, so an
     event of this shape appearing in a log is itself a bug worth seeing."""
@@ -307,7 +319,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CODE_PROPOSED: CodeProposedPayload,
     EventKind.CODE_ACCEPTED: CodeAcceptedPayload,
     EventKind.CODE_PROMOTED: CodePromotedPayload,
-    EventKind.RULE_INDUCED: UnproducedPayload,
+    EventKind.RULE_INDUCED: RuleInducedPayload,
     EventKind.ADAPTER_AUTHORED: UnproducedPayload,
 }
 

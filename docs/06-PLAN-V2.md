@@ -134,7 +134,10 @@ The old P7. Not cuttable — without it there is no agent and no lift.
       held-out B. A proposal may not overwrite a code the engine derived by proof — found by
       measuring a net lift of zero on the first pass.)* Proposing a new code is wired in P11 and
       not yet driven from triage.
-- [ ] **Rule induction** — proposal + regression report through the P8 gate.
+- [x] **Rule induction** — proposal + regression report through the P8 gate. *(2026-08-24: built.
+      Four controls added that P8 structurally lacked — unmodelled actions report absent not zero,
+      identity-keyed rules refused as corrections, rules firing on nothing refused, and a
+      selectivity cap. All three induced rules refused, each by a different control.)*
 
 **Gate:** resolve three exceptions on batch A, approve three induced rules, re-run on held-out batch
 B, and the scorecard attributes the improvement rule by rule. Plus: drop a source in a format never

@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: one of three parts built.** |
-| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **316 offline + 38 live tests.** Contract **3.1.0**. |
+| **Current phase** | `P12` — the model edge ◆ the lift number. **RED: two of three parts built.** |
+| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **317 offline + 60 live tests.** Contract **3.2.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
 | **Updated** | 2026-08-24 |
@@ -40,7 +40,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | **`GREEN`** | [below](#p10--measurement--ship-line--2026-08-24) |
 | — | **◆ SHIP LINE** — everything below is upside | | |
 | **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | **`GREEN`** | [below](#p11--open-taxonomy--2026-08-24) |
-| **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | **`RED`** — triage built and measured; induction and adapter synthesis not started | [below](#p12--the-model-edge--partial-2026-08-24) |
+| **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | **`RED`** — triage + induction built; adapter synthesis not started | [below](#p12-part-2--rule-induction--2026-08-24) |
 | **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | `not started` | — |
 | **P14** | A controller completes one close through the UI without a terminal | `not started` | — |
 | **P15** | A second loop closes on profile and adapters alone; partial payment goes from exception to proof without an engine edit | `not started` | — |
@@ -62,6 +62,129 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P12 part 2 — rule induction · 2026-08-24
+
+**Still RED.** Two of three parts built; adapter-spec synthesis has not started,
+and the gate's other half — "an unseen format ingests with no configuration" —
+needs it.
+
+```
+$ DEEPSEEK_API_KEY=... .venv/bin/python -m pytest tests/gates/gate_p12.py tests/gates/gate_p12b.py
+                                             60 passed in 25.60s
+$ make test    317 passed (P12 excluded)     $ make verify  P0-P11, 12 gates
+$ make lint    clean                         mutations: 14/14
+
+three resolutions, three proposed rules, one survives:
+
+rule                 actions          fires A/B   verdict
+R-RAZ-DUP-01         suppress         0/0         refused — fires on 0/517 rows of its own batch
+                                                  refused — correction: 0/536 held-out
+R-E08-HOLD-UNKNOWN   book_to          0/0         refused — regression could not model ['book_to']
+                                                  refused — fires on 0/517 of its own batch
+R-E01-GRP-INTRANSIT  raise_advisory   344/298     PROMOTABLE, then refused — over-broad at 66%
+
+spend: 3 calls · 5,650 in (5,376 cached) · 737 out · 6.4s · usd=None
+```
+
+**One of three induced rules survives the gate, and the interesting part is how
+the other two die.** The model writes rules that *read* correctly and do nothing
+— and each failure mode needed a control the P8 gate structurally could not
+provide.
+
+**Control 1 — a regression that could not model the action reports `absent`, not
+zero.** `regress()` has simulated `SET_TOLERANCE` only since P8, and STATUS has
+carried "`NORMALIZE_KEY` regresses as a no-op" as a known gap ever since. A rule
+whose effect nothing simulates comes back `0 broken, 0 added`, which reads as
+safe and means *unmeasured* — CLAUDE.md's "unmeasured thing reported as zero",
+sitting inside the one gate that exists to stop unsafe rules. `SUPPRESS` is now
+genuinely simulated (rows removed before matching); `book_to` is declared
+unmodellable and refused, because it changes where money posts rather than which
+rows match and a match-delta regression has nothing to say about it.
+
+**Control 2 — a rule that fires nowhere but on its own data is a correction.**
+Residual risk `P19` has been open since the build plan with "needs
+post-promotion monitoring" beside it. The regression cannot see it: an
+id-specific rule breaks no history and adds exactly what it was written to add.
+Held-out B is that monitoring, before the fact rather than after.
+
+The statistical form of this check turned out to be **foolable**, and finding out
+why was worth the phase. Record ids here are positional — `source:ordinal` — so
+`gateway-settlement:266` exists in *every batch* and names a **different row** in
+each. An id-keyed rule therefore fires happily on held-out data, on rows with
+nothing to do with the case it came from. That is worse than not firing, and a
+firing count alone called it a pass. So the primary check is structural: an
+`eq`/`in` predicate on `record_id`, `source_row_id` or `group_ref` pins rows
+rather than describing them, whatever the firing count says.
+
+**Control 3 — a rule that fires on nothing is unmeasured, not safe.** Both
+refused rules above predicate `side eq "bank"` while acting on settlement rows.
+They are internally incoherent, select zero rows, and their regressions report
+`0 broken, 0 added` — indistinguishable from a careful narrow rule until someone
+asks whether it fires at all.
+
+**Control 4 — a rule that fires on everything is a denial of attention.**
+`R-E01-GRP-INTRANSIT` passed every check above: broke nothing, added nothing,
+generalised, keyed on properties. It fires on **344 of 517 rows** — two thirds of
+the batch would get an advisory. `max_added_matches` caps what a rule *adds*;
+nothing capped what it *touches*. Policy gained `max_selectivity_pct` (0.25), and
+the shipped asset carries it.
+
+So all three induced rules are refused, by four different controls, and **that is
+the result**. Not "the model is bad" — the model produced plausible, well-formed,
+schema-valid rules for every resolution it was given. Each one would have been a
+silent problem, and each needed a *different* check to catch. That is the
+propose/verify thesis working on its hardest case, and it is also an honest
+answer to "can a model author matching policy": on this corpus, not yet
+unsupervised.
+
+**A bug of mine, found by running induction rather than reading it.** `MATCHES`
+wrapped the author's pattern as `(?:{p})$`, so a model writing `^pout_` got
+`(?:^pout_)$` — which can never match anything. Rules read perfectly and selected
+**zero rows on the batch they were induced from**, while their regressions
+reported nothing broken and looked entirely safe. Now `re.fullmatch`, and the
+schema tells the author the semantics. A second mutation then proved the
+anchor-stripping I had added alongside it was never load-bearing under
+`fullmatch`, so it was deleted rather than test-covered — defensive code no test
+can distinguish is code that rots.
+
+**A P8 test was passing on an unimplemented feature.**
+`test_non_widening_actions_are_evaluated_too` asserted a broad `SUPPRESS` rule
+was *allowed*, reasoning that suppression adds no matches so a delta cap never
+sees it. That was true only because `regress` did not simulate suppression at
+all. Simulated, the same rule removes every razorpay row and destroys a match.
+Rewritten in two halves: the destructive rule is refused, a narrow one still
+promotes.
+
+**The security-relevant mutation.** Replacing the closed field table with
+`getattr(record, field)` lets a model-authored predicate read anything a
+`Record` exposes — including `raw`, the **untrusted source document text**. A
+rule predicating on attacker-controlled narration is indirect prompt injection
+with a longer fuse: the text stops being data the model reads and becomes data
+the *engine* branches on. `resolve_field` refuses anything outside the table, and
+the gate asserts `raw`, `keys`, `doc_hash` and `__class__` are all unreachable.
+
+**14/14 mutations caught.** The harness itself needed fixing twice: an
+interrupted run once left a mutation in the source, and every result after it
+described a tree nobody meant to test. It now refuses to start unless every
+anchor is present exactly once, and verifies the tree is restored afterwards.
+
+**Contract 3.1.0 → 3.2.0.** `EventKind.RULE_INDUCED` gained a real payload and a
+real producer; `Policy` gained `max_selectivity_pct`. New fields only, so minor.
+
+**Not built:**
+- **Adapter-spec synthesis** — the last third, and the gate's "unseen format"
+  half depends on it.
+- **Zero rules actually promoted**, so nothing attributes improvement rule by
+  rule. The gate's own sentence is unmet, which is why it stays RED.
+- **`normalize_key` is still unmodelled** — now refused rather than silently
+  passing, which is better than P8 but is not the same as simulated.
+- **`book_to` needs a posting-delta regression** to be measurable at all.
+- **One model, one prompt.** Whether a stronger model or a better prompt writes
+  rules that survive these four controls is unmeasured, and it is the obvious
+  next question.
+
+---
 
 ### P12 — the model edge · PARTIAL · 2026-08-24
 
@@ -1310,7 +1433,10 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **Everything is validated at toy scale** | 22 payouts, 517 settlement rows, 2 gateways, 1 currency, 1 loop. Blocking constants, solver bounds and tolerance policy are all unvalidated above a few hundred rows. | needs a large corpus |
 | **No application surface** | No UI (P14), no MCP (P13), no persistence, no API. This is a library plus a benchmark harness, not something anyone can operate. | P13–P14 |
 | ~~Zero model code~~ | **Partly closed at P12.** `triage/client.py` + `classify.py` built and measured; `induce.py` and `normalize.py` are still stubs. | P12 (remaining) |
-| **Rule induction not built** | Two thirds of P12. The gate's own sentence needs it — nothing attributes improvement rule by rule. | P12 |
+| ~~Rule induction not built~~ | **Built at P12 part 2.** Four new controls; all three induced rules refused, each by a different one. | — |
+| **Zero rules promoted** | Nothing attributes improvement rule by rule, so P12's gate sentence is unmet. The model writes well-formed rules that do nothing. | P12 / stronger model |
+| **`normalize_key` still unmodelled** | Refused now rather than silently passing — better than P8, not the same as simulated. | when a rule needs it |
+| **`book_to` needs a posting-delta regression** | A match-delta regression cannot measure a rule that changes where money books. | when a rule needs it |
 | **Adapter synthesis not built** | The "unseen format ingests with no configuration" half of P12's gate. | P12 |
 | **Triage gets 2 of 5 right** | 40% is a doubling of the baseline and it is also two out of five. `E06` needs cross-row arithmetic the prompt does not carry. | P12 (remaining) |
 | **One model, one prompt, one provider** | No ablation over prompt shape, no second model. The 40% is one configuration's number. | when a second is wired |

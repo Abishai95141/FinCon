@@ -352,18 +352,45 @@ def test_a_rule_for_another_profile_cannot_be_promoted_under_this_policy(history
         promote(stranger, regress(stranger, history, _profile(), policy), policy, actor="meera")
 
 
-def test_non_widening_actions_are_evaluated_too(history):
-    """`SUPPRESS` adds no matches, so a delta cap never sees it. It still needs a
-    reason and still goes through the gate."""
+def test_a_suppress_rule_that_destroys_a_match_is_refused(history):
+    """Rewritten at P12, and the rewrite is the point.
+
+    This test used to assert that a broad `SUPPRESS` rule was *allowed*, on the
+    reasoning that suppression adds no matches so a delta cap never sees it.
+    That was true only because `regress` did not simulate suppression at all —
+    the rule came back `0 broken, 0 added` because nothing measured it, and the
+    test was passing on an unimplemented feature.
+
+    Simulated, the same rule removes every razorpay row and destroys `b:0`'s
+    match. Refusing it is correct; passing it never was.
+    """
     suppressor = _rule(
         "R-S",
         RuleAction(kind=ActionKind.SUPPRESS, reason="balance summary row"),
     )
     policy = _policy()
     outcome = regress(suppressor, history, _profile(), policy)
-    decision = evaluate(suppressor, outcome, policy)
-    assert decision.allowed, decision.reasons
+    assert outcome.unmodelled == [], "suppress must be a modelled action"
+    assert outcome.broken == ["b:0"], outcome.broken
+    assert not evaluate(suppressor, outcome, policy).allowed
+
+
+def test_a_narrow_suppress_rule_still_promotes(history):
+    """The other half. A gate that refuses every suppression is as useless as
+    one that refuses none — `s:1` backs no match in this history, so removing it
+    costs nothing."""
+    narrow = Rule(
+        rule_id="R-S2",
+        profile="promo_test",
+        when=[Predicate(field="record_id", op=Operator.EQ, value="s:1")],
+        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="unclaimed summary row")],
+    )
+    policy = _policy()
+    outcome = regress(narrow, history, _profile(), policy)
+    assert outcome.broken == []
     assert outcome.added == []
+    decision = evaluate(narrow, outcome, policy)
+    assert decision.allowed, decision.reasons
 
 
 def test_the_shipped_policy_asset_carries_a_delta_cap():

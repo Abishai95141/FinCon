@@ -35,6 +35,37 @@ from .verifier import verify
 
 SAMPLE_SIZE = 5
 
+#: Action kinds `regress` can actually simulate. Anything else comes back with
+#: no delta — and `0 broken, 0 added` reads as "safe" when it means
+#: "unmeasured". That is CLAUDE.md's "an unmeasured thing reported as zero",
+#: inside the one gate that exists to stop unsafe rules, so `evaluate` refuses
+#: rather than letting the silence pass for a clean bill.
+#:
+#: `book_to` is absent on purpose: it changes where money posts, not which rows
+#: match, so a match-delta regression has nothing to say about it. Measuring it
+#: needs a posting-delta regression, which is not built.
+MODELLED_ACTIONS = frozenset({"set_tolerance", "suppress", "raise_advisory"})
+
+#: A rule that fires only on the rows it was induced from is a correction with a
+#: rule's grammar. The P8 regression cannot see it — an id-specific rule breaks
+#: no history and adds exactly what it was written to add — so generality is
+#: measured on data the rule has never seen. Residual risk `P19`, checked before
+#: promotion rather than monitored after it.
+MIN_HELD_OUT_FIRINGS = 1
+
+#: Fields that name *one row*, not a property of rows. An `eq`/`in` predicate on
+#: one of these pins specific records, which is a correction however it is
+#: dressed up.
+#:
+#: The structural check is the primary one, because the statistical one is
+#: foolable: record ids here are positional (`source:ordinal`), so
+#: `gateway-settlement:266` exists in every batch and names a *different row* in
+#: each. An id-keyed rule therefore fires happily on held-out data — on rows
+#: that have nothing to do with the case it was induced from. That is worse than
+#: not firing, and a firing count alone would have called it a pass.
+IDENTITY_FIELDS = frozenset({"record_id", "source_row_id", "group_ref"})
+PINNING_OPS = frozenset({"eq", "in"})
+
 
 def _record(journal, kind, **fields) -> None:
     """Write to the journal when one was supplied.
@@ -87,6 +118,9 @@ class RegressionOutcome:
     create a match that would fail the same gate as any other."""
     exceptions_cleared: int = 0
     evidence_hash: str = ""
+    unmodelled: list[str] = field(default_factory=list)
+    """Action kinds this regression could not simulate. Non-empty means the
+    delta above is *absent*, not zero."""
 
 
 @dataclass(frozen=True)
@@ -109,16 +143,70 @@ def _tolerance_asked_for(rule: Rule) -> Decimal | None:
 
 
 def _apply(rule: Rule, profile):
-    """The rule's effect on the matching configuration.
-
-    Only `SET_TOLERANCE` changes matching today. The others post, rename or
-    annotate, and a regression over them correctly shows no delta — which is why
-    `evaluate` still runs for them rather than waving them through on a zero.
-    """
+    """The rule's effect on the matching configuration."""
     asked = _tolerance_asked_for(rule)
     if asked is None:
         return profile
     return replace(profile, tolerance=replace(profile.tolerance, absolute=asked))
+
+
+def _unmodelled(rule: Rule) -> list[str]:
+    return sorted({a.kind.value for a in rule.then if a.kind.value not in MODELLED_ACTIONS})
+
+
+def _suppressed_by(rule: Rule, records: list[Record]) -> set[str]:
+    """Rows a `SUPPRESS` rule removes before matching. Simulated rather than
+    assumed: suppressing a duplicated export row is exactly the case where the
+    match delta is the whole point, and reporting `0 added` for it would be
+    measuring nothing."""
+    from .rules import select
+
+    if not any(a.kind is ActionKind.SUPPRESS for a in rule.then):
+        return set()
+    return set(select(rule, records).matched)
+
+
+@dataclass(frozen=True)
+class GeneralisationOutcome:
+    fires: int
+    sampled: int
+    pinned_fields: list[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
+
+    @property
+    def generalises(self) -> bool:
+        return not self.pinned_fields and self.fires >= MIN_HELD_OUT_FIRINGS
+
+    def summary(self) -> str:
+        if self.pinned_fields:
+            return (
+                f"CORRECTION — pins {self.pinned_fields}, which names rows rather "
+                f"than describing them"
+            )
+        if self.fires < MIN_HELD_OUT_FIRINGS:
+            return f"CORRECTION — fires on 0/{self.sampled} held-out rows"
+        return f"generalises — fires on {self.fires}/{self.sampled} held-out rows"
+
+
+def pinned_fields(rule: Rule) -> list[str]:
+    """Identity predicates, found structurally rather than statistically."""
+    return sorted(
+        {p.field for p in rule.when if p.field in IDENTITY_FIELDS and p.op.value in PINNING_OPS}
+    )
+
+
+def generalises(rule: Rule, held_out: list[Record]) -> GeneralisationOutcome:
+    """Does this rule describe a property, and does it have anything to say
+    about data it did not come from? Both, and the first matters more."""
+    from .rules import select
+
+    selection = select(rule, held_out)
+    return GeneralisationOutcome(
+        fires=selection.count,
+        sampled=len(held_out),
+        pinned_fields=pinned_fields(rule),
+        examples=selection.matched[:SAMPLE_SIZE],
+    )
 
 
 def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> RegressionOutcome:
@@ -130,9 +218,10 @@ def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> Regre
     """
     from .tiers import run as run_tiers
 
+    suppressed = _suppressed_by(rule, history.group_records)
     after = run_tiers(
         history.anchors,
-        history.group_records,
+        [r for r in history.group_records if r.record_id not in suppressed],
         _apply(rule, profile),
         ProofTier.P0_ARITHMETIC,
     )
@@ -161,6 +250,7 @@ def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> Regre
         unverifiable=unverifiable,
         exceptions_cleared=len(added),
         evidence_hash=hashlib.sha256(payload.encode()).hexdigest(),
+        unmodelled=_unmodelled(rule),
     )
 
 
@@ -169,6 +259,8 @@ def evaluate(
     outcome: RegressionOutcome,
     policy: Policy,
     taxonomy: TaxonomyRegistry | None = None,
+    held_out: list[Record] | None = None,
+    induced_on: list[Record] | None = None,
 ) -> Decision:
     """Judge a measured outcome against policy. Returns every reason it found
     rather than the first — an approver deciding whether to override needs the
@@ -216,6 +308,39 @@ def evaluate(
             f"{policy.max_added_matches} in {policy.ref}"
         )
 
+    if outcome.unmodelled:
+        reasons.append(
+            f"the regression could not model {outcome.unmodelled} — its delta is "
+            f"absent, not zero, and a rule whose effect nobody measured cannot be "
+            f"shown to be safe"
+        )
+
+    if induced_on is not None:
+        source = generalises(rule, induced_on)
+        if source.fires < MIN_HELD_OUT_FIRINGS:
+            reasons.append(
+                f"the rule fires on 0/{source.sampled} rows of the batch it was "
+                f"induced from — it does not implement the resolution it came from, "
+                f"whatever it reads like"
+            )
+        elif source.sampled and not policy.permits_selectivity(source.fires, source.sampled):
+            share = Decimal(source.fires) / Decimal(source.sampled)
+            reasons.append(
+                f"over-broad: fires on {source.fires}/{source.sampled} rows "
+                f"({share:.1%}), above the {Decimal(policy.max_selectivity_pct):.0%} "
+                f"cap in {policy.ref}. A rule that fires on everything is not a rule"
+            )
+
+    if held_out is not None:
+        general = generalises(rule, held_out)
+        if not general.generalises:
+            reasons.append(
+                f"refused as a correction, not a rule: {general.summary()}. A rule "
+                f"that fires only on the rows it was induced from breaks no history "
+                f"and adds exactly what it was written to add, so the regression "
+                f"cannot see it"
+            )
+
     if outcome.unverifiable:
         reasons.append(
             f"{len(outcome.unverifiable)} added match(es) do not verify under "
@@ -232,6 +357,8 @@ def promote(
     actor: str,
     journal: object | None = None,
     taxonomy: TaxonomyRegistry | None = None,
+    held_out: list[Record] | None = None,
+    induced_on: list[Record] | None = None,
 ) -> Rule:
     """Promote, or refuse and say why.
 
@@ -246,7 +373,7 @@ def promote(
     if not actor or not actor.strip():
         raise PolicyViolation("a promotion must name who granted it")
 
-    decision = evaluate(rule, outcome, policy, taxonomy)
+    decision = evaluate(rule, outcome, policy, taxonomy, held_out, induced_on)
     if not decision.allowed:
         _record(
             journal,

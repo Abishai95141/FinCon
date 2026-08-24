@@ -48,6 +48,9 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | A log written by instrumenting the happy path | It records what the author was thinking about, and the refusals are what nobody is thinking about — found at P9 | Derive events by set arithmetic over the structures the audit walks, and fail the run on an input no event names |
 | A model proposal overwriting a derived answer | The engine *proved* `E09`; the model *guessed* `E01`. Net lift was zero — one gained, one destroyed — found at P12 | A proposal is `P2` at best; it may not overwrite `P0 ARITHMETIC`. Do not even offer the item |
 | A prose fallback when a tool call is missing | One `except` block and ADR-001 is decorative — the engine is parsing text a model wrote | A reply that is not a tool call is refused and recorded, never parsed |
+| A regression over an action it cannot simulate | `0 broken, 0 added` reads as safe and means unmeasured — found at P12 inside the gate that exists to stop unsafe rules | Name the actions the regression models; refuse a rule whose effect it cannot measure |
+| A rule keyed on record ids | It breaks no history and adds what it was written to add, so the regression passes it — found at P12 | Refuse identity predicates structurally; a firing count is foolable when ids are positional |
+| A rule that fires on nothing, or on everything | Both look identical to a delta check. One does nothing; the other floods the worklist | Assert it fires on its own batch, and cap selectivity by policy |
 | Computing the same fact twice | The copy nobody reads rots, and a control over it goes quietly dead — found at P9 | Extend the one answer; never recompute it beside itself |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.

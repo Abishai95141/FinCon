@@ -377,20 +377,23 @@ def test_a_kind_with_no_producer_yet_names_the_phase_that_will_build_it():
     from recon.contracts import PRODUCERS, EventKind
 
     unbuilt = {k: v for k, v in PRODUCERS.items() if v.startswith("P")}
-    assert EventKind.RULE_INDUCED in unbuilt
-    assert EventKind.ADAPTER_AUTHORED in unbuilt
-    # `CodeProposed` was on this list until P11 built the registry that produces
-    # it. The property is the point, not the membership: a kind either names a
-    # producer or names the phase that will build one.
+    # The list shrinks as phases land — `CodeProposed` left it at P11,
+    # `RuleInduced` at P12. The property is the point, not the membership: a
+    # kind either names a producer or names the phase that will build one.
     assert EventKind.CODE_PROPOSED not in unbuilt
+    assert EventKind.RULE_INDUCED not in unbuilt
+    assert EventKind.ADAPTER_AUTHORED in unbuilt, (
+        "adapter synthesis is the last third of P12 and must still say so"
+    )
     for kind, phase in unbuilt.items():
         assert phase[:3] == "P12", f"{kind} claims phase {phase}"
 
 
 def test_the_close_reports_which_kinds_it_could_not_produce(closed):
-    assert "RuleInduced" in closed.unproduced_kinds
+    assert "AdapterAuthored" in closed.unproduced_kinds
     assert "MatchProven" not in closed.unproduced_kinds
     assert "CodeProposed" not in closed.unproduced_kinds
+    assert "RuleInduced" not in closed.unproduced_kinds
 
 
 # --------------------------------------------------------------------------
