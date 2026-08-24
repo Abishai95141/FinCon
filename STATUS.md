@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | **Current phase** | `P12` — the model edge ◆ the lift number. **RED: two of three parts built.** |
-| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **329 offline + 58 live tests.** Contract **5.0.0**. |
+| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **346 offline + 63 live tests.** Contract **6.0.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
-| **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
+| **Last verified numbers** | A/B **90.9% auto-match, 0.00% false-match, 0 unprovable**. `llm_only` scores **95.5%** and **1 unprovable** — its whole advantage. Coverage **80% vs 0%**. Classification with triage: **40%–80%, n=5** (a range, not a point) |
 | **Updated** | 2026-08-24 |
 
 ---
@@ -62,6 +62,112 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### Identity, one grammar production, and the arm that broke the metric · 2026-08-24
+
+Seven items in one session. Not a phase — debt, and two findings that outrank
+most of the phases.
+
+```
+$ make verify  P0-P11, 12 gates    $ make test  346 passed    $ make lint  clean
+$ pytest tests/property/  27 passed          contract 5.0.0 -> 6.0.0
+
+arm               auto-match  false-match  precision   recall  correct  false  missed  unprovable
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22           0
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2           0
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2           0
+llm_only              95.5%       0.00%    100.0%   95.5%       21      0       1           1
+```
+
+**The finding that outranks the rest: the benchmark has been rewarding
+unprovable answers since P3.** `truth_pairs()` is built from
+`payout_membership`, which records which rows *belong to* a payout — and for the
+planted `E06` that includes the duplicated row. So the labelled answer for
+`bl_00011` sums to ₹90,259.47 against a credit of ₹84,769.72: **a linkage that is
+true and an equation that does not balance.** An arm naming that linkage scores
+*correct*; the deterministic arm refuses it (invariant 2) and scores a *miss*.
+
+`auto-match` was measuring linkage, not provable match, and the engine has been
+penalised for declining what it cannot prove. The label is not wrong — it is an
+accurate linkage label. The metric was reading it as a reconciliation. New
+metric **unprovable matches**, recomputed from raw records independently of what
+any arm believes, so no arm can vouch for itself. Nine metrics now, not the
+plan's eight, and the gate says why rather than quietly changing a count.
+
+**The LLM-only arm, finally measured, and it is not what the dossier predicted.**
+It scores *higher* than the deterministic arm — and its entire advantage is the
+one match nobody can verify. The prediction was "looks good and is wrong"; what
+happens is stranger and better for the thesis: the model is right about the
+linkage and wrong about the arithmetic, and only the proof gate tells them apart.
+Same model, same facts, same forced schema — the one variable removed is the
+gate, so the difference is attributable.
+
+**Identity now identifies.** `record_id` was `source:ordinal`, so
+`gateway-settlement:266` named a different row in every batch and an id-keyed
+rule fired on strangers in held-out data. It is now
+`source:natural-key-hash:occurrence`. Identity is deliberately **not** the
+natural key: on batch A exactly two natural keys collide and they are precisely
+the planted duplicate, so a content-keyed id would delete the rows it exists to
+find and invariant 8 would never see them go. The collision is the signal.
+
+**One grammar production closes the hole.** `key_occurrence` is
+`row_number() over (partition by natural_key)`, evaluated once at intake where
+the whole source is in hand. A rule can now ask about duplication with a
+**unary** predicate:
+
+```
+when key_occurrence gt 0 then suppress
+```
+
+Fires 2/517 on A and 2/536 on B, names no row, breaks nothing, and adds a match:
+`bl_00011` pairs with `pout_00011` at T0, residual 0.00, **PROVEN** by the
+independent verifier. Exceptions 5 → 3. It promotes.
+
+Two constraints were being enforced as one axis. ADR-001 stratifies by *arity*;
+the acceptance layer stratifies by *generality*. "Suppress what the export
+asserted twice" is maximally general and was not unary. **And ADR-001 does not
+constrain `Rule` at all** — it commits `AdapterSpec` to a closed vocabulary with
+no eval. I had been citing an irreversible decision to defend a P1 modelling
+choice of my own.
+
+**The structural identity ban is deleted.** With stable ids the behavioural check
+is sound alone: a rule naming batch A's rows now finds nothing to say about B.
+
+**The breadth control is back in its correct form.** The denominator is a fixed
+reference population the rule never saw. At 0, 1,500, 4,000 and 20,000 rows of
+padding the reference stays 528/536 and the verdict stays refused — MR7 passes
+*by construction*. Two mutations confirm the pair: dropping the cap fails the
+gate, switching the denominator back to the induction set fails the relation.
+
+**A relation that cannot reach its state now fails.** Batch A has zero contested
+anchors, so every ambiguity relation was unfalsifiable on it. Building the
+fixture found something: cloning a group is not enough, because `T0` matches on
+the anchor's exact reference and resolves it by name before ambiguity can arise.
+**Only referenceless anchors can be contested.** With that, a relation that
+*discovers*: two equally viable groups must produce **no** match — and it catches
+the "commit the first candidate" mutation the order relation could not, because
+that resolution is deterministic and an order relation cannot see determinism.
+
+**And the number I was most confident about was one draw.** Six passes on A and
+three on B, same inputs: classification scores 2 to 4 of 5 — **40%–80%** — with
+proposed codes swinging across `E01`, `E03`, `E06`, `E10`, `E13`. I reported
+"20% → 40%, doubled, holds on held-out B" as a result. On n=5 one record is
+twenty points. `SINGLE_PASS_CAVEAT` now travels with the figure.
+
+**A vacuous assertion ruff caught that my review did not:**
+`assert x or True`. Found by SIM222, not by mutation and not by reading.
+
+**Not addressed, and now the whole remaining list:**
+- **#4** the regression is match-shaped: `book_to` and `normalize_key` stay
+  unmeasurable by construction.
+- **#5** `SETTLEMENT_CHART` is still `Assets:Bank:HDFC` in kernel code.
+- **#7** the mutation harnesses are still in `/tmp`; every "N/N caught" here is
+  unverifiable by anyone else.
+- **#10** STATUS still lists `F1`–`F4` as open CRITICAL. Closed at P7/P8.
+- Adapter-spec synthesis — the last third of P12.
+- `tests/unit/` and `tests/e2e/` are still empty; `make e2e` still fails.
+
+---
 
 ### Problem #3 closed: the taxonomy stops being hardcoded shut · 2026-08-24
 
