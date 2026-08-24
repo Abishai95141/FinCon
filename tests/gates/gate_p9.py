@@ -796,3 +796,41 @@ def test_the_replay_command_says_so_when_there_is_no_log(tmp_path, capsys):
 
     assert main(["A", "--log", str(tmp_path / "absent.jsonl")]) == 2
     assert "no decision log" in capsys.readouterr().out
+
+
+def test_no_decision_carries_a_wall_clock_measurement(closed):
+    """Found by this file's own determinism test, intermittently.
+
+    The subset-sum solver appended its elapsed time to the summary that becomes
+    an exception's `evidence`, so the same close produced a different decision
+    on every run — `4ms` one time, `1ms` the next — and could not be replayed.
+    The determinism test only failed when the timings happened to differ, which
+    is a test that catches a bug some of the time.
+
+    Timing is not a decision. It is a fact about our machine, the same
+    distinction this codebase already draws for `E13`, and it belongs in metrics
+    rather than in the record.
+    """
+    import re
+
+    clock = re.compile(r"\b\d+\s?(ms|s|sec|seconds|ns)\b")
+    for exception in closed.exceptions:
+        for line in exception.evidence:
+            assert not clock.search(line), f"{exception.exception_id} evidence: {line!r}"
+        assert not clock.search(exception.hypothesis or "")
+
+
+def test_a_stated_bound_is_still_evidence(closed):
+    """The other half: a bound that was *hit* is a policy limit and part of the
+    finding, so removing the clock must not remove that too."""
+    from recon.engine.subsetsum import Outcome, SubsetResult
+
+    hit = SubsetResult(
+        outcome=Outcome.TIMEOUT,
+        solutions=[],
+        candidates=40,
+        wall_ms=5000,
+        bound_hit="wall clock 5000ms",
+    )
+    assert "bound hit: wall clock 5000ms" in hit.summary()
+    assert "5000ms)" not in hit.summary().replace("bound hit: wall clock 5000ms", "")

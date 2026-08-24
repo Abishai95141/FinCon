@@ -83,12 +83,24 @@ class SubsetResult:
         return self.outcome in {Outcome.UNPROVEN, Outcome.TIMEOUT}
 
     def summary(self) -> str:
+        """What the solver *established*, with no wall clock in it.
+
+        `wall_ms` used to be appended here, and this string travels into an
+        exception's `evidence` — so the same close produced a different decision
+        every run and could not be replayed. P9's determinism test caught it,
+        though only on the runs where the timing happened to differ.
+
+        The distinction is one this codebase already draws for `E13`: how long
+        our machine took is a fact about *us*, not about the data. A bound that
+        was *hit* is different — that is a stated policy limit and part of the
+        finding, so it stays. Elapsed time is on `wall_ms` for metrics to read.
+        """
         text = (
             f"{self.outcome.value} ({len(self.solutions)} solution(s), {self.candidates} candidates"
         )
         if self.bound_hit:
             text += f", bound hit: {self.bound_hit}"
-        return text + f", {self.wall_ms}ms)"
+        return text + ")"
 
 
 class _Collector(cp_model.CpSolverSolutionCallback):

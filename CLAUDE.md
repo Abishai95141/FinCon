@@ -51,6 +51,7 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | A regression over an action it cannot simulate | `0 broken, 0 added` reads as safe and means unmeasured — found at P12 inside the gate that exists to stop unsafe rules | Name the actions the regression models; refuse a rule whose effect it cannot measure |
 | A rule keyed on record ids | It breaks no history and adds what it was written to add, so the regression passes it — found at P12 | Refuse identity predicates structurally; a firing count is foolable when ids are positional |
 | A rule that fires on nothing, or on everything | Both look identical to a delta check. One does nothing; the other floods the worklist | Assert it fires on its own batch, and cap selectivity by policy |
+| A wall clock inside a decision | The same close records `4ms` then `1ms` and stops being replayable — found at P9, caught only intermittently | Timing is a fact about our machine. Keep it in metrics; a *stated bound that was hit* is a finding and stays |
 | Computing the same fact twice | The copy nobody reads rots, and a control over it goes quietly dead — found at P9 | Extend the one answer; never recompute it beside itself |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.

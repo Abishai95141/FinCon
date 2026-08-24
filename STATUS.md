@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Current phase** | `P12` — the model edge ◆ the lift number. **RED: two of three parts built.** |
-| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **317 offline + 60 live tests.** Contract **3.2.0**. |
+| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **319 offline + 60 live tests.** Contract **3.2.0**. |
 | **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
 | **Updated** | 2026-08-24 |
@@ -171,6 +171,18 @@ anchor is present exactly once, and verifies the tree is restored afterwards.
 
 **Contract 3.1.0 → 3.2.0.** `EventKind.RULE_INDUCED` gained a real payload and a
 real producer; `Policy` gained `max_selectivity_pct`. New fields only, so minor.
+
+**A latent replay bug in P9, found by running `make verify` after this work.**
+The subset-sum solver appended its own elapsed time to the summary that becomes
+an exception's `evidence` — so the same close produced `4ms` one run and `1ms`
+the next, and **could not be replayed**. P9's determinism test was written to
+catch exactly this and did, but only intermittently: on the runs where the
+timings happened to match, it passed. Timing is not a decision — it is a fact
+about our machine, the same distinction this codebase already draws for `E13` —
+and it now lives on `wall_ms` for metrics rather than in the record. A stated
+bound that was *hit* is a policy limit and part of the finding, so that stays.
+Two tests added: no decision may carry a wall clock, and a hit bound is still
+evidence.
 
 **Not built:**
 - **Adapter-spec synthesis** — the last third, and the gate's "unseen format"
