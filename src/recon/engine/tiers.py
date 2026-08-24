@@ -286,9 +286,13 @@ def run(
     # measures them: suppression removes rows, then key rewrites change what is
     # comparable among the rows that are left.
     profile = rulestore.tolerance_for(active, profile)
-    group_records = rulestore.normalize(
-        active, [r for r in group_records if r.record_id not in applied.scope]
-    )
+    # Normalise every row, including the suppressed ones. Pre-filtering here
+    # removed them from `group_records` outright, so the completeness audit at
+    # the end of this function never saw them and invariant 8 had nothing to
+    # dispose of — a silent drop with extra steps, which is the exact thing
+    # `out_of_scope` exists to prevent. Exclusion from *matching* already
+    # happens below, where `scope` is applied and the audit can still see it.
+    group_records = rulestore.normalize(active, group_records)
     in_scope_anchors = [a for a in anchors if a.record_id not in scope]
     grouped, ungrouped = _groups_of([r for r in group_records if r.record_id not in scope])
     claimed: set[str] = set()

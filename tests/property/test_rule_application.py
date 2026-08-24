@@ -189,3 +189,91 @@ def test_book_to_reaches_a_posting():
     off, on = close("A", rules=[]), close("A", rules=[rule])
     roles = lambda r: sorted({p.role.value for e in r.entries for p in e.postings})  # noqa: E731
     assert "rounding" in roles(on) and "rounding" not in roles(off)
+
+
+def test_an_advisory_that_re_codes_nothing_is_refused():
+    """The no-op that outscored every real rule. `raise_advisory` was in the
+    enum, in the tool schema, and in `MODELLED_ACTIONS`, with no implementation:
+    a rule using it came back 0 broken, 0 added, nothing suppressed, promoted
+    without an objection and changed nothing at all. Clean on every dimension
+    because it did nothing on every dimension."""
+    history, rows = _history()
+    nowhere = _rule(
+        when=[{"field": "source", "op": Operator.EQ, "value": "nothing-is-called-this"}],
+        then=[{"kind": ActionKind.RAISE_ADVISORY, "target": "E06", "reason": "a repeat"}],
+    )
+    outcome = regress(nowhere, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY)
+    assert outcome.advisories_applied == 0
+    assert not outcome.broken and not outcome.added, "nothing else can see it"
+
+    decision = evaluate(nowhere, outcome, SETTLEMENT_POLICY, taxonomy=TAXONOMY, induced_on=rows)
+    assert not decision.allowed
+    assert any("re-codes no exception" in r for r in decision.reasons), decision.reasons
+
+
+def test_an_advisory_naming_an_unregistered_code_is_refused():
+    """P11: naming grants nothing. A code fires a rule only once a human has
+    promoted it with a written definition, and a code nobody minted at all is
+    not a label, it is a typo with authority."""
+    history, rows = _history()
+    bogus = _rule(then=[{"kind": ActionKind.RAISE_ADVISORY, "target": "E99", "reason": "x"}])
+    outcome = regress(bogus, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY)
+    decision = evaluate(bogus, outcome, SETTLEMENT_POLICY, taxonomy=TAXONOMY, induced_on=rows)
+
+    assert not decision.allowed
+    assert any("not in the registry" in r for r in decision.reasons), decision.reasons
+
+
+def test_a_rule_acting_by_something_the_close_cannot_do_is_refused(monkeypatch):
+    """The guard that stops this whole class recurring.
+
+    Three actions promoted on clean regressions and did nothing for as long as
+    the gate checked only whether the *regression* could measure them. It has to
+    check both: measurable at promotion, and performed at close.
+
+    Shrinking `APPLIED_ACTIONS` is how a future unimplemented action looks from
+    here — the control has no other way to fire while all five are implemented,
+    and a control that cannot be made to fire has not been tested.
+    """
+    from recon.engine import rulestore
+
+    monkeypatch.setattr(rulestore, "APPLIED_ACTIONS", frozenset({ActionKind.RAISE_ADVISORY}))
+    history, rows = _history()
+    outcome = regress(_rule(), history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY)
+    decision = evaluate(_rule(), outcome, SETTLEMENT_POLICY, taxonomy=TAXONOMY, induced_on=rows)
+
+    assert not decision.allowed
+    assert any("a close does not perform" in r for r in decision.reasons), decision.reasons
+
+
+def test_every_action_kind_is_either_implemented_or_absent_from_the_applied_set():
+    """`frozenset(ActionKind)` was shorter and said something false: it certified
+    every action as performed by construction, so a sixth kind would be
+    auto-approved and the guard above could never fire again."""
+    from recon.contracts.rule import ActionKind as Kind
+    from recon.engine.rulestore import APPLIED_ACTIONS
+
+    assert set(APPLIED_ACTIONS) == set(Kind), (
+        "an action kind exists that no close performs; either implement it or "
+        "leave it out of APPLIED_ACTIONS so the gate refuses rules that use it"
+    )
+
+
+def test_a_suppressed_row_is_still_seen_by_the_completeness_audit():
+    """Invariant 8 only sees what it is handed.
+
+    Applying suppression by rebinding `group_records` to a filtered list took
+    the rows out of the audit's input entirely — so they were neither disposed
+    nor undisposed, they were gone, and the run finished clean over records
+    nobody accounted for. Exclusion from matching is a disposition; exclusion
+    from the audit is a silent drop with extra steps.
+    """
+    result = close("A", rules=[_rule()])
+    suppressed = [rid for rid, why in result.scope.items() if "R-TEST-01" in why]
+
+    assert suppressed
+    for record_id in suppressed:
+        assert record_id in result.completeness.records, (
+            f"{record_id} was removed from the close and the audit never saw it"
+        )
+        assert result.completeness.records[record_id].value == "out_of_scope"

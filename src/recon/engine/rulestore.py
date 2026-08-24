@@ -39,7 +39,22 @@ STORE = Path(__file__).resolve().parents[3] / "data" / "rules"
 #: on clean regressions and did nothing at all. The functions below are the
 #: single implementation of each — the regression calls them too, so what is
 #: measured and what happens cannot drift apart.
-APPLIED_ACTIONS = frozenset(ActionKind)
+#:
+#: Listed one by one on purpose. `frozenset(ActionKind)` was shorter and said
+#: something false: it declared every action performed *by construction*, so a
+#: sixth kind added to the enum would be auto-certified as implemented and the
+#: guard below would never fire. Each entry names the function that carries it
+#: out, and `tests/property/test_rule_application.py` fails on an entry whose
+#: close-time effect cannot be observed.
+APPLIED_ACTIONS = frozenset(
+    {
+        ActionKind.SUPPRESS,  # -> `scope`, below
+        ActionKind.RAISE_ADVISORY,  # -> `tiers._advise`
+        ActionKind.SET_TOLERANCE,  # -> `tolerance_for`
+        ActionKind.NORMALIZE_KEY,  # -> `normalize`
+        ActionKind.BOOK_TO,  # -> `booking_overrides`
+    }
+)
 
 
 @dataclass(frozen=True)

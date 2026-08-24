@@ -84,4 +84,12 @@ MUTATIONS = [
         """    profile = rulestore.tolerance_for(active, profile)""",
         """    pass""",
     ),
+    (
+        "suppressed rows are filtered before the completeness audit can see them",
+        "src/recon/engine/tiers.py",
+        """    group_records = rulestore.normalize(active, group_records)""",
+        """    group_records = rulestore.normalize(
+        active, [r for r in group_records if r.record_id not in applied.scope]
+    )""",
+    ),
 ]
