@@ -1,5 +1,12 @@
 """Independent proof verification.
 
+**This file must never trust the proof, and must never take its policy from
+the caller.** The P5 audit found both. `tolerance_allowed` was read out of the
+proof being verified (`F1`), and the sign convention came in as an argument the
+only production call site filled from `profile.side_signs` — the config an agent
+would author (`F2`). Both now come from a `Policy`: versioned, frozen, approved
+by a named human, and not something a proposer supplies.
+
 **This file must never trust the proof.** `Proof.residual` and every
 `ProofLeg.subtotal` are claims made by whatever produced the match. The verifier
 fetches the Records by id, recomputes the subtotals and the residual from those
@@ -20,7 +27,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from ..contracts import Proof, Record
+from ..contracts import Policy, PolicyViolation, Proof, Record
 
 ZERO = Decimal("0.00")
 
@@ -35,6 +42,9 @@ class Verdict:
     kind: VerdictKind
     recomputed_residual: Decimal | None
     reasons: list[str] = field(default_factory=list)
+    policy_ref: str | None = None
+    """Which policy judged this. A verdict that cannot name its policy cannot be
+    reproduced once the policy changes."""
 
     @property
     def proven(self) -> bool:
@@ -47,28 +57,43 @@ class Verdict:
         return head + ("" if not self.reasons else " :: " + "; ".join(self.reasons))
 
 
-def _refuted(reasons: list[str], residual: Decimal | None = None) -> Verdict:
-    return Verdict(VerdictKind.REFUTED, residual, reasons)
+def _refuted(
+    reasons: list[str], residual: Decimal | None = None, policy_ref: str | None = None
+) -> Verdict:
+    return Verdict(VerdictKind.REFUTED, residual, reasons, policy_ref)
 
 
 def verify(
     proof: Proof,
     records: Mapping[str, Record],
-    side_signs: Mapping[str, int],
+    policy: Policy,
 ) -> Verdict:
     """Re-derive the match from the records and report whether it holds.
 
     `records` must be the same records a third party would fetch — the verifier
     is meant to be runnable by someone who does not trust us and holds only the
-    source files and this function.
+    source files, the policy, and this function.
     """
+    ref = policy.ref
     reasons: list[str] = []
 
     # Every referenced record must exist. A proof citing a record nobody can
     # fetch is unverifiable, which is refuted, not "probably fine".
     missing = [rid for rid in proof.record_ids() if rid not in records]
     if missing:
-        return _refuted([f"{len(missing)} referenced record(s) not found: {missing[:5]}"])
+        return _refuted(
+            [f"{len(missing)} referenced record(s) not found: {missing[:5]}"], None, ref
+        )
+
+    # A proof may claim any tolerance it likes; policy decides whether it had
+    # that much to spend. Checked before the arithmetic so a forged ceiling
+    # cannot launder a residual (audit F1).
+    if not policy.permits_tolerance(proof.tolerance_allowed):
+        reasons.append(
+            f"proof claims tolerance {proof.tolerance_allowed}, above the "
+            f"ceiling {policy.tolerance_ceiling} in {ref}"
+        )
+    effective = min(proof.tolerance_allowed, policy.tolerance_ceiling)
 
     # No record may appear in two legs — double-counting closes a residual that
     # should not close.
@@ -81,9 +106,10 @@ def verify(
 
     recomputed_total = ZERO
     for leg in proof.legs:
-        sign = side_signs.get(leg.side)
-        if sign is None:
-            return _refuted([f"no sign convention supplied for side {leg.side!r}"])
+        try:
+            sign = policy.sign_for(leg.side)
+        except PolicyViolation as exc:
+            return _refuted([str(exc)], None, ref)
 
         actual = sum((records[rid].amount for rid in leg.record_ids), ZERO)
         if actual != leg.subtotal:
@@ -101,10 +127,11 @@ def verify(
         if off_side:
             reasons.append(f"leg {leg.side!r} contains records from another side: {off_side[:3]}")
 
-    if abs(recomputed_total) > proof.tolerance_allowed:
+    if abs(recomputed_total) > effective:
         reasons.append(
-            f"recomputed residual {recomputed_total} exceeds the tolerance "
-            f"allowed {proof.tolerance_allowed}"
+            f"recomputed residual {recomputed_total} exceeds the effective "
+            f"tolerance {effective} (proof claimed {proof.tolerance_allowed}, "
+            f"ceiling {policy.tolerance_ceiling})"
         )
 
     if recomputed_total != proof.residual:
@@ -120,13 +147,13 @@ def verify(
         )
 
     if reasons:
-        return _refuted(reasons, recomputed_total)
-    return Verdict(VerdictKind.PROVEN, recomputed_total)
+        return _refuted(reasons, recomputed_total, ref)
+    return Verdict(VerdictKind.PROVEN, recomputed_total, policy_ref=ref)
 
 
 def verify_all(
     proofs: list[Proof],
     records: Mapping[str, Record],
-    side_signs: Mapping[str, int],
+    policy: Policy,
 ) -> dict[str, Verdict]:
-    return {p.proof_id: verify(p, records, side_signs) for p in proofs}
+    return {p.proof_id: verify(p, records, policy) for p in proofs}

@@ -8,7 +8,7 @@ publish.
 
 from __future__ import annotations
 
-from recon.contracts import ProofTier, Record
+from recon.contracts import Policy, ProofTier, Record
 from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
 from recon.engine.tiers import run as run_tiers
@@ -21,12 +21,13 @@ def run(
     bank: list[tuple[str, Record]],
     settlement: list[tuple[str, Record]],
     profile: MatchProfile,
+    policy: Policy,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
     candidates: CandidateSet | None = None,
 ) -> ArmResult:
     anchors = [rec for _, rec in bank]
     group_records = [rec for _, rec in settlement]
-    outcome = run_tiers(anchors, group_records, profile, provenance, candidates)
+    outcome = run_tiers(anchors, group_records, profile, provenance, candidates, policy)
 
     records = {rec.record_id: rec for _, rec in bank + settlement}
     external = {rec.record_id: ext for ext, rec in bank + settlement}
@@ -36,7 +37,7 @@ def run(
     refuted: list[str] = []
 
     for match in outcome.matches:
-        verdict = verify(match.proof, records, profile.side_signs)
+        verdict = verify(match.proof, records, policy)
         if not verdict.proven:
             # An unverified match is not a match. Recorded so the count of
             # rejections is visible rather than silently absorbed.

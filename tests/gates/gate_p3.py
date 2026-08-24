@@ -17,7 +17,7 @@ from decimal import Decimal as D
 import pytest
 from bench.arms import deterministic, securo_baseline
 from bench.metrics import score, truth_pairs
-from bench.run import BATCHES, SETTLEMENT_3WAY, load_sides
+from bench.run import BATCHES, SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
 
 from recon.contracts import MatchTier, Proof, ProofTier
 from recon.engine.tiers import MatchProfile
@@ -27,7 +27,7 @@ from recon.engine.verifier import verify
 
 pytestmark = pytest.mark.gate
 
-SIGNS = SETTLEMENT_3WAY.side_signs
+POLICY = SETTLEMENT_POLICY
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -55,7 +55,9 @@ def _run(sides, batch):
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_deterministic_arm_scores_with_zero_false_matches(sides, batch):
     bank, settlement, provenance, truth = _run(sides, batch)
-    card = score(deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance), truth)
+    card = score(
+        deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance), truth
+    )
 
     assert card.true_pairs == 22
     assert card.false_matches == 0, "a wrong match corrupts the books; this must stay at zero"
@@ -92,7 +94,7 @@ def test_our_matching_rule_does_not_beat_the_fair_baseline(sides, batch):
     reason rather than deleted.
     """
     bank, settlement, provenance, _truth = _run(sides, batch)
-    ours = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance)
+    ours = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     theirs = securo_baseline.run_grouped(bank, settlement)
     assert ours.pairs == theirs.pairs
 
@@ -103,7 +105,7 @@ def test_what_we_miss_is_what_should_be_missed(sides, batch):
     a match: a duplicated row in the export, and a genuinely ambiguous payout.
     Missing them is correct, so 90.9% is the ceiling at T0/T1, not a shortfall."""
     bank, settlement, provenance, truth = _run(sides, batch)
-    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance)
+    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     labels = json.loads((BATCHES / batch / "labels.json").read_text())
     line_to_payout = {
         v["bank_line"]: k for k, v in labels["payout_membership"].items() if v["bank_line"]
@@ -125,12 +127,12 @@ def test_what_we_miss_is_what_should_be_missed(sides, batch):
 def test_every_reported_match_verifies_independently(sides, batch):
     """A match counts only if the verifier re-derives it from the Records."""
     bank, settlement, provenance, _truth = _run(sides, batch)
-    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance)
+    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     records = {rec.record_id: rec for _, rec in bank + settlement}
 
     assert result.proofs
     for proof in result.proofs:
-        verdict = verify(proof, records, SIGNS)
+        verdict = verify(proof, records, POLICY)
         assert verdict.proven, f"{proof.proof_id}: {verdict}"
         assert verdict.recomputed_residual == D("0.00")
 
@@ -171,7 +173,7 @@ def test_ungrouped_records_are_reported_not_silently_dropped(sides):
 @pytest.fixture
 def proven(sides):
     bank, settlement, provenance, _truth = _run(sides, "A")
-    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance)
+    result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     records = {rec.record_id: rec for _, rec in bank + settlement}
     return result.proofs[0], records
 
@@ -184,7 +186,7 @@ def test_verifier_refutes_an_inflated_leg_subtotal(proven):
     proof, records = proven
     legs = [leg.model_dump() for leg in proof.legs]
     legs[0]["subtotal"] = D(legs[0]["subtotal"]) + D("1000.00")
-    verdict = verify(_tamper(proof, legs=legs), records, SIGNS)
+    verdict = verify(_tamper(proof, legs=legs), records, POLICY)
     assert not verdict.proven
     assert any("claimed subtotal" in r for r in verdict.reasons)
 
@@ -195,7 +197,7 @@ def test_verifier_refutes_a_residual_that_does_not_follow_from_the_records(prove
     proof, records = proven
     legs = [leg.model_dump() for leg in proof.legs]
     legs[1]["record_ids"] = legs[1]["record_ids"][:-1]  # drop a row, keep the claim
-    verdict = verify(_tamper(proof, legs=legs), records, SIGNS)
+    verdict = verify(_tamper(proof, legs=legs), records, POLICY)
     assert not verdict.proven
     assert verdict.recomputed_residual != D("0.00")
 
@@ -204,7 +206,7 @@ def test_verifier_refutes_a_record_counted_in_two_legs(proven):
     proof, records = proven
     legs = [leg.model_dump() for leg in proof.legs]
     legs[0]["record_ids"] = [*legs[0]["record_ids"], legs[1]["record_ids"][0]]
-    verdict = verify(_tamper(proof, legs=legs), records, SIGNS)
+    verdict = verify(_tamper(proof, legs=legs), records, POLICY)
     assert not verdict.proven
     assert any("appears in both" in r for r in verdict.reasons)
 
@@ -213,7 +215,7 @@ def test_verifier_refutes_a_reference_to_a_record_that_does_not_exist(proven):
     proof, records = proven
     legs = [leg.model_dump() for leg in proof.legs]
     legs[1]["record_ids"] = [*legs[1]["record_ids"], "settlement:999999"]
-    verdict = verify(_tamper(proof, legs=legs), records, SIGNS)
+    verdict = verify(_tamper(proof, legs=legs), records, POLICY)
     assert not verdict.proven
     assert any("not found" in r for r in verdict.reasons)
 
@@ -223,17 +225,31 @@ def test_verifier_refutes_a_leg_holding_records_from_another_side(proven):
     legs = [leg.model_dump() for leg in proof.legs]
     legs[0]["record_ids"] = [legs[1]["record_ids"][0]]
     legs[0]["subtotal"] = str(records[legs[1]["record_ids"][0]].amount)
-    verdict = verify(_tamper(proof, legs=legs), records, SIGNS)
+    verdict = verify(_tamper(proof, legs=legs), records, POLICY)
     assert not verdict.proven
     assert any("another side" in r for r in verdict.reasons)
 
 
 def test_verifier_will_not_take_the_sign_convention_from_the_proof(proven):
-    """Signs come from the caller. A proof that could pick its own could make
-    any set of numbers close."""
+    """Superseded and tightened at P7.
+
+    This originally asserted that signs come from the *caller* rather than the
+    proof — right instinct aimed one layer too high, since the caller turned out
+    to be the config an agent would author (audit finding `F2`). Signs now come
+    from a `Policy`: frozen, approved by a named human, and unable to express a
+    zero. `verify()` no longer accepts a bare mapping at all.
+    """
+    from recon.contracts.policy import Policy
+
     proof, records = proven
-    assert not verify(proof, records, {"bank": 1, "settlement": 1}).proven
-    assert not verify(proof, records, {"bank": 1}).proven  # side missing entirely
+    assert isinstance(POLICY, Policy)
+    with pytest.raises(AttributeError):
+        verify(proof, records, {"bank": 1, "settlement": 1})  # type: ignore[arg-type]
+
+    partial = POLICY.model_copy(update={"side_signs": {"bank": 1}})
+    verdict = verify(proof, records, partial)
+    assert not verdict.proven
+    assert any("no sign" in r for r in verdict.reasons)
 
 
 # --------------------------------------------------------------------------
@@ -321,7 +337,9 @@ def test_exact_tier_will_not_absorb_any_residual():
 def test_proof_provenance_follows_the_weakest_intake(sides):
     """Records from a 'declared' intake cannot back a P0 claim."""
     bank, settlement, _provenance, _truth = _run(sides, "A")
-    weak = deterministic.run(bank, settlement, SETTLEMENT_3WAY, ProofTier.P3_DECLARED)
+    weak = deterministic.run(
+        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, ProofTier.P3_DECLARED
+    )
     assert weak.proofs
     for proof in weak.proofs:
         assert proof.provenance is ProofTier.P3_DECLARED
@@ -330,7 +348,9 @@ def test_proof_provenance_follows_the_weakest_intake(sides):
 
 def test_proof_leg_shape_is_what_a_third_party_needs(sides):
     bank, settlement, provenance, _truth = _run(sides, "A")
-    proof = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance).proofs[0]
+    proof = deterministic.run(
+        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance
+    ).proofs[0]
     assert {leg.side for leg in proof.legs} == {"bank", "settlement"}
     assert all(leg.record_ids for leg in proof.legs)
     assert Proof.model_validate_json(proof.model_dump_json()) == proof
@@ -346,4 +366,4 @@ def test_leg_subtotals_are_claims_not_authority(proven):
     lying = _tamper(tampered, legs=legs)
 
     assert lying.closes(), "closes() reads the claim — that is why it is not verification"
-    assert not verify(lying, records, SIGNS).proven
+    assert not verify(lying, records, POLICY).proven

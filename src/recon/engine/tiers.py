@@ -16,7 +16,16 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from ..contracts import ExceptionCode, MatchTier, Proof, ProofLeg, ProofTier, ReconException, Record
+from ..contracts import (
+    ExceptionCode,
+    MatchTier,
+    Policy,
+    Proof,
+    ProofLeg,
+    ProofTier,
+    ReconException,
+    Record,
+)
 from .blocking import CandidateSet
 from .completeness import CompletenessReport, audit
 from .subsetsum import Outcome, SolverBounds, solve
@@ -47,6 +56,19 @@ class MatchProfile:
     charge it was levied on. Passed through to the solver; naming it here keeps
     the engine domain-agnostic."""
     solver_bounds: SolverBounds = field(default_factory=SolverBounds)
+
+    def __post_init__(self) -> None:
+        # The validator MatchProfile never had. A zero sign makes every residual
+        # zero and every match verify — audit finding F2 — and nothing here
+        # checked. Policy is still the authority; this stops an obviously broken
+        # proposal earlier and with a clearer message.
+        bad = {side: sign for side, sign in self.side_signs.items() if sign not in (1, -1)}
+        if bad:
+            raise ValueError(f"profile {self.name!r}: side signs must be +1 or -1, got {bad}")
+        if self.anchor_side not in self.side_signs:
+            raise ValueError(f"profile {self.name!r}: anchor side {self.anchor_side!r} has no sign")
+        if self.group_side not in self.side_signs:
+            raise ValueError(f"profile {self.name!r}: group side {self.group_side!r} has no sign")
 
 
 @dataclass(frozen=True)
@@ -147,6 +169,7 @@ def run(
     profile: MatchProfile,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
     candidates: CandidateSet | None = None,
+    policy: Policy | None = None,
 ) -> MatchRun:
     """T0 then T1. A group already claimed by an earlier tier is not offered to
     a later one — a group can back exactly one anchor.
@@ -157,6 +180,12 @@ def run(
     and the invariant it serves is that a pair dropped at blocking is
     unrecoverable downstream.
     """
+    if policy is not None:
+        # Before a single match is attempted. A profile whose signs disagree with
+        # policy would otherwise produce matches the verifier then refutes — the
+        # right outcome reached the expensive way, and only if someone looks.
+        policy.check_profile(profile)
+
     grouped, ungrouped = _groups_of(group_records)
     claimed: set[str] = set()
     matches: list[Match] = []

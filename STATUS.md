@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P7` — policy and the constraint layer ([plan v2](docs/06-PLAN-V2.md)) |
-| **Last green gate** | **P6** — 19/19. `make verify` runs P0–P6, 123 tests. Contract 1.4.0. |
-| **Build runs?** | Generator, ledger, intake, blocking, T0/T1/T2 engine, completeness audit. |
+| **Current phase** | `P8` — the promotion gate ([plan v2](docs/06-PLAN-V2.md)) |
+| **Last green gate** | **P7** — 21/21. `make verify` runs P0–P7, 146 tests. Contract 1.5.0. |
+| **Build runs?** | All of the above, now under a `Policy` loaded from `data/policy/`. |
 | **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
 | **Updated** | 2026-08-21 |
 
@@ -34,7 +34,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | **`GREEN`** | [below](#p5--subset-sum--2026-08-21) |
 | — | **↓ re-planned 2026-08-21 — see [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)** | | |
 | **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | `not started` | — |
-| **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | `not started` | — |
+| **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | **`GREEN`** | [below](#p7--policy--2026-08-21) |
 | **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | `not started` | — |
 | **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | `not started` | — |
 | **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | `not started` | — |
@@ -62,6 +62,76 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P7 — policy · 2026-08-21
+
+```
+$ make verify        P0 11 · P1 19 · P2 19 · P3 24 · P4 14 · P5 17 · P6 21 · P7 21
+$ pytest -q          146 passed
+$ make lint          All checks passed!
+
+the four audit bypasses, re-run:
+  F1 forged tolerance (residual Rs 7,466.19)  -> REFUTED
+  F2 zero signs                                -> unrepresentable in Policy
+  F4 49% rejection                             -> failed (['rejection_budget'])
+  Rs 5.00 plug                                 -> blocked
+  verdicts now name their policy: settlement-in@v1
+```
+
+**Written red first.** The gate file was authored before any of the fix and
+failed on collection, then failed test-by-test as each attack was reproduced. A
+test written after the code it checks tends to assert what the code already does.
+
+**One object closed both critical findings.** `verify(proof, records, policy)`
+replaces `verify(proof, records, side_signs)`. The proof's `tolerance_allowed`
+became a *claim checked against the ceiling* rather than a permission honoured
+(`F1`), and the sign convention comes from a frozen, named-approver `Policy` that
+cannot express a zero (`F2`). Policy lives in `data/policy/settlement_3way.json`
+— an asset, like an adapter spec, so a change shows up in a diff.
+
+**The profile is now a proposal that gets checked.** `MatchProfile` gained the
+validators it never had (signs ±1, both sides present), and `run()` calls
+`policy.check_profile()` before attempting a single match. A profile whose signs
+disagree with policy, or which asks for tolerance above the ceiling, refuses to
+run — rather than producing matches the verifier then refutes, which is the right
+answer reached the expensive way and only if someone looks.
+
+**Rejection is bounded, not just legible.** A new `rejection_budget` check fails
+above the policy share. It **SKIPs** when no policy is supplied and says so — a
+check that silently passes without its policy is the `F1` shape again.
+
+**Sub-paisa drift is posted or blocked, never absorbed.** Beancount carries a
+default tolerance of its own, so an entry off by ₹0.005 loaded with zero errors.
+Residue at or below the threshold now posts to `Expenses:Rounding` with the
+amount in metadata; above it the close is blocked. Build-plan problem `P16`,
+finally built.
+
+**Mutation-tested one-for-one.** Reverting each fix fails exactly the test
+written for it: trust the proof's tolerance → `F1` test; accept a zero sign →
+`F2` test; budget never fires → `F4` test; ignore the threshold → both rounding
+tests.
+
+**A shallow proxy in my own gate, caught by that mutation.** The rounding test
+asserted `"Expenses:Rounding" in result.text` — which passes regardless, because
+every chart account appears in the `open` directives. It survived the mutation
+that disabled rounding entirely. Replaced with an assertion on the metadata key
+that only exists on an entry the rounding path actually touched, and the
+mutation now fails both tests.
+
+**Found by the pre-P7 verification sweep, not by P6's gate:** a **missing file**
+raised `FileNotFoundError`, not `ReaderError`, so `ingest()` did not catch it and
+the run still died. P6 caught only `ReaderError`; the likeliest source failure of
+all — the download that never happened — sailed past. Now catches `OSError` and
+`csv.Error` too, with gate cases for a missing file and a directory.
+
+**P3's numbers are unchanged** (90.9% / 0.00%), completeness still holds, and the
+batches still regenerate to the committed hashes.
+
+**Not built:** policy is loaded from disk but nothing verifies its signature or
+provenance — a tampered policy file is trusted. That belongs with P9's decision
+log, which is where "which policy version judged this" becomes replayable.
+
+---
 
 ### P6 — completeness · 2026-08-21
 
@@ -546,7 +616,7 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **F3 regression gate blind to widening** | **HIGH.** `promotable` only checks `matches_broken == 0`; widening tolerance adds matches without breaking any. A ₹1,000,000 tolerance rule promotes cleanly. | before P7 — blocks it |
 | **F4 rejection has no budget** | **HIGH.** A reasoned reject rule discarded 251 of 517 rows and reported `declared`/`ok=True`. Row conservation checks reasons, not volume. | before P7 |
 | **F5 missing verb fails plausibly** | Verb added (1.3.0), class permanent: a closed vocabulary lacking a verb picks the nearest and returns a plausible number. Needs an `UNMAPPABLE` escalation. | before P7 |
-| **Sub-paisa residue posts silently** | Entry off by ₹0.005 → `blocked=False`, zero errors. Build-plan P16 (rounding account + threshold) never built. | P7 |
+| **Policy provenance unverified** | `Policy` is loaded from disk and trusted. Nothing checks a signature, so a tampered policy file governs. | P9 |
 | **Completeness does not cover postings** | The audit accounts for anchors, records and sources. Nothing asserts every proven match produced a journal entry. | P9 |
 | **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
 | **A novel finding still cannot be named** | `E14` is the honest placeholder; a real registry with a lifecycle is P11. | P11 |
@@ -595,29 +665,32 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P7 — policy and the constraint layer.** The single change that closes
-both critical bypasses from [the audit](docs/04-CONTROL-PLANE-AUDIT.md).
+**Start P8 — the promotion gate.** Blocks rule induction; must land before
+anything authors a rule.
 
-1. **`Policy` contract** — versioned, human-owned, supplied out-of-band.
-2. **`verify(proof, records, policy)`** replaces `verify(proof, records, side_signs)`.
-   The proof's declared tolerance becomes a claim checked against policy rather
-   than a permission honoured. Closes `F1` and `F2` together.
-3. **`MatchProfile` validators** — signs must be ±1, tolerance under the ceiling.
-4. **Rejection budget** in policy; intake fails above it.
-5. **Rounding threshold** in policy; residue above it becomes `E03`.
+`RegressionReport.promotable` is `matches_broken == 0`. Widening a tolerance
+never *breaks* a match — it only adds. The gate measures the one direction that
+cannot detect the danger, and a model optimising for "exceptions cleared" finds
+that move immediately.
 
-**Reproduce each attack as a failing test first.** All of them run today:
+1. Count matches **added** as well as broken.
+2. Re-run the regression under current policy rather than trusting the report
+   shipped with the rule.
+3. Cap the match delta by policy; require a sample of added matches in the
+   approval.
+4. Promotion becomes an **event** — actor, policy version, evidence hash — not a
+   field on a model.
+
+**Write the attack first**, as P7 did. It reproduces today:
 
 ```
-verify(proof, records, {"bank": 0, "settlement": 0})        -> PROVEN  (F2)
-proof declaring tolerance_allowed 9999999, residual 7466.19 -> PROVEN  (F1)
-reject rule discarding 251 of 517 rows                      -> declared, ok=True  (F4)
-journal entry off by 0.005                                  -> blocked=False
+rule R-EVIL  action: set_tolerance -> Rs 1,000,000
+regression:  0 broken, 93 cleared      promotable: True   -> PROMOTED accepted
 ```
 
-Turn each red, then green. P6 earned this discipline twice over: the completeness
-audit found two silent cases the register had missed, and `UNMAPPABLE`'s first
-implementation was wrong in a way only its own test exposed.
+The gate is that `R-EVIL` is **refused** while a legitimate narrow rule still
+promotes. Note the second half — a gate that refuses everything is as useless as
+one that refuses nothing.
 
 ---
 
@@ -627,6 +700,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | **P7 GREEN.** `Policy` as a versioned frozen asset; `verify(proof, records, policy)`; profile validators + `check_profile`; rejection budget; rounding threshold. All four audit bypasses closed and mutation-tested 1:1. Contract → 1.5.0. Also fixed a missing-file crash P6's gate had missed, and a vacuous assertion in my own P7 gate. |
 | 2026-08-21 | **P6 GREEN.** Completeness audit (invariant 8) + `E14_UNEXPLAINED` + `UNMAPPABLE`; readers report instead of raising; header-only files fail. Contract → 1.4.0. The audit found 2 silent cases on the real batch the register had missed. |
 | 2026-08-21 | **Re-planned P6–P15** ([docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)). Control plane becomes phases of its own ahead of the model edge; the decision log moves earlier; the ship line moves to P10. Old P6→P10, P7→P12, P8→P9+P13, P9→P14, P10→P15. |
 | 2026-08-21 | **Failure register.** 19 novel inputs probed: 5 crash, 3 finish silently, 2 finish wrong, 9 handled. Added **invariant 8** (every input has a disposition) to CLAUDE.md — one completeness check that catches unenumerated cases. |

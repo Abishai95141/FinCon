@@ -19,7 +19,13 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.4.0"
+CONTRACT_VERSION = "1.5.0"
+# 1.5.0 — P7 added the Policy contract: the answer to "was this allowed?".
+#         Versioned, frozen, carrying an approver's name, and deliberately not
+#         something a proposer can supply. verify() now takes it instead of a
+#         side_signs mapping, closing audit findings F1 and F2 together. New
+#         model plus a widened verify() signature; the old signature is gone,
+#         but nothing outside this repo consumed it yet, so minor.
 # 1.4.0 — P6 added two members, both so the system can say "I do not know" out
 #         loud rather than guess:
 #           ExceptionCode.E14_UNEXPLAINED — invariant 8 requires a disposition
@@ -76,6 +82,7 @@ from .adapter import (  # noqa: E402
     RejectRule,
 )
 from .exception import ExceptionCode, ReconException, Resolution  # noqa: E402
+from .policy import Policy, PolicyViolation, Ratio  # noqa: E402
 from .proof import MatchTier, Proof, ProofLeg, ProofTier  # noqa: E402
 from .record import Record  # noqa: E402
 from .rule import Predicate, RegressionReport, Rule, RuleAction, RuleStatus  # noqa: E402
@@ -89,10 +96,13 @@ __all__ = [
     "MatchTier",
     "Money",
     "ParseVerb",
+    "Policy",
+    "PolicyViolation",
     "Predicate",
     "Proof",
     "ProofLeg",
     "ProofTier",
+    "Ratio",
     "ReaderKind",
     "ReaderSpec",
     "ReconException",

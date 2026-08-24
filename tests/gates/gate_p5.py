@@ -16,7 +16,7 @@ from datetime import date as _date
 from decimal import Decimal as D
 
 import pytest
-from bench.run import BATCHES, SETTLEMENT_3WAY, load_sides
+from bench.run import BATCHES, SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
 
 from recon.contracts import ExceptionCode, MatchTier, ProofTier, Record
 from recon.engine.subsetsum import Outcome, SolverBounds, solve
@@ -130,7 +130,7 @@ def test_t2_commits_only_on_a_proven_unique_subset(env):
 
     match = outcome.matches[0]
     records = {r.record_id: r for r in [stand_in, *half]}
-    assert verify(match.proof, records, SETTLEMENT_3WAY.side_signs).proven
+    assert verify(match.proof, records, SETTLEMENT_POLICY).proven
 
 
 # --------------------------------------------------------------------------

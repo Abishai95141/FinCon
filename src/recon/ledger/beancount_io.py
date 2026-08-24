@@ -23,7 +23,7 @@ from decimal import Decimal
 from beancount import loader
 from beancount.core import data as bc_data
 
-from ..contracts import Money
+from ..contracts import Money, Policy
 from .accounts import AccountRole, ChartOfAccounts
 
 _META_KEY_RE = re.compile(r"^[a-z][a-zA-Z0-9_-]*$")
@@ -150,12 +150,60 @@ def assert_closing_balance(period_end: date, role: AccountRole, expected: Decima
     return (period_end + timedelta(days=1), role, expected)
 
 
+def _apply_rounding(
+    entries: list[JournalEntry], policy: Policy | None
+) -> tuple[list[JournalEntry], list[LedgerError]]:
+    """Beancount carries a default tolerance of its own, so an entry off by
+    ₹0.005 loaded with zero errors and posted silently — build-plan problem
+    `P16`. Sub-paisa drift on 200 rows is real money.
+
+    At or below the policy threshold the residue is posted to the rounding
+    account, so it is visible in the ledger rather than absorbed. Above it, the
+    close is blocked: a plug that large is a finding, not a rounding.
+    """
+    if policy is None:
+        return entries, []
+    adjusted: list[JournalEntry] = []
+    errors: list[LedgerError] = []
+    for entry in entries:
+        residual = entry.residual()
+        if residual == Decimal("0.00"):
+            adjusted.append(entry)
+            continue
+        if abs(residual) > policy.rounding_threshold:
+            errors.append(
+                LedgerError(
+                    kind="RoundingRefused",
+                    message=(
+                        f"entry {entry.entry_id} is off by {residual}, above the "
+                        f"rounding threshold {policy.rounding_threshold} in "
+                        f"{policy.ref} — a plug this size is a finding, not a "
+                        f"rounding"
+                    ),
+                )
+            )
+            adjusted.append(entry)
+            continue
+        adjusted.append(
+            JournalEntry(
+                entry_id=entry.entry_id,
+                entry_date=entry.entry_date,
+                narration=entry.narration,
+                postings=[*entry.postings, Posting(AccountRole.ROUNDING, -residual)],
+                proof_id=entry.proof_id,
+                meta={**entry.meta, "rounding": str(-residual)},
+            )
+        )
+    return adjusted, errors
+
+
 def post_and_assert(
     entries: list[JournalEntry],
     chart: ChartOfAccounts,
     opened_on: date,
     period_end: date,
     closing_balances: dict[AccountRole, Money] | None = None,
+    policy: Policy | None = None,
 ) -> CloseResult:
     """Render, load, and report whether the close may proceed.
 
@@ -166,8 +214,10 @@ def post_and_assert(
         assert_closing_balance(period_end, role, expected)
         for role, expected in sorted((closing_balances or {}).items(), key=lambda kv: kv[0].value)
     ]
+    entries, rounding_errors = _apply_rounding(entries, policy)
     text = render(entries, chart, opened_on, assertions)
     loaded, errors = load(text)
+    errors = rounding_errors + errors
     return CloseResult(
         blocked=bool(errors),
         errors=errors,

@@ -10,11 +10,12 @@ that names a verb outside the closed enum fails validation before anything runs.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from ..contracts import AdapterSpec, ParseVerb, Record
+from ..contracts import AdapterSpec, ParseVerb, Policy, Record
 from .proofs import Check, CheckStatus, IntakeProof, prove
 from .readers import ReaderError, SourceDocument, read
 from .spec import Interpreted, Rejection, interpret
@@ -92,6 +93,7 @@ def ingest(
     spec: AdapterSpec,
     path: Path,
     window: tuple[date, date] | None = None,
+    policy: Policy | None = None,
 ) -> IngestResult:
     """Read, interpret, prove. Never raises on a bad document — a failure is
     reported in the proof so a scorecard can show it, rather than crashing the
@@ -108,10 +110,15 @@ def ingest(
 
     try:
         document = read(path, spec.reader, spec.source)
-    except ReaderError as exc:
+    except (ReaderError, OSError, csv.Error) as exc:
         # The docstring above promised this. Before P6 the reader raised straight
         # through, so one unopenable file in a batch killed the whole close and
         # left no proof object to show anyone.
+        #
+        # OSError as well as ReaderError: P6 first caught only ReaderError, and a
+        # MISSING file — the likeliest source failure of all, the download that
+        # never happened — raises FileNotFoundError from read_bytes() and sailed
+        # past. Permission and is-a-directory take the same path.
         return _unreadable(spec, path, exc)
     out: Interpreted = interpret(spec, document)
     return IngestResult(
@@ -119,7 +126,7 @@ def ingest(
         document=document,
         records=out.records,
         rejections=out.rejections,
-        proof=prove(spec, document, out, window),
+        proof=prove(spec, document, out, window, policy),
     )
 
 

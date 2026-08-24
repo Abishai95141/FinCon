@@ -20,7 +20,7 @@ from decimal import Decimal
 from enum import StrEnum
 from itertools import pairwise
 
-from ..contracts import AdapterSpec, ProofTier, Record
+from ..contracts import AdapterSpec, Policy, ProofTier, Record
 from .readers import SourceDocument
 from .spec import Interpreted, interpret
 
@@ -139,6 +139,36 @@ def _row_conservation(doc: SourceDocument, out: Interpreted) -> Check:
     )
 
 
+def _rejection_budget(doc: SourceDocument, out: Interpreted, policy: Policy | None) -> Check:
+    """A reason makes a rejection legible; a budget makes it bounded.
+
+    Row conservation asks whether every departing row carried a reason, never
+    whether the departures were justified — so a plausible reject rule discarded
+    251 of 517 rows and the intake reported `ok=True` (audit finding `F4`).
+    """
+    if policy is None:
+        # SKIP, not PASS. A check that silently passes without its policy is the
+        # same shape as the bypasses this phase closes.
+        return Check("rejection_budget", CheckStatus.SKIP, "no policy supplied")
+    if doc.rows_in_file == 0:
+        return Check("rejection_budget", CheckStatus.SKIP, "no rows to budget")
+    rate = Decimal(len(out.rejections)) / Decimal(doc.rows_in_file)
+    budget = policy.rejection_budget_pct
+    if rate > budget:
+        return Check(
+            "rejection_budget",
+            CheckStatus.FAIL,
+            f"{len(out.rejections)}/{doc.rows_in_file} rows rejected = "
+            f"{rate:.1%}, over the {budget:.1%} budget in {policy.ref}. A reason "
+            f"makes a rejection legible; it does not make it justified.",
+        )
+    return Check(
+        "rejection_budget",
+        CheckStatus.PASS,
+        f"{rate:.1%} rejected, within the {budget:.1%} budget in {policy.ref}",
+    )
+
+
 def _control_total(doc: SourceDocument, out: Interpreted) -> Check:
     if doc.control_total is None:
         return Check("control_total", CheckStatus.SKIP, "source states no total")
@@ -250,6 +280,7 @@ def prove(
     doc: SourceDocument,
     out: Interpreted,
     window: tuple[date, date] | None = None,
+    policy: Policy | None = None,
 ) -> IntakeProof:
     return IntakeProof(
         source=spec.source,
@@ -260,6 +291,7 @@ def prove(
         rows_rejected=len(out.rejections),
         checks=[
             _row_conservation(doc, out),
+            _rejection_budget(doc, out, policy),
             _control_total(doc, out),
             _roll_forward(doc, out),
             _type_domain(spec, out, window),

@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from recon.contracts import ProofTier, Record
+from recon.contracts import Policy, ProofTier, Record
 from recon.engine.blocking import BlockingPolicy, recall
 from recon.engine.blocking import build as build_candidates
 from recon.engine.tiers import MatchProfile
@@ -26,6 +26,11 @@ from .arms import deterministic, securo_baseline
 from .metrics import Scorecard, render_table, score, truth_groups, truth_pairs
 
 BATCHES = Path("data/batches")
+POLICY_DIR = Path("data/policy")
+#: Authority, loaded from disk like an adapter spec so a change shows in a diff.
+SETTLEMENT_POLICY = Policy.model_validate_json(
+    (POLICY_DIR / "settlement_3way.json").read_text(encoding="utf-8")
+)
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 
 SETTLEMENT_3WAY = MatchProfile(
@@ -51,8 +56,12 @@ def load_sides(
     (proved at P2); using the CAMT here keeps scoring traceable to ground truth
     without a second id mapping to get wrong."""
     root = BATCHES / batch
-    bank_result = ingest(load_spec("icici-camt"), root / "bank_icici_camt053.xml", WINDOW)
-    settle_result = ingest(load_spec("gateway-settlement"), root / "settlement.csv", WINDOW)
+    bank_result = ingest(
+        load_spec("icici-camt"), root / "bank_icici_camt053.xml", WINDOW, SETTLEMENT_POLICY
+    )
+    settle_result = ingest(
+        load_spec("gateway-settlement"), root / "settlement.csv", WINDOW, SETTLEMENT_POLICY
+    )
 
     # Only gateway credits are candidates. Salary, GST and vendor debits carry
     # no gateway key, so they are excluded by the data rather than by a rule.
@@ -89,7 +98,9 @@ def main(argv: list[str] | None = None) -> int:
         declared_groups={rec.group_ref for _, rec in settlement if rec.group_ref},
     )
 
-    ours = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance, candidates)
+    ours = deterministic.run(
+        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance, candidates
+    )
     cards: list[Scorecard] = [
         score(securo_baseline.run_raw(bank, settlement), truth),
         score(securo_baseline.run_grouped(bank, settlement), truth),

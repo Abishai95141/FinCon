@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from bench.arms import deterministic
 from bench.metrics import score, truth_groups, truth_pairs
-from bench.run import BATCHES, SETTLEMENT_3WAY, load_sides
+from bench.run import BATCHES, SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
 
 from recon.engine.blocking import (
     BlockingPolicy,
@@ -125,9 +125,16 @@ def test_blocking_does_not_change_any_p3_number(sides, batch):
     bank, settlement, provenance, anchors, groups, _declared = _parts(sides, batch)
     truth = truth_pairs(BATCHES / batch / "labels.json")
 
-    without = deterministic.run(bank, settlement, SETTLEMENT_3WAY, provenance, None)
+    without = deterministic.run(
+        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance, None
+    )
     with_blocking = deterministic.run(
-        bank, settlement, SETTLEMENT_3WAY, provenance, build(anchors, groups, BlockingPolicy())
+        bank,
+        settlement,
+        SETTLEMENT_3WAY,
+        SETTLEMENT_POLICY,
+        provenance,
+        build(anchors, groups, BlockingPolicy()),
     )
 
     assert with_blocking.pairs == without.pairs

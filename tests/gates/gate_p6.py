@@ -243,6 +243,24 @@ def test_unreadable_sources_report_instead_of_raising(base_spec, name, mutate, f
     assert result.proof.failed[0].detail, "a failed source must say why"
 
 
+@pytest.mark.parametrize(
+    "label,target",
+    [
+        ("missing file", Path("/tmp/gate_p6/definitely-not-here.csv")),
+        ("a directory where a file was expected", Path("/tmp/gate_p6")),
+    ],
+)
+def test_os_level_failures_also_report_instead_of_raising(base_spec, label, target):
+    """P6 first caught only `ReaderError`. A **missing** file — the likeliest
+    source failure of all, the download that never happened — raises
+    `FileNotFoundError` from `read_bytes()` and sailed straight past, so the run
+    still died. Found by the post-P6 verification sweep, not by this gate."""
+    result = ingest(AdapterSpec.model_validate(base_spec), target, WINDOW)
+    assert not result.ok, label
+    assert result.proof.strength == "failed"
+    assert "could not be read" in result.proof.failed[0].detail
+
+
 def test_header_only_file_fails_rather_than_reading_as_a_clean_month(base_spec):
     """Register case: `declared · parsed=0/0 · ok=True`. A failed fetch and a
     genuinely empty period are indistinguishable from the file, so this
