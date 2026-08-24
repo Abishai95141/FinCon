@@ -12,6 +12,5 @@
   "max_added_matches": 25,
   "approved_by": "meera",
   "approved_at": "2026-08-01T00:00:00Z",
-  "notes": "Ceiling covers gateway fee rounding only. Raising it needs a named approval and a re-run of the regression suite. Selectivity cap added at P12: a rule firing on more than a quarter of rows is over-broad, not general.",
-  "max_selectivity_pct": "0.2500"
+  "notes": "Ceiling covers gateway fee rounding only. Raising it needs a named approval and a re-run of the regression suite."
 }

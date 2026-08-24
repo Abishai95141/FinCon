@@ -19,7 +19,18 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "3.2.0"
+CONTRACT_VERSION = "4.0.0"
+# 4.0.0 — P12 removed Policy.max_selectivity_pct, added one commit earlier. A
+#         metamorphic relation refuted it: the SAME rule, still firing on the
+#         same 502 rows, went from refused to allowed when 1,500 unrelated rows
+#         were added to the corpus. It measured corpus composition, not the
+#         rule. Its mutation test passed the whole time, which is what makes it
+#         worth recording: a mutant proves code is reachable, not that it means
+#         anything. Removing a field is MAJOR.
+#         The concern it addressed — a rule that floods the worklist — is real
+#         and is now UNGUARDED. See STATUS. Any replacement must be invariant to
+#         corpus padding; tests/property/ holds the relation that will refute it
+#         if it is not.
 # 3.2.0 — P12 part 2 gave EventKind.RULE_INDUCED a real payload and a real
 #         producer. New model only, so minor.
 # 3.1.0 — P12 added EventKind.CLASSIFICATION_PROPOSED and its payload: the model

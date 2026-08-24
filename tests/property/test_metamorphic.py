@@ -1,0 +1,315 @@
+"""Metamorphic relations — an oracle from outside the system.
+
+Every other test here was written by the same person who wrote the code, so it
+can only confirm what that person believed. Eleven shallow proxies got through
+that way, and none was found by review. A metamorphic relation is different in
+kind: it makes no claim about what the answer *is*, only about how the answer
+must **relate** to itself when the input changes in a way that should not
+matter. It is stated in domain terms, so a control that is merely self-consistent
+fails it.
+
+That is not theoretical. `Policy.max_selectivity_pct` shipped with a mutation
+test that killed it — the code was reachable and enforced. It survived one
+commit. `test_a_rules_verdict_is_invariant_to_padding` below refuted it: the
+same rule, still firing on the same 502 rows, went from refused to allowed when
+1,500 unrelated rows were added. **A mutant proves code is reachable. A relation
+proves it means something.** Those are different questions and only the second
+one was ever in doubt.
+
+The transformations are generated rather than hand-picked, so the inputs are not
+ones the author chose. Example counts are small on purpose: each relation runs a
+real close, and a suite nobody waits for is a suite nobody runs.
+
+**Which of these are demonstrated to bite, and which are only guards.** A
+property test that cannot fail is worse than none, so each was mutation-probed
+when written:
+
+    padding            DEMONSTRATED — refutes the reintroduced selectivity cap
+    out-of-scope       DEMONSTRATED — refutes an engine that ignores the scope map
+    row order          VACUOUS ON THIS CORPUS — see its docstring
+    key rename         guard — no mutation constructed
+    drop unmatched     guard — no mutation constructed
+    predicate order    guard — no mutation constructed
+    generality symmetry guard — no mutation constructed
+
+Marked rather than quietly assumed. A guard is still worth having — it costs
+nothing and catches a regression the day the corpus grows a case for it — but it
+is not evidence that anything is currently checked.
+"""
+
+from __future__ import annotations
+
+import random
+from datetime import date, timedelta
+from decimal import Decimal
+
+import pytest
+from bench.arms import deterministic
+from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
+from recon.contracts import ProofTier, Record
+from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
+from recon.engine.blocking import BlockingPolicy
+from recon.engine.blocking import build as build_candidates
+from recon.engine.promotion import MatchHistory, evaluate, generalises, regress
+
+BATCHES = pytest.importorskip("pathlib").Path("data/batches")
+SLOW = settings(
+    max_examples=8,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _batches_exist():
+    if not (BATCHES / "A" / "labels.json").exists():
+        pytest.skip("run `make gen` first")
+
+
+@pytest.fixture(scope="module")
+def sides():
+    return load_sides("A")
+
+
+def _close(bank, settlement, scope):
+    anchors = [rec for _, rec in bank if rec.record_id not in scope]
+    candidates = build_candidates(anchors, [r for _, r in settlement], BlockingPolicy())
+    return deterministic.run(
+        bank,
+        settlement,
+        SETTLEMENT_3WAY,
+        SETTLEMENT_POLICY,
+        ProofTier.P0_ARITHMETIC,
+        candidates,
+        scope,
+    )
+
+
+def _fingerprint(outcome):
+    """Everything the run decided, in a form that ignores nothing that matters
+    and nothing that does not: pairs, how each was found, and what was raised."""
+    return (
+        tuple(sorted((a, tuple(sorted(g))) for a, g in outcome.pairs.items())),
+        tuple(sorted(outcome.tiers.items())),
+        tuple(sorted((e.code, str(e.amount)) for e in outcome.exceptions)),
+    )
+
+
+@pytest.fixture(scope="module")
+def baseline(sides):
+    return _fingerprint(_close(sides.bank, sides.settlement, sides.scope))
+
+
+# --------------------------------------------------------------------------
+# relations over the close
+# --------------------------------------------------------------------------
+
+
+@given(seed=st.integers(min_value=0, max_value=2**30))
+@SLOW
+def test_the_outcome_is_invariant_to_input_row_order(sides, baseline, seed):
+    """A statement is the same statement whichever order its lines arrive in.
+
+    Order dependence would make the close a function of how a file happened to
+    be sorted, which no source guarantees.
+
+    **Vacuous on batch A, and that is measured, not assumed.** Zero of 23 anchors
+    have more than one viable group, so the tier that would have to choose never
+    faces a choice: mutating `run()` to commit the first viable group instead of
+    requiring exactly one leaves every relation here green. The relation is
+    correct and currently unfalsifiable on this data — it becomes a real check
+    the moment a corpus contains two groups within tolerance of one anchor, which
+    is precisely the `E09` shape at group granularity.
+    """
+    rng = random.Random(seed)
+    bank, settlement = list(sides.bank), list(sides.settlement)
+    rng.shuffle(bank)
+    rng.shuffle(settlement)
+    assert _fingerprint(_close(bank, settlement, sides.scope)) == baseline
+
+
+@given(
+    amount=st.decimals(min_value=Decimal("1.00"), max_value=Decimal("999999.00"), places=2),
+    day=st.integers(min_value=0, max_value=60),
+)
+@SLOW
+def test_an_out_of_scope_record_changes_nothing(sides, baseline, amount, day):
+    """Declaring a record out of scope must remove it from consideration, not
+    perturb what remains. If a debit nobody reconciles can move a match, scope is
+    not a boundary — it is a suggestion."""
+    noise = Record(
+        record_id="icici-camt:mr-noise",
+        side="bank",
+        source="icici-camt",
+        row_ordinal=9999,
+        posted_on=date(2026, 8, 1) + timedelta(days=day),
+        amount=-amount,
+        currency="INR",
+        doc_hash="h" * 8,
+        keys={"entry_ref": "bl_mr_noise"},
+        raw={"AddtlNtryInf": "SALARY/OUT OF SCOPE"},
+    )
+    bank = [*sides.bank, ("bl_mr_noise", noise)]
+    scope = {**sides.scope, noise.record_id: "debit — not part of the settlement loop"}
+    assert _fingerprint(_close(bank, sides.settlement, scope)) == baseline
+
+
+@given(new_name=st.text(alphabet="abcdefghijklmnopqrstuvwxyz-", min_size=3, max_size=18))
+@SLOW
+def test_renaming_a_match_key_on_both_sides_preserves_the_matches(sides, baseline, new_name):
+    """Keys exist to be compared. Renaming one consistently across both sides
+    changes what it is called and nothing about which rows agree — unless
+    something is keying on the literal value, which would be a hidden
+    domain assumption inside a domain-agnostic engine (invariant 7).
+    """
+
+    def rename(pairs):
+        out = []
+        for ext, record in pairs:
+            if record.keys.get("gateway") == "razorpay":
+                record = record.model_copy(update={"keys": {**record.keys, "gateway": new_name}})
+            out.append((ext, record))
+        return out
+
+    renamed = _fingerprint(_close(rename(sides.bank), rename(sides.settlement), sides.scope))
+    assert len(renamed[0]) == len(baseline[0])
+    assert renamed[1] == baseline[1], "the tier split moved when only a name changed"
+
+
+@given(seed=st.integers(min_value=0, max_value=2**30))
+@SLOW
+def test_dropping_an_unmatched_anchor_disturbs_no_match(sides, baseline, seed):
+    """An anchor nothing matched contributes nothing. Removing it must leave
+    every proven match exactly as it was — otherwise matches depend on the
+    company an anchor keeps, not on the arithmetic."""
+    base = _close(sides.bank, sides.settlement, sides.scope)
+    matched = set(base.pairs)
+    unmatched = [
+        (ext, rec)
+        for ext, rec in sides.bank
+        if ext not in matched and rec.record_id not in sides.scope
+    ]
+    if not unmatched:
+        pytest.skip("batch A has no unmatched anchor to drop")
+    victim = unmatched[random.Random(seed).randrange(len(unmatched))]
+
+    after = _close([p for p in sides.bank if p is not victim], sides.settlement, sides.scope)
+    assert after.pairs == base.pairs
+    assert after.tiers == base.tiers
+
+
+# --------------------------------------------------------------------------
+# relations over the promotion gate
+# --------------------------------------------------------------------------
+
+
+def _advisory(*predicates: Predicate) -> Rule:
+    return Rule(
+        rule_id="R-MR",
+        profile="settlement_3way",
+        when=list(predicates),
+        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="metamorphic probe")],
+    )
+
+
+@pytest.fixture(scope="module")
+def history(sides):
+    base = _close(sides.bank, sides.settlement, sides.scope)
+    return MatchHistory(
+        anchors=[rec for _, rec in sides.bank],
+        group_records=[rec for _, rec in sides.settlement],
+        records={rec.record_id: rec for _, rec in sides.bank + sides.settlement},
+        matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in base.matches],
+    )
+
+
+def _verdict(rule, history, induced_on, held_out):
+    outcome = regress(rule, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
+    return evaluate(
+        rule, outcome, SETTLEMENT_POLICY, held_out=held_out, induced_on=induced_on
+    ).allowed
+
+
+@given(swap=st.booleans())
+@SLOW
+def test_a_rules_verdict_is_invariant_to_predicate_order(sides, history, swap):
+    """`when [A, B]` and `when [B, A]` are the same rule. A gate that judged them
+    differently would be judging the text."""
+    a = Predicate(field="keys.row_type", op=Operator.EQ, value="refund")
+    b = Predicate(field="keys.gateway", op=Operator.EQ, value="razorpay")
+    rows = [rec for _, rec in sides.settlement]
+    first = _verdict(_advisory(a, b), history, rows, rows)
+    second = _verdict(_advisory(b, a), history, rows, rows)
+    assert first == second
+
+
+@given(pad=st.integers(min_value=0, max_value=4000))
+@SLOW
+def test_a_rules_verdict_is_invariant_to_padding(sides, history, pad):
+    """**The relation that refuted `max_selectivity_pct`.**
+
+    Adding rows a rule never mentions changes nothing about the rule. It still
+    fires on exactly the same records and would still flag exactly the same
+    items. A verdict that moves is measuring the corpus.
+
+    Kept after the control it killed was deleted, so a replacement is refuted
+    the same way rather than shipping and being discovered later.
+    """
+    rows = [rec for _, rec in sides.settlement]
+    broad = _advisory(Predicate(field="keys.row_type", op=Operator.IN, value=["charge", "fee"]))
+
+    padded = rows + [
+        rec.model_copy(
+            update={"record_id": f"mr-pad:{i}", "keys": {**rec.keys, "row_type": "refund"}}
+        )
+        for i, rec in enumerate((rows * 10)[:pad])
+    ]
+    fires_before = generalises(broad, rows).fires
+    fires_after = generalises(broad, padded).fires
+    assert fires_after == fires_before, "the padding was supposed to be irrelevant"
+
+    assert _verdict(broad, history, rows, rows) == _verdict(broad, history, padded, rows), (
+        f"the same rule, still firing on the same {fires_before} rows, changed "
+        f"verdict when {pad} unrelated rows were added"
+    )
+
+
+def test_generality_is_symmetric_between_batches(sides):
+    """If a rule generalises from A to B it must generalise from B to A. An
+    asymmetric answer would mean the check is reading something about the batch
+    rather than about the rule."""
+    other = load_sides("B")
+    rule = _advisory(Predicate(field="keys.row_type", op=Operator.EQ, value="refund"))
+    a_rows = [rec for _, rec in sides.settlement]
+    b_rows = [rec for _, rec in other.settlement]
+    assert generalises(rule, b_rows).generalises == generalises(rule, a_rows).generalises
+
+
+def test_the_order_relation_is_vacuous_on_this_corpus_and_says_so(sides):
+    """Pins the measurement behind the docstring above.
+
+    If this ever fails, batch A has grown an anchor with competing groups and
+    `test_the_outcome_is_invariant_to_input_row_order` has stopped being a guard
+    and started being a check — which is good news, and the docstring above needs
+    correcting rather than the test.
+    """
+    from collections import defaultdict
+
+    groups = defaultdict(list)
+    for _, record in sides.settlement:
+        if record.group_ref:
+            groups[record.group_ref].append(record)
+    totals = {ref: sum((r.amount for r in rows), Decimal("0.00")) for ref, rows in groups.items()}
+    tolerance = SETTLEMENT_3WAY.tolerance.absolute
+    contested = [
+        ext
+        for ext, anchor in sides.anchors
+        if sum(1 for t in totals.values() if abs(anchor.amount + t) <= tolerance) > 1
+    ]
+    assert contested == [], (
+        f"batch A now has {len(contested)} contested anchor(s) — the order relation "
+        f"is no longer vacuous, update its docstring"
+    )

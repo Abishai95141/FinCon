@@ -323,13 +323,6 @@ def evaluate(
                 f"induced from — it does not implement the resolution it came from, "
                 f"whatever it reads like"
             )
-        elif source.sampled and not policy.permits_selectivity(source.fires, source.sampled):
-            share = Decimal(source.fires) / Decimal(source.sampled)
-            reasons.append(
-                f"over-broad: fires on {source.fires}/{source.sampled} rows "
-                f"({share:.1%}), above the {Decimal(policy.max_selectivity_pct):.0%} "
-                f"cap in {policy.ref}. A rule that fires on everything is not a rule"
-            )
 
     if held_out is not None:
         general = generalises(rule, held_out)

@@ -85,15 +85,6 @@ class Policy(BaseModel):
     how a rule quietly rewrites a close. Above this the rule escalates instead
     of promoting."""
 
-    max_selectivity_pct: Ratio = "0.25"
-    """The share of rows a rule may fire on before it is over-broad.
-
-    `max_added_matches` caps what a rule *adds*. Nothing capped what it *touches*
-    — so an advisory rule firing on two thirds of the batch broke no match, added
-    no match, and promoted cleanly while flooding the worklist. Found at P12 when
-    an induced rule selected 344 of 517 rows and the gate had nothing to say.
-    A rule that fires on everything is not a rule; it is a denial of attention."""
-
     approved_by: str
     approved_at: datetime
     notes: str | None = None
@@ -127,8 +118,6 @@ class Policy(BaseModel):
                 "rounding_threshold above tolerance_ceiling would let the "
                 "rounding account absorb more than a match may"
             )
-        if not (Decimal("0") < Decimal(self.max_selectivity_pct) <= Decimal("1")):
-            raise ValueError("max_selectivity_pct must be a share in (0, 1]")
         if self.max_added_matches < 0:
             raise ValueError("a negative match delta cap is not a cap")
         if not self.approved_by.strip():
@@ -145,12 +134,6 @@ class Policy(BaseModel):
         if side not in self.side_signs:
             raise PolicyViolation(f"no sign convention in {self.ref} for side {side!r}")
         return self.side_signs[side]
-
-    def permits_selectivity(self, fires: int, sampled: int) -> bool:
-        """Whether a rule touching `fires` of `sampled` rows is narrow enough."""
-        if not sampled:
-            return False
-        return Decimal(fires) / Decimal(sampled) <= Decimal(self.max_selectivity_pct)
 
     def permits_tolerance(self, claimed: Decimal) -> bool:
         return claimed <= self.tolerance_ceiling

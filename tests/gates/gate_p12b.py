@@ -484,16 +484,24 @@ def test_a_rule_that_does_fire_clears_the_fires_check(closed):
 
 
 # --------------------------------------------------------------------------
-# a rule that fires on everything is a denial of attention
+# breadth: the control that was here has been deleted
 # --------------------------------------------------------------------------
 
 
-def test_an_over_broad_rule_is_refused(closed):
-    """Found by promoting one. `max_added_matches` caps what a rule *adds*;
-    nothing capped what it *touches*. An induced advisory rule selected 344 of
-    517 rows — broke no match, added no match, promoted cleanly, and would have
-    flagged two thirds of the batch. The worklist is the product; flooding it is
-    a failure mode, not a neutral one."""
+def test_an_over_broad_rule_is_currently_accepted(closed):
+    """This asserts the **hole**, not the fix.
+
+    A selectivity cap lived here for one commit and a metamorphic relation
+    refuted it: the same rule, still firing on the same 502 rows, went from
+    refused to allowed when 1,500 unrelated rows were added to the corpus. It
+    measured corpus composition, not the rule — see
+    `tests/property/test_metamorphic.py::test_a_rules_verdict_is_invariant_to_padding`,
+    which stays in the suite so any replacement is refuted the same way.
+
+    The concern is real: a rule firing on two thirds of the batch floods the
+    worklist, and the worklist is the product. Nothing guards it today, and this
+    test exists so that fact is asserted rather than merely written down.
+    """
     from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY
 
     from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
@@ -515,44 +523,11 @@ def test_an_over_broad_rule_is_refused(closed):
         matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in closed.matches],
     )
     outcome = regress(broad, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
-    assert outcome.broken == [] and outcome.added == [], (
-        "it must look harmless to the delta checks, or this proves nothing"
-    )
-
     decision = evaluate(broad, outcome, SETTLEMENT_POLICY, induced_on=closed.settlement_records)
-    assert not decision.allowed
-    assert any("over-broad" in r for r in decision.reasons), decision.reasons
-
-
-def test_a_narrow_rule_passes_the_same_cap(closed):
-    from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY
-
-    from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
-    from recon.engine.promotion import MatchHistory, evaluate, regress
-
-    narrow = Rule(
-        rule_id="R-NARROW",
-        profile="settlement_3way",
-        when=[Predicate(field="keys.row_type", op=Operator.EQ, value="refund")],
-        then=[RuleAction(kind=ActionKind.RAISE_ADVISORY, reason="refund row")],
+    assert decision.allowed, (
+        "if this now fails, a breadth control was added — make sure it survives "
+        "the padding relation before deleting this test"
     )
-    history = MatchHistory(
-        anchors=[r for r in closed.records.values() if r.side == "bank"],
-        group_records=closed.settlement_records,
-        records=closed.records,
-        matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in closed.matches],
-    )
-    outcome = regress(narrow, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY)
-    decision = evaluate(narrow, outcome, SETTLEMENT_POLICY, induced_on=closed.settlement_records)
-    assert decision.allowed, decision.reasons
-
-
-def test_the_shipped_policy_carries_a_selectivity_cap():
-    from bench.run import SETTLEMENT_POLICY
-
-    assert SETTLEMENT_POLICY.max_selectivity_pct
-    assert SETTLEMENT_POLICY.permits_selectivity(1, 100)
-    assert not SETTLEMENT_POLICY.permits_selectivity(99, 100)
 
 
 def test_a_rule_cannot_reach_a_field_outside_the_closed_vocabulary(closed):
