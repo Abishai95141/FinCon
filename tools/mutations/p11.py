@@ -12,8 +12,8 @@ MUTATIONS = [
     (
         "the posting rule ignores the taxonomy entirely",
         "src/recon/ledger/posting_rules.py",
-        """        directed = taxonomy.booking_for(exc.code) if taxonomy is not None else None""",
-        """        directed = None""",
+        """        directed = override or (taxonomy.booking_for(exc.code) if taxonomy is not None else None)""",
+        """        directed = override""",
     ),
     (
         "the posting refusal is not reported",

@@ -31,29 +31,6 @@ import pytest
 pytestmark = pytest.mark.known_broken
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#4 the regression is match-shaped: `book_to` changes where money posts, "
-    "not which rows match, so a match-delta regression cannot measure it. It is "
-    "refused rather than measured. Closing this needs a posting-delta regression.",
-)
-def test_book_to_is_measurable_by_the_regression():
-    from recon.engine.promotion import MODELLED_ACTIONS
-
-    assert "book_to" in MODELLED_ACTIONS
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="#4 (second half) `normalize_key` can add matches by making records "
-    "comparable that were not. The regression does not simulate it.",
-)
-def test_normalize_key_is_measurable_by_the_regression():
-    from recon.engine.promotion import MODELLED_ACTIONS
-
-    assert "normalize_key" in MODELLED_ACTIONS
-
-
 def test_no_domain_constants_in_kernel_code():
     """Invariant 7, enforced instead of documented.
 

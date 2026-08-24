@@ -80,6 +80,12 @@ class RuleAction(BaseModel):
     amount: Money | None = None
     pct: str | None = None
     """Decimal-as-string, e.g. "0.005". Not a float — see CLAUDE.md rule 4."""
+    value: str | None = None
+    """The replacement, for `NORMALIZE_KEY`: `target` names the key, this is what
+    it becomes. Without it the action was unusable — a rule could say *which* key
+    to rewrite and never what to. It was refused as unmeasurable, which was safe
+    and left a fifth of the action vocabulary decorative."""
+
     reason: str | None = None
 
     @model_validator(mode="after")
@@ -88,6 +94,8 @@ class RuleAction(BaseModel):
             raise ValueError("a suppress action must state a reason — never silent")
         if self.kind in {ActionKind.BOOK_TO, ActionKind.NORMALIZE_KEY} and not self.target:
             raise ValueError(f"action {self.kind!r} requires a target")
+        if self.kind is ActionKind.NORMALIZE_KEY and self.value is None:
+            raise ValueError("normalize_key must say what the key becomes, not only which key")
         return self
 
 
@@ -131,6 +139,20 @@ class PromotionEvent(BaseModel):
     matches_broken: int
     matches_added: int
     exceptions_cleared: int
+    postings_moved: str | None = None
+    """What the rule does to the books, in one line.
+
+    `None` means the posting layer was not replayed — absent, not "nothing
+    moved". A `book_to` rule reroutes money while breaking no match and adding
+    none, so an approver reading only the match delta would see `0 broken, 0
+    added` and sign off on a rule that moved every rupee in the close.
+
+    Not gated by a threshold, deliberately: `max_added_matches` bounds what a
+    rule adds because the ceiling is meaningful, and inventing one here would
+    repeat the selectivity cap a relation had to refute. It is shown, which is
+    the same treatment `sample_added` gets and for the same reason — an approval
+    granted without seeing what moves is a signature on an empty page."""
+
     sample_added: list[str] = Field(default_factory=list)
     """Ids of matches the rule would create, shown to the approver. An approval
     granted without seeing what it adds is a signature on an empty page."""

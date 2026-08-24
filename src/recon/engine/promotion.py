@@ -41,10 +41,19 @@ SAMPLE_SIZE = 5
 #: inside the one gate that exists to stop unsafe rules, so `evaluate` refuses
 #: rather than letting the silence pass for a clean bill.
 #:
-#: `book_to` is absent on purpose: it changes where money posts, not which rows
-#: match, so a match-delta regression has nothing to say about it. Measuring it
-#: needs a posting-delta regression, which is not built.
-MODELLED_ACTIONS = frozenset({"set_tolerance", "suppress", "raise_advisory"})
+#: Two of these were absent until the regression grew a second dimension.
+#:
+#: `normalize_key` was always match-shaped — rewriting a key changes what is
+#: comparable, which changes matches — and the regression simply never applied
+#: it. Refusing was safe and left a fifth of the action vocabulary decorative.
+#:
+#: `book_to` genuinely is not match-shaped: it changes where money posts, not
+#: which rows pair. A match-delta regression has nothing to say about it, so
+#: `regress` now also diffs the *journal* — the same rule replayed through the
+#: posting layer, before and after.
+MODELLED_ACTIONS = frozenset(
+    {"set_tolerance", "suppress", "raise_advisory", "normalize_key", "book_to"}
+)
 
 #: A rule that fires only on the rows it was induced from is a correction with a
 #: rule's grammar. The P8 regression cannot see it — an id-specific rule breaks
@@ -89,6 +98,11 @@ class MatchHistory:
     matches: list[object]
     """Previously proven matches. Typed loosely to avoid a cycle with `tiers`."""
 
+    exceptions: list[object] = field(default_factory=list)
+    """What that close could not commit. Needed to replay the posting layer: a
+    `book_to` rule acts on exceptions, so without them there is nothing to
+    reroute and the delta is reported *absent* rather than zero."""
+
     def matched_anchor_ids(self) -> set[str]:
         return {m.anchor_id for m in self.matches}
 
@@ -118,6 +132,11 @@ class RegressionOutcome:
     create a match that would fail the same gate as any other."""
     exceptions_cleared: int = 0
     evidence_hash: str = ""
+    postings: PostingDelta | None = None
+    """`None` means the posting layer was not replayed — no taxonomy or no
+    exceptions were supplied. Distinct from an empty delta, which means it *was*
+    replayed and nothing moved. Absent is not zero."""
+
     unmodelled: list[str] = field(default_factory=list)
     """Action kinds this regression could not simulate. Non-empty means the
     delta above is *absent*, not zero."""
@@ -154,6 +173,105 @@ def _unmodelled(rule: Rule) -> list[str]:
     return sorted({a.kind.value for a in rule.then if a.kind.value not in MODELLED_ACTIONS})
 
 
+def _normalized_by(rule: Rule, records: list[Record]) -> list[Record]:
+    """Apply the rule's key rewrites before matching.
+
+    Rewriting a key changes what is comparable, which changes which rows pair —
+    so this is squarely a match-delta effect, and the regression not applying it
+    was an omission rather than a limit.
+    """
+    from .rules import select
+
+    rewrites = [a for a in rule.then if a.kind is ActionKind.NORMALIZE_KEY]
+    if not rewrites:
+        return records
+    hit = set(select(rule, records).matched)
+    out: list[Record] = []
+    for record in records:
+        if record.record_id not in hit:
+            out.append(record)
+            continue
+        keys = dict(record.keys)
+        for action in rewrites:
+            keys[action.target] = action.value
+        out.append(record.model_copy(update={"keys": keys}))
+    return out
+
+
+def _booking_overrides(rule: Rule, history: MatchHistory) -> dict[str, object]:
+    """Which exceptions a `book_to` rule reroutes, and to where.
+
+    An exception is rerouted when the rule fires on a record it names. The rule
+    supplies the destination; nothing here reads model output, and the posting
+    layer still cannot — it takes a plain mapping.
+    """
+    from ..ledger.accounts import AccountRole
+    from .rules import fires_on
+
+    bookings = [a for a in rule.then if a.kind is ActionKind.BOOK_TO]
+    if not bookings:
+        return {}
+    try:
+        destination = AccountRole(bookings[-1].target)
+    except ValueError:
+        # An account role outside the chart is a spec error, not a posting. The
+        # refusal is `evaluate`'s to make; here it simply reroutes nothing.
+        return {}
+    overrides: dict[str, object] = {}
+    for exception in history.exceptions:
+        named = set(getattr(exception, "record_ids", []))
+        if any(
+            history.records.get(rid) is not None and fires_on(rule, history.records[rid])
+            for rid in named
+        ):
+            overrides[exception.exception_id] = destination
+    return overrides
+
+
+def _posting_delta(rule: Rule, history: MatchHistory, taxonomy) -> PostingDelta | None:
+    """Replay the posting layer with and without the rule, and diff."""
+    if taxonomy is None or not history.exceptions:
+        return None
+    from ..ledger.posting_rules import entries_for
+
+    def run(overrides):
+        entries, _ = entries_for(
+            matches=[],
+            exceptions=list(history.exceptions),
+            records=history.records,
+            anchor_side="bank",
+            taxonomy=taxonomy,
+            overrides=overrides,
+        )
+        return {e.entry_id: e for e in entries}
+
+    overrides = _booking_overrides(rule, history)
+    before, after = run(None), run(overrides)
+
+    def credit_role(entry):
+        return next((p.role for p in entry.postings if p.amount < 0), None)
+
+    rerouted, moved = [], Decimal("0.00")
+    for entry_id, entry in before.items():
+        other = after.get(entry_id)
+        if other is None or credit_role(entry) == credit_role(other):
+            continue
+        rerouted.append(entry_id)
+        moved += abs(sum((p.amount for p in entry.postings if p.amount > 0), Decimal("0.00")))
+
+    def tally(entries):
+        counts: dict[str, int] = {}
+        for entry in entries.values():
+            role = credit_role(entry)
+            if role is not None:
+                counts[role.value] = counts.get(role.value, 0) + 1
+        return dict(sorted(counts.items()))
+
+    return PostingDelta(
+        rerouted=sorted(rerouted), value_moved=moved, before=tally(before), after=tally(after)
+    )
+
+
 def _suppressed_by(rule: Rule, records: list[Record]) -> set[str]:
     """Rows a `SUPPRESS` rule removes before matching. Simulated rather than
     assumed: suppressing a duplicated export row is exactly the case where the
@@ -164,6 +282,38 @@ def _suppressed_by(rule: Rule, records: list[Record]) -> set[str]:
     if not any(a.kind is ActionKind.SUPPRESS for a in rule.then):
         return set()
     return set(select(rule, records).matched)
+
+
+@dataclass(frozen=True)
+class PostingDelta:
+    """What a rule does to the books, measured by replaying the posting layer.
+
+    A match-delta regression reports `0 broken, 0 added` for a rule that reroutes
+    every rupee in the close, because no row pairs differently. This is the
+    dimension that sees it.
+    """
+
+    rerouted: list[str] = field(default_factory=list)
+    """Entry ids whose credit account changed."""
+
+    value_moved: Decimal = Decimal("0.00")
+    """Total value that changed account. The number an approver needs: `3
+    entries rerouted` says nothing about whether it was ₹30 or ₹3,000,000."""
+
+    before: dict[str, int] = field(default_factory=dict)
+    after: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def moved(self) -> bool:
+        return bool(self.rerouted)
+
+    def summary(self) -> str:
+        if not self.moved:
+            return "no entry changed account"
+        return (
+            f"{len(self.rerouted)} entr(ies) rerouted, ₹{self.value_moved} moved: "
+            f"{self.before} -> {self.after}"
+        )
 
 
 @dataclass(frozen=True)
@@ -208,7 +358,9 @@ def generalises(rule: Rule, held_out: list[Record]) -> GeneralisationOutcome:
     )
 
 
-def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> RegressionOutcome:
+def regress(
+    rule: Rule, history: MatchHistory, profile, policy: Policy, taxonomy=None
+) -> RegressionOutcome:
     """Replay the rule against real history and report the delta.
 
     Deliberately runs **without** policy enforcement on the profile: a rule
@@ -218,9 +370,10 @@ def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> Regre
     from .tiers import run as run_tiers
 
     suppressed = _suppressed_by(rule, history.group_records)
+    kept = [r for r in history.group_records if r.record_id not in suppressed]
     after = run_tiers(
         history.anchors,
-        [r for r in history.group_records if r.record_id not in suppressed],
+        _normalized_by(rule, kept),
         _apply(rule, profile),
         ProofTier.P0_ARITHMETIC,
     )
@@ -250,6 +403,7 @@ def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> Regre
         exceptions_cleared=len(added),
         evidence_hash=hashlib.sha256(payload.encode()).hexdigest(),
         unmodelled=_unmodelled(rule),
+        postings=_posting_delta(rule, history, taxonomy),
     )
 
 
@@ -306,6 +460,22 @@ def evaluate(
             f"{len(outcome.added)} matches added, over the cap of "
             f"{policy.max_added_matches} in {policy.ref}"
         )
+
+    for action in rule.then:
+        if action.kind is ActionKind.BOOK_TO:
+            from ..ledger.accounts import AccountRole
+
+            try:
+                AccountRole(action.target)
+            except ValueError:
+                # A closed vocabulary, like every other thing a proposal may
+                # name. `book_to: "Assets:Offshore:Slush"` is a spec error, not
+                # a posting — and refusing it here means the posting layer never
+                # has to know a rule exists.
+                reasons.append(
+                    f"book_to names {action.target!r}, which is not an account role. "
+                    f"Known: {sorted(r.value for r in AccountRole)}"
+                )
 
     if outcome.unmodelled:
         reasons.append(
@@ -406,6 +576,9 @@ def promote(
                 matches_added=len(outcome.added),
                 exceptions_cleared=outcome.exceptions_cleared,
                 sample_added=outcome.added[:SAMPLE_SIZE],
+                postings_moved=(
+                    outcome.postings.summary() if outcome.postings is not None else None
+                ),
             ),
         }
     )

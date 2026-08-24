@@ -63,6 +63,7 @@ def entries_for(
     records: dict[str, Record],
     anchor_side: str,
     taxonomy: TaxonomyRegistry | None = None,
+    overrides: dict[str, AccountRole] | None = None,
 ) -> tuple[list[JournalEntry], list[str]]:
     """Returns the entries and the reasons anything was *not* posted.
 
@@ -100,8 +101,13 @@ def entries_for(
             )
             continue
         anchor = records[on_anchor[0]]
-        directed = taxonomy.booking_for(exc.code) if taxonomy is not None else None
-        if directed is None and taxonomy is not None:
+        # A `book_to` rule overrides the registry's booking for the exceptions it
+        # fires on. Passed in rather than read from the rule, so this module
+        # still reads no model output — the posting layer is asserted by AST to
+        # contain no reference to `hypothesis`, `classify` or `ModelEdge`.
+        override = (overrides or {}).get(exc.exception_id)
+        directed = override or (taxonomy.booking_for(exc.code) if taxonomy is not None else None)
+        if override is None and directed is None and taxonomy is not None:
             entry = taxonomy[exc.code]
             if entry.books_to and not entry.authority.may_direct_posting:
                 declined.append(

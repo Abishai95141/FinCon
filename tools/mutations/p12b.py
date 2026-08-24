@@ -18,10 +18,10 @@ MUTATIONS = [
         """    return list()""",
     ),
     (
-        "book_to counts as modelled",
+        "book_to goes back to unmodelled",
         "src/recon/engine/promotion.py",
-        """MODELLED_ACTIONS = frozenset({"set_tolerance", "suppress", "raise_advisory"})""",
-        """MODELLED_ACTIONS = frozenset({"set_tolerance", "suppress", "raise_advisory", "book_to"})""",
+        """    {"set_tolerance", "suppress", "raise_advisory", "normalize_key", "book_to"}""",
+        """    {"set_tolerance", "suppress", "raise_advisory", "normalize_key"}""",
     ),
     (
         "an unmodelled action no longer blocks promotion",
