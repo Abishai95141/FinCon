@@ -8,6 +8,8 @@ publish.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from recon.contracts import Policy, ProofTier, Record
 from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
@@ -24,10 +26,13 @@ def run(
     policy: Policy,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
     candidates: CandidateSet | None = None,
+    out_of_scope: Mapping[str, str] | None = None,
 ) -> ArmResult:
     anchors = [rec for _, rec in bank]
     group_records = [rec for _, rec in settlement]
-    outcome = run_tiers(anchors, group_records, profile, provenance, candidates, policy)
+    outcome = run_tiers(
+        anchors, group_records, profile, provenance, candidates, policy, out_of_scope
+    )
 
     records = {rec.record_id: rec for _, rec in bank + settlement}
     external = {rec.record_id: ext for ext, rec in bank + settlement}
@@ -35,6 +40,10 @@ def run(
     pairs: dict[str, frozenset[str]] = {}
     proofs = []
     refuted: list[str] = []
+    # The split of what we *report*, not of what the tiers produced. A match the
+    # verifier refused must leave both numbers together, or the scorecard would
+    # decompose a count it does not have.
+    tiers: dict[str, int] = {}
 
     for match in outcome.matches:
         verdict = verify(match.proof, records, policy)
@@ -45,10 +54,11 @@ def run(
             continue
         pairs[external[match.anchor_id]] = frozenset(external[r] for r in match.group_ids)
         proofs.append(match.proof)
+        tiers[match.tier.value] = tiers.get(match.tier.value, 0) + 1
 
     exceptions = outcome.exceptions
     notes = [
-        f"tiers: {outcome.by_tier() or 'none'}",
+        f"tiers: {tiers or 'none'}",
         *(
             ["exceptions raised: " + ", ".join(f"{e.code.value} ₹{e.amount}" for e in exceptions)]
             if exceptions
@@ -65,6 +75,7 @@ def run(
         name="deterministic",
         pairs=pairs,
         proofs=proofs,
+        tiers=tiers,
         notes=notes,
         exceptions=exceptions,
         completeness=outcome.completeness,

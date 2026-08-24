@@ -43,6 +43,8 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | A gate measuring only one direction of harm | Widening a tolerance breaks nothing and ruins everything — audit finding `F3` | Count what a change *adds*, not only what it breaks |
 | Counting a rejection as "accounted for" without bounding its volume | 251 of 517 rows discarded, `ok=True` — audit finding `F4` | A reason makes a rejection legible; a budget makes it bounded |
 | An input that ends a run with no disposition | The run exits zero and the scorecard looks clean — see invariant 8 | Every source, record and anchor is matched, excepted, or explicitly out of scope |
+| An unmeasured thing reported as **zero** | A zero says we ran it and got nothing. That is a claim, and it flatters us for free — found at P10 on the LLM arm | Report **absent**, naming the phase that will measure it, and make the number *raise* rather than return |
+| Filtering an input before the completeness audit can see it | Invariant 8 only sees what it is handed; a filter in the caller is a silent drop with extra steps — found at P10 | Hand the engine everything; declare exclusions `out_of_scope` with a reason, and print the count |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
 
@@ -149,9 +151,11 @@ src/recon/
   api/           FastAPI + OpenAPI
   events.py      typed event emission
 bench/
-  generator/     synthetic batches + complete labels
+  generator/     synthetic batches + complete labels + manifest verification
   adversarial/   authored at P0, before the engine. Never edited to match it.
-  arms/          four ablation arms incl. the securo baseline
+  arms/          four ablation arms incl. the securo baseline and the absent LLM arm
+  planted.py     exception coverage / classification / ambiguity, scored vs P0 labels
+  rate.py        a rate that cannot be printed without its decomposition
   metrics.py     the eight metrics
   run.py         `make eval`
 tests/

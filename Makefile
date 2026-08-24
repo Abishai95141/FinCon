@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES := 0 1 2 3 4 5 6 7 8
+GREEN_GATES := 0 1 2 3 4 5 6 7 8 10
 
 .PHONY: help setup verify gate eval gen test e2e lint graph status
 
@@ -13,7 +13,7 @@ help:
 	@echo "  setup     uv sync + install hooks"
 	@echo "  verify    re-run every currently-green gate ($(if $(GREEN_GATES),$(GREEN_GATES),none yet))"
 	@echo "  gate P=N  run the gate for phase N"
-	@echo "  eval      ablation runner - 4 arms, 8 metrics, batches A and B      [P6]"
+	@echo "  eval      ablation runner - 4 arms, 8 metrics, batches A and B     [P10]"
 	@echo "  gen       regenerate synthetic batches from seed                     [P0]"
 	@echo "  test      unit + property"
 	@echo "  e2e       end-to-end on a generated batch"
@@ -51,6 +51,9 @@ gen:
 	  || { echo "P0 not built — bench/generator/ is empty."; exit 1; }
 	uv run python -m bench.generator
 
+# One command, from a clean checkout: regenerates the batches from the seed if
+# they are absent, re-hashes them against the committed manifest, and refuses to
+# print a number if they do not tie.
 eval:
 	uv run python -m bench.run
 

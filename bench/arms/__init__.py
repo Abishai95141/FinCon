@@ -31,6 +31,17 @@ class ArmResult:
     """Invariant 8. An arm that cannot account for its inputs has not finished,
     whatever its match rate says."""
 
+    tiers: dict[str, int] = field(default_factory=dict)
+    """How this arm found what it found. Required of any arm reporting a match:
+    the scorecard refuses a match count no tier accounts for. The baselines have
+    exactly one tier, which is a fact about them worth stating rather than a
+    reason to exempt them."""
+
+    absent: str | None = None
+    """Why this arm produced nothing — set only when the arm was never run. An
+    absent arm is rendered as absent and refuses to produce a rate. A zero would
+    say we ran it and it scored nothing."""
+
     notes: list[str] = field(default_factory=list)
     """Anything a reader needs in order to interpret the number fairly — an
     arm's caveats belong beside its score, not in a footnote nobody reads."""

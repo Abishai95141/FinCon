@@ -67,7 +67,7 @@ def _batches():
 
 @pytest.fixture(scope="module")
 def proven():
-    bank, settlement, provenance = load_sides("A")
+    bank, settlement, provenance = load_sides("A").in_scope()
     result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, _policy(), provenance)
     records = {rec.record_id: rec for _, rec in bank + settlement}
     return result.proofs[0], records
@@ -314,7 +314,7 @@ def test_policy_is_versioned_and_travels_in_the_verdict(proven):
 
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_p3_numbers_survive_the_policy_layer(batch):
-    bank, settlement, provenance = load_sides(batch)
+    bank, settlement, provenance = load_sides(batch).in_scope()
     outcome = run_tiers(
         [r for _, r in bank],
         [r for _, r in settlement],
@@ -333,7 +333,7 @@ def test_p3_numbers_survive_the_policy_layer(batch):
 def test_a_full_close_runs_end_to_end_under_policy():
     """Intake, match, verify and post, all governed by one policy object."""
     policy = _policy()
-    bank, settlement, provenance = load_sides("A")
+    bank, settlement, provenance = load_sides("A").in_scope()
     outcome = run_tiers(
         [r for _, r in bank],
         [r for _, r in settlement],

@@ -73,8 +73,11 @@ def run_raw(
     return ArmResult(
         name="securo_raw",
         pairs=pairs,
+        tiers={"exact_1_1": len(pairs)},
         notes=[
             "securo's 1:1 exact-amount matcher on raw rows",
+            "no exception model: rows it cannot pair are simply absent from the "
+            "output — the tail handed back, which is the thing being measured",
             "applied outside its designed domain (it pairs internal transfers, "
             "not N:1 settlements) — a low score here is expected and is the point",
         ],
@@ -114,8 +117,11 @@ def run_grouped(
     return ArmResult(
         name="securo_grouped",
         pairs=pairs,
+        tiers={"exact_1_1": len(pairs)},
         notes=[
             "securo's rule, given the payout grouping for free",
+            "no exception model: a 0% exception coverage is not a failed attempt, "
+            "it is the absence of an attempt — and it is the honest comparison",
             "the fairer comparison: it isolates the matching rule from the "
             "grouping, which is most of the work",
         ],

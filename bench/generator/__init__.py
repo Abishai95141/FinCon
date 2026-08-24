@@ -19,10 +19,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from .build import build
-from .emit import emit
+from .emit import FILENAMES, emit
 from .model import ZERO, Batch, money
 
-__all__ = ["CheckError", "build", "check_batch", "emit"]
+__all__ = ["FILENAMES", "CheckError", "build", "check_batch", "emit", "verify_manifest"]
 
 DEFAULT_OUT = Path("data/batches")
 # Batch A is worked against; B is held out for the P7 lift measurement and must
@@ -101,6 +101,38 @@ def check_batch(batch: Batch) -> dict[str, Decimal]:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verify_manifest(out: Path = DEFAULT_OUT) -> list[str]:
+    """Re-hash the batches on disk against the committed manifest.
+
+    `data/batches/` is gitignored; `MANIFEST.json` is not. That asymmetry is
+    what makes "reproducible from a seed" checkable on a machine that is not
+    this one — but only if something actually checks it. P10 measures nothing
+    until this returns empty, because a number computed over inputs nobody
+    verified is a number about an unknown file.
+
+    Returns one line per mismatch. Empty means the bytes on disk are the bytes
+    P0 committed.
+    """
+    mpath = out / "MANIFEST.json"
+    if not mpath.exists():
+        return [f"{mpath} is missing — run `make gen`"]
+    manifest = json.loads(mpath.read_text(encoding="utf-8"))
+
+    problems: list[str] = []
+    for name, entry in sorted(manifest.items()):
+        for key, digest in sorted(entry["files"].items()):
+            path = out / name / FILENAMES[key]
+            if not path.exists():
+                problems.append(f"{name}/{key}: missing ({path})")
+                continue
+            actual = _sha256(path)
+            if actual != digest:
+                problems.append(
+                    f"{name}/{key}: sha256 {actual[:16]} != committed {digest[:16]} ({path})"
+                )
+    return problems
 
 
 def main(argv: list[str] | None = None) -> int:

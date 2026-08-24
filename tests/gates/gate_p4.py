@@ -45,7 +45,7 @@ def sides():
 
 
 def _parts(sides, batch):
-    bank, settlement, provenance = sides[batch]
+    bank, settlement, provenance = sides[batch].in_scope()
     anchors = [rec for _, rec in bank]
     groups = [rec for _, rec in settlement]
     declared = {rec.group_ref for rec in groups if rec.group_ref}

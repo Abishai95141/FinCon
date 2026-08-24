@@ -8,3 +8,7 @@ data/batches/*
 uv.lock
 .pytest_cache/
 .ruff_cache/
+
+# coverage artifacts — binary, machine-local
+.coverage
+htmlcov/

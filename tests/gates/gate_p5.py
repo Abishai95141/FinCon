@@ -36,7 +36,7 @@ def _batches_exist():
 def env():
     out = {}
     for batch in ("A", "B"):
-        bank, settlement, provenance = load_sides(batch)
+        bank, settlement, provenance = load_sides(batch).in_scope()
         labels = json.loads((BATCHES / batch / "labels.json").read_text())
         out[batch] = (bank, settlement, provenance, labels)
     return out

@@ -4,11 +4,11 @@
 
 | | |
 |---|---|
-| **Current phase** | `P9` — the record ([plan v2](docs/06-PLAN-V2.md)) |
-| **Last green gate** | **P8** — 15/15. `make verify` runs P0–P8. **171 tests, 93% coverage** over 2,356 statements. Contract **2.0.0**. |
-| **Build runs?** | All of the above, now under a `Policy` loaded from `data/policy/`. |
-| **Last verified numbers** | batch A/B: deterministic **90.9% auto-match, 0.00% false-match**, precision 100% |
-| **Updated** | 2026-08-21 |
+| **Current phase** | `P9` — the record ([plan v2](docs/06-PLAN-V2.md)). P10 was taken first — see the note under its evidence. |
+| **Last green gate** | **P10 ◆ SHIP LINE** — 40/40. `make verify` runs P0–P8 and P10. **211 tests, 96% coverage** over 2,640 statements. Contract **2.0.0**. |
+| **Build runs?** | `make eval` closes A and B from a clean checkout, one command, four arms, eight metrics. |
+| **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
+| **Updated** | 2026-08-24 |
 
 ---
 
@@ -37,7 +37,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | **`GREEN`** | [below](#p7--policy--2026-08-21) |
 | **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | **`GREEN`** | [below](#p8--promotion-gate--2026-08-21) |
 | **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | `not started` | — |
-| **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | `not started` | — |
+| **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | **`GREEN`** | [below](#p10--measurement--ship-line--2026-08-24) |
 | — | **◆ SHIP LINE** — everything below is upside | | |
 | **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | `not started` | — |
 | **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | `not started` | — |
@@ -62,6 +62,164 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P10 — measurement ◆ SHIP LINE · 2026-08-24
+
+```
+$ make verify   P0 11 · P1 19 · P2 29 · P3 24 · P4 14 · P5 17 · P6 21 · P7 21 · P8 15 · P10 40
+$ pytest -q     211 passed        $ make lint   All checks passed!
+$ pytest --cov  96% over 2,640 statements
+
+$ rm -rf data/batches/A data/batches/B && ls data/batches/
+MANIFEST.json                       <- a clean checkout: hashes committed, data not
+$ make eval                         EXIT=0
+
+batch A  ·  23 bank credits in scope  ·  517 settlement rows  ·  3 out of scope
+  out of scope: debit — the settlement loop reconciles receipts; outgoing payments
+                belong to the AP and payroll loops
+true pairs (payouts banked in period): 22
+blocking: 146/506 pairs (71.1% reduction) :: amount=121 date=198 reference=19
+          blocking recall 100.0% (21/21 reachable true pairs kept); 1 not reachable
+
+arm               auto-match  false-match  precision   recall  correct  false  missed
+-------------------------------------------------------------------------------------
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22
+securo_grouped        90.9%       0.00%    100.0%   90.9%       20      0       2
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2
+llm_only         absent — no model configured — the LLM arm and its lift number land at P12
+
+arm               raised   exception coverage   exception classification   ambiguity detection    close    rec/s
+----------------------------------------------------------------------------------------------------------------
+securo_raw             0           0.0% (0/5)                 0.0% (0/5)            0.0% (0/1)     0 ms  1229483
+securo_grouped         0           0.0% (0/5)                 0.0% (0/5)            0.0% (0/1)     0 ms  1463081
+deterministic          5          80.0% (4/5)                20.0% (1/5)          100.0% (1/1)     6 ms    83616
+llm_only         absent — no model configured — the LLM arm and its lift number land at P12
+
+disposition [complete]  anchors={'excepted': 3, 'matched': 20, 'out_of_scope': 3}
+                        records={'excepted': 64, 'matched': 453}
+
+planted defects, one line each (labels authored at P0):
+  E01 pout_00022   ₹   43684.26  surfaced as E14
+  E02 pout_00014   ₹     290.07  NOT SURFACED — gateway billed above contract tier on 12 rows
+  E06 ch_00493     ₹    5489.75  surfaced as E14
+  E08 bl_00023     ₹    1160.00  surfaced as E14
+  E09 pout_00023   ₹   87250.40  surfaced as E09, subsets agree
+  E07 pout_00012   ₹   18700.00  out of scope — orders leg is not part of this loop
+  model spend absent (no model call in this arm)
+
+batch B  ·  23 in scope  ·  536 rows  ·  135/506 (73.3%)  ·  tiers T0=19 T1=1
+          same rates, same coverage, same classification, same ambiguity
+```
+
+**The unflattering finding first: this phase found that we were dropping the most
+interesting line on the bank statement, and four green gates had not noticed.**
+`bl_00023` is the planted `E08` — a ₹1,160 credit with nothing behind it. The
+runner filtered the bank side to records carrying a gateway key *before* handing
+anything to the engine, so a receipt nobody can attribute was excluded **by the
+very key it was missing**. It left the pipeline with no disposition and invariant
+8 still reported `complete`, because the filter sat upstream of the
+accountability boundary. Found only because metric 5 needs a denominator from
+the labels, and the labels name a defect the run had never seen.
+
+Fixed at the mechanism, not the call site: `run()` takes an `out_of_scope` map of
+id → reason, excludes those from matching, and passes them to the audit. Scope is
+now a *disposition* rather than a disappearance, `Disposition.OUT_OF_SCOPE` stops
+being dead code in the production path, and the three debits appear on the
+scorecard as excluded with a reason instead of vanishing.
+
+**The number that separates us from the baseline we tie.** P3's finding was that
+once securo's rule is handed the payout grouping it produces pairs identical to
+ours — our matching rule contributes nothing. That has been on this page since
+20 August and nothing measured what does. Now something does:
+
+| | auto-match | exception coverage | classification |
+|---|---|---|---|
+| `securo_grouped` | 90.9% | **0.0% (0/5)** | 0.0% (0/5) |
+| `deterministic` | 90.9% | **80.0% (4/5)** | 20.0% (1/5) |
+
+Zero is not securo failing at exceptions; securo has no exception model, so
+unmatched rows are simply absent from its output. That absence *is* the tail
+being handed back, and it is what the thesis says costs the controller. The note
+travels beside the number so nobody reads the 0% as a botched attempt.
+
+**And the number that does not flatter us: classification 20%.** The engine
+notices four of five planted defects and can name exactly one — `E09`, which it
+reaches by arithmetic. The other three come back `E14 UNEXPLAINED`. Noticing and
+naming are scored apart on purpose: counting `E14` as a classification would make
+the honesty code score like an answer. **20% is P12's denominator.** The lift
+number now has something concrete to be a lift *from*, which is why measurement
+lands before the model edge.
+
+**Absent, never zero.** `llm_only` is named on every run and refuses to produce a
+number: `Scorecard.auto_match_rate` on an absent arm **raises** rather than
+returning `0.0`, and an arm declared absent cannot carry results at all. A zero
+in that row would say we ran a model and it matched nothing — a claim about a
+model we never called, and one that happens to flatter us.
+
+**Rates are not floats.** `Rate(20, 22)` prints `90.9% (20/22)`, so the lazy call
+site produces the honest output. The tier split must account for every match an
+arm reports or the scorecard refuses to construct — invariant 2 in scorecard
+form, and it is what makes a verifier-refused match impossible to leave in the
+count while dropping it from the split.
+
+**The denominator is not ours to choose.** Declaring a hard anchor out of scope
+is the obvious way to flatter coverage, so what is in scope for *measurement*
+comes from the planted label's own `leg`, authored at P0. A defect on a leg this
+loop does not run (`E07`, orders) is reported separately with its reason — the
+same `dropped` vs `unreachable` attribution as P4, and, as there, the gate proves
+it is not an escape hatch: a missed in-scope defect cannot be reclassified out.
+
+**A circularity in my own work, caught before it shipped.** `make eval`
+regenerates the batches when they are absent — but the generator writes the
+manifest from the bytes it just produced, so verifying against it would compare
+the batches with themselves. That is audit finding `F1` in a third costume. The
+committed manifest is now restored before anything is checked, and a gate test
+tampers it to prove the restore is not a no-op.
+
+**A weak test of mine, found by mutation.** `subsets_agree` was unit-tested and
+the *scoring path* was tested only on a batch where the subsets agree — so
+deleting the comparison from `score_planted` and accepting any `E09` on the right
+rows survived the entire gate. A helper nothing is forced to call is not a
+control. 15/15 mutations caught after the fix, including: absent arm renders
+zeros, rate drops its decomposition, tier split stops adding up, `E14` counts as
+a classification, a missed defect is reclassified out of scope, the bank filter
+comes back, input verification always passes.
+
+**Coverage found four unexercised claims and they are now tested**, 93% → 96%.
+The one that mattered: `false += 1` in `score()` had never executed — every arm
+on this corpus is correct, so the metric this project calls the one that matters
+was being reported by a counter that had never counted. Also: the clean-checkout
+generation path, the verifier-refusal path in the deterministic arm, and securo's
+date window and 1:1 exclusivity, both load-bearing for the fairness of the
+baseline and neither ever fired on this corpus. One dead function deleted rather
+than tested (`metrics.external_index`).
+
+**Taken before P9, deliberately.** The plan orders P9 (the record) before P10.
+P10 was taken first at the user's direction, and it is safe in this order for a
+reason worth writing down: P9's gate is "replay a full close from the log alone
+and **reconstruct the same scorecard**", and until this phase there was no
+canonical scorecard to reconstruct. P10 defines the artifact P9 has to reproduce.
+Nothing in P9 is now harder; the target is concrete.
+
+**Not built, and it matters:**
+- **The LLM-only arm is absent, so the dossier's most persuasive comparison —
+  arm 3's silent-error rate against arm 4 — is unmeasured.** That is the
+  strongest available result and it lands at P12, not here.
+- **`E02` is unsurfaceable by this loop as configured.** The gateway paid what it
+  billed, so the bank↔settlement residual closes; the variance is against the
+  *contract*, which no source in this loop carries. A stated limit, not a bug,
+  and the label's own note is printed beside the miss so a reader can tell.
+- **Timing is one wall-clock sample per arm, not a benchmark.** The deterministic
+  arm measured 2 ms, 6 ms and 30 ms across three runs on identical data. It is
+  reported because metric 8 asks for it; it should not be quoted as a throughput
+  figure.
+- **Cost per record has no model component** and says `absent` rather than ₹0.00.
+- **"Surfaced" is deliberately generous** — the run named at least one record
+  involved in the defect. It answers "did a human have to look at this", which is
+  the controller's question. Classification is the strict half.
+- Still toy scale: 23 credits, 517 rows, one loop, one currency.
+
+---
 
 ### P8 — promotion gate · 2026-08-21
 
@@ -682,7 +840,8 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
 | **A novel finding still cannot be named** | `E14` is the honest placeholder; a real registry with a lifecycle is P11. | P11 |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
-| `triage/`, `mcp/`, `api/`, `events.py` | Skeleton — every module raises `NotImplementedError` naming its phase | P6–P10 |
+| `events.py` | Skeleton — raises `NotImplementedError`. The decision log is the next phase. | P9 |
+| `triage/`, `mcp/`, `api/` | Skeleton — every module raises `NotImplementedError` naming its phase | P12–P14 |
 | Wall-clock `TIMEOUT` branch unexercised | The candidate cap refuses first at realistic sizes, so the clock branch is reachable but untested. | when a slow case exists |
 | `Rule` has no producer | Defined and validated, nothing emits one yet | P7 |
 | Splink not integrated | Deferred with a reason — no corpus case where probabilistic scoring changes an outcome. See the P4 entry. | when a case needs it |
@@ -690,12 +849,16 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | Blocking untested at scale | 69.8% reduction on 22×23. The index shape is right; the constants are unvalidated above a few hundred rows. | when a large corpus exists |
 | XLSX / OFX / QIF readers | Not implemented — `read()` raises `ReaderError` rather than returning an empty document | when a source needs them |
 | `control_total` check never runs | No generated source states a total, so it only SKIPs. Untested against a real tie-out. | when a source carries one |
-| `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P10 |
+| `SETTLEMENT_CHART` lives in `ledger/accounts.py` | Profile data sitting in kernel code — acceptable until profiles are first-class | P15 |
 | Defect rates unvalidated | Counts are exact; realism vs production formats is unchecked | ongoing — needs real format samples |
 | Only 2 gateways, 1 currency | Generator is INR-only by design (ADR: FX deferred, build plan P17) | P17 decision, post-v1 |
 | **Everything is validated at toy scale** | 22 payouts, 517 settlement rows, 2 gateways, 1 currency, 1 loop. Blocking constants, solver bounds and tolerance policy are all unvalidated above a few hundred rows. | needs a large corpus |
 | **No application surface** | No UI (P14), no MCP (P13), no persistence, no API. This is a library plus a benchmark harness, not something anyone can operate. | P13–P14 |
 | **Zero model code** | `triage/` is three stubs at 0% coverage. The entire agentic claim is unbuilt. | P12 |
+| **The LLM-only arm is unmeasured** | The dossier's most persuasive result — arm 3's silent-error rate against arm 4 — needs a real model. Reported `absent` on every run so the hole is on the page, never `0.0%`. | P12 |
+| **Exception classification is 20%** | The engine notices 4 of 5 planted defects and can name 1. The other three are `E14 UNEXPLAINED`. This is the honest baseline P12 has to beat, not a bug. | P12 |
+| **`E02` is unsurfaceable by this loop** | Fee variance is against the *contract*; no source in the settlement loop carries one, so the bank↔settlement residual closes cleanly. Stated limit, printed beside the miss. | needs a contract source |
+| **Timing is a single wall-clock sample** | The deterministic arm measured 2/6/30 ms across three runs on identical data. Metric 8 asks for it; it is not a throughput figure. | when a benchmark exists |
 
 ---
 
@@ -728,24 +891,27 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**Start P9 — the record.** Moved earlier from the old P8 for a reason: you
-cannot audit an agent you did not log, and P12 is where a model first authors
-configuration.
+**Back to P9 — the record.** P10 was taken out of order and is green; P9 is now
+the only unmet gate before the ship line is fully closed.
 
 1. **Append-only decision log**, typed events: `MatchProven`, `MatchRejected`,
    `ExceptionRaised`, `RuleInduced`, `RulePromoted`, `AdapterAuthored`,
    `IntakeUnverified`, `CloseBlocked`, `ProposalRefused`, `CodeProposed`.
 2. Every event carries **actor, input hash, policy version, outcome**.
 
-**The gate is replay**: reconstruct the same scorecard from the log alone. An
-event stream that cannot reproduce the run is not an audit trail, it is a diary.
+**The gate is replay**: reconstruct the same scorecard from the log alone. P10
+made that target concrete — the scorecard is now a defined artifact with eight
+metrics, four arms and a decomposition, so "the same scorecard" is checkable
+rather than a figure of speech.
 
-Two things to get right. **Do not log by instrumenting the happy path** — a log
+Three things to get right. **Do not log by instrumenting the happy path** — a log
 written only where someone remembered to call it will miss exactly the refusals
 that matter; derive the events from the same structures the completeness audit
-walks. And **the log must record refusals as first-class events**: `R-EVIL` being
-turned away is the most interesting thing that happens in a governed system, and
-a log that only contains successes is a marketing document.
+walks. **Record refusals as first-class events**: `R-EVIL` being turned away is
+the most interesting thing that happens in a governed system, and a log
+containing only successes is a marketing document. And **log the scope
+declarations** — P10 found a filter upstream of the accountability boundary, and
+an out-of-scope declaration nobody records is that bug with a reason attached.
 
 P9 also closes the P7 gap: policy is loaded from disk and trusted today, with
 nothing verifying provenance. Once every event carries a policy ref, a tampered
@@ -759,6 +925,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-24 | **P10 GREEN ◆ SHIP LINE.** `make eval` from a clean checkout: 4 arms, 8 metrics, A and B. Rates carry their decomposition; the LLM arm reports absent and refuses to produce a number; the tier split must account for every match. **Found: the runner was filtering the bank side before the completeness audit could see it, so the planted `E08` — a ₹1,160 credit with nothing behind it — left every run undisposed while invariant 8 read `complete`.** First measurement of the differentiator: exception coverage 80% vs the baseline's 0%; classification 20%, which is P12's denominator. 15/15 mutations caught; coverage 93% → 96%. |
 | 2026-08-21 | **P8 GREEN.** Promotion gate: regression re-run rather than read, additions counted and capped, added matches must verify, promotion is an event with an evidence hash. `R-EVIL` refused, narrow rule promotes. Contract → **2.0.0** (first major). Mutation found a weak test of mine that changed two fields at once. |
 | 2026-08-21 | **P7 GREEN.** `Policy` as a versioned frozen asset; `verify(proof, records, policy)`; profile validators + `check_profile`; rejection budget; rounding threshold. All four audit bypasses closed and mutation-tested 1:1. Contract → 1.5.0. Also fixed a missing-file crash P6's gate had missed, and a vacuous assertion in my own P7 gate. |
 | 2026-08-21 | **P6 GREEN.** Completeness audit (invariant 8) + `E14_UNEXPLAINED` + `UNMAPPABLE`; readers report instead of raising; header-only files fail. Contract → 1.4.0. The audit found 2 silent cases on the real batch the register had missed. |

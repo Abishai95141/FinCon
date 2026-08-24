@@ -13,6 +13,7 @@ books, which is the trade this project exists to refuse.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -170,6 +171,7 @@ def run(
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
     candidates: CandidateSet | None = None,
     policy: Policy | None = None,
+    out_of_scope: Mapping[str, str] | None = None,
 ) -> MatchRun:
     """T0 then T1. A group already claimed by an earlier tier is not offered to
     a later one — a group can back exactly one anchor.
@@ -179,6 +181,14 @@ def run(
     reported blocking recall a number about T1 rather than about the system,
     and the invariant it serves is that a pair dropped at blocking is
     unrecoverable downstream.
+
+    `out_of_scope` maps record id -> reason. Those records are not matched and
+    raise no exception, but they are still audited, so an exclusion is a
+    *disposition* rather than a disappearance. It exists because the alternative
+    — callers filtering their inputs before handing them over — puts the filter
+    upstream of the accountability boundary, where invariant 8 cannot see it.
+    `audit` refuses a blank reason, so this cannot be used to drop something
+    quietly.
     """
     if policy is not None:
         # Before a single match is attempted. A profile whose signs disagree with
@@ -186,7 +196,9 @@ def run(
         # right outcome reached the expensive way, and only if someone looks.
         policy.check_profile(profile)
 
-    grouped, ungrouped = _groups_of(group_records)
+    scope = dict(out_of_scope or {})
+    in_scope_anchors = [a for a in anchors if a.record_id not in scope]
+    grouped, ungrouped = _groups_of([r for r in group_records if r.record_id not in scope])
     claimed: set[str] = set()
     matches: list[Match] = []
     unmatched: list[Record] = []
@@ -229,10 +241,10 @@ def run(
         return True
 
     for tier in (MatchTier.T0_EXACT, MatchTier.T1_TOLERANT):
-        pending = unmatched if unmatched else list(anchors)
+        pending = unmatched if unmatched else list(in_scope_anchors)
         unmatched = [a for a in pending if not attempt(a, tier)]
 
-    ungrouped_pool = [r for r in group_records if not r.group_ref]
+    ungrouped_pool = [r for r in group_records if not r.group_ref and r.record_id not in scope]
     unmatched, exceptions = _subset_pass(unmatched, ungrouped_pool, profile, provenance, matches)
 
     unclaimed = sorted(set(grouped) - claimed)
@@ -252,6 +264,7 @@ def run(
             matched_anchor_ids=[m.anchor_id for m in matches],
             matched_record_ids=[rid for m in matches for rid in m.group_ids],
             exceptions=exceptions,
+            out_of_scope=scope,
         ),
     )
 

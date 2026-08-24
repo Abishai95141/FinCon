@@ -1,29 +1,47 @@
-"""Ablation runner.
+"""Ablation runner — the measurement, one command.
 
-    python -m bench.run              # batch A
-    python -m bench.run --batch B
+    python -m bench.run              # batches A and B, four arms, eight metrics
+    python -m bench.run --batch A
 
-At P3 this compares the deterministic arm against the securo baseline on
-auto-match and false-match rate. P6 extends it to the full four arms and eight
-metrics; the shape here is the shape it grows into.
+Three things this does that a printing script does not.
+
+**It verifies its inputs before measuring them.** `data/batches/` is gitignored
+and `MANIFEST.json` is not, so a clean checkout has hashes and no data. The
+runner regenerates from the seed and then re-hashes against the committed
+manifest. A number computed over unverified bytes is a number about an unknown
+file.
+
+**Nothing is filtered before the accountability boundary.** Everything the
+sources produced is handed to the engine; what the loop does not reconcile is
+declared out of scope *with a reason* and printed. Until P10 this runner cut the
+bank side down to gateway credits before the completeness audit could see it,
+and the planted `E08` — a credit with nothing behind it, the most interesting
+line on a statement — left the pipeline with no disposition while invariant 8
+still read `complete`.
+
+**Absence is not zero.** The LLM arm is named on every run and reports absent.
 """
 
 from __future__ import annotations
 
 import argparse
+import time
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from recon.contracts import Policy, ProofTier, Record
-from recon.engine.blocking import BlockingPolicy, recall
+from recon.contracts import Policy, ProofTier, ReconException, Record
+from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
+from recon.engine.completeness import CompletenessReport
 from recon.engine.tiers import MatchProfile
 from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
 
-from .arms import deterministic, securo_baseline
-from .metrics import Scorecard, render_table, score, truth_groups, truth_pairs
+from .arms import deterministic, llm_only, securo_baseline
+from .metrics import EIGHT_METRICS, Scorecard, render_table, score, truth_groups, truth_pairs
+from .planted import load_planted, score_planted
 
 BATCHES = Path("data/batches")
 POLICY_DIR = Path("data/policy")
@@ -32,6 +50,14 @@ SETTLEMENT_POLICY = Policy.model_validate_json(
     (POLICY_DIR / "settlement_3way.json").read_text(encoding="utf-8")
 )
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
+
+#: Which planted defects this loop is able to see. The bank<->settlement leg is
+#: what runs; the order register is a third leg that lands with the second
+#: profile. Read by the planted scorer so a defect on a leg we do not run is
+#: reported separately instead of counted as a miss — the same attribution split
+#: as blocking's `dropped` vs `unreachable` at P4, and, like that one, not an
+#: escape hatch: what is in scope comes from the P0 label, never from the run.
+IN_SCOPE_LEGS = {"bank"}
 
 SETTLEMENT_3WAY = MatchProfile(
     name="settlement_3way",
@@ -48,13 +74,55 @@ SETTLEMENT_3WAY = MatchProfile(
 )
 
 
-def load_sides(
-    batch: str,
-) -> tuple[list[tuple[str, Record]], list[tuple[str, Record]], ProofTier]:
+@dataclass(frozen=True)
+class Sides:
+    bank: list[tuple[str, Record]]
+    settlement: list[tuple[str, Record]]
+    provenance: ProofTier
+    scope: dict[str, str]
+    """record id -> why this loop does not reconcile it. Never a bare drop."""
+
+    @property
+    def anchors(self) -> list[tuple[str, Record]]:
+        """The bank side this loop actually reconciles. `bank` keeps everything
+        so the completeness audit sees the whole statement; this is the subset
+        the tiers are offered."""
+        return [(ext, rec) for ext, rec in self.bank if rec.record_id not in self.scope]
+
+    def in_scope(self) -> tuple[list[tuple[str, Record]], list[tuple[str, Record]], ProofTier]:
+        """Anchors, group rows, weakest provenance — the three things a caller
+        that only wants to match needs."""
+        return self.anchors, self.settlement, self.provenance
+
+
+@dataclass(frozen=True)
+class CloseResult:
+    batch: str
+    cards: list[Scorecard] = field(default_factory=list)
+    blocking: RecallReport | None = None
+    candidates: CandidateSet | None = None
+    completeness: CompletenessReport | None = None
+    exceptions: list[ReconException] = field(default_factory=list)
+    bank_records: list[Record] = field(default_factory=list)
+    settlement_records: list[Record] = field(default_factory=list)
+    external_of: dict[str, str] = field(default_factory=dict)
+    scope: dict[str, str] = field(default_factory=dict)
+    ok: bool = True
+
+
+def load_sides(batch: str) -> Sides:
     """Bank comes from the CAMT rendering because it carries NtryRef, which is
     the id the labels use. The CSV is the same account and ingests identically
     (proved at P2); using the CAMT here keeps scoring traceable to ground truth
-    without a second id mapping to get wrong."""
+    without a second id mapping to get wrong.
+
+    Every ingested record is returned. The settlement loop reconciles money
+    coming *in*, so debits are declared out of scope with a reason and travel
+    to the completeness audit rather than being filtered away. A credit is in
+    scope whether or not it looks like a gateway payout: a receipt nobody can
+    attribute is the case a controller most wants raised, and recognising it by
+    the very key it is missing would drop it.
+    """
     root = BATCHES / batch
     bank_result = ingest(
         load_spec("icici-camt"), root / "bank_icici_camt053.xml", WINDOW, SETTLEMENT_POLICY
@@ -63,75 +131,175 @@ def load_sides(
         load_spec("gateway-settlement"), root / "settlement.csv", WINDOW, SETTLEMENT_POLICY
     )
 
-    # Only gateway credits are candidates. Salary, GST and vendor debits carry
-    # no gateway key, so they are excluded by the data rather than by a rule.
-    bank = [
-        (rec.keys["entry_ref"], rec)
-        for rec in bank_result.records
-        if rec.keys.get("gateway") and rec.amount > 0
-    ]
+    bank = [(rec.keys["entry_ref"], rec) for rec in bank_result.records]
     settlement = [(rec.source_row_id, rec) for rec in settle_result.records if rec.source_row_id]
+
+    scope = {
+        rec.record_id: (
+            "debit — the settlement loop reconciles receipts; outgoing payments "
+            "belong to the AP and payroll loops"
+        )
+        for _, rec in bank
+        if rec.amount <= 0
+    }
 
     weakest = min(
         (bank_result.proof.provenance, settle_result.proof.provenance),
         key=lambda t: 0 if t is ProofTier.P0_ARITHMETIC else 1,
     )
-    return bank, settlement, weakest
+    return Sides(bank=bank, settlement=settlement, provenance=weakest, scope=scope)
+
+
+def close(batch: str) -> CloseResult:
+    """One close, scored. Every arm sees the same records and the same labels."""
+    sides = load_sides(batch)
+    labels = BATCHES / batch / "labels.json"
+    truth = truth_pairs(labels)
+
+    anchors = [rec for _, rec in sides.anchors]
+    group_records = [rec for _, rec in sides.settlement]
+    candidates = build_candidates(anchors, group_records, BlockingPolicy())
+    blocking = recall(
+        candidates,
+        truth_groups(labels),
+        {ext: rec.record_id for ext, rec in sides.bank},
+        declared_groups={rec.group_ref for rec in group_records if rec.group_ref},
+    )
+
+    external_of = {rec.record_id: ext for ext, rec in sides.bank + sides.settlement}
+    planted = load_planted(labels, external_of)
+    records_scored = len(anchors) + len(group_records)
+
+    def timed(fn, *args, **kwargs):
+        started = time.perf_counter_ns()
+        result = fn(*args, **kwargs)
+        return result, time.perf_counter_ns() - started
+
+    raw, raw_ns = timed(securo_baseline.run_raw, sides.anchors, sides.settlement)
+    grouped, grouped_ns = timed(securo_baseline.run_grouped, sides.anchors, sides.settlement)
+    ours, ours_ns = timed(
+        deterministic.run,
+        sides.bank,
+        sides.settlement,
+        SETTLEMENT_3WAY,
+        SETTLEMENT_POLICY,
+        sides.provenance,
+        candidates,
+        sides.scope,
+    )
+
+    cards = [
+        score(
+            result,
+            truth,
+            exceptions=score_planted(planted, result.exceptions, in_scope_legs=IN_SCOPE_LEGS),
+            elapsed_ns=elapsed,
+            records_scored=records_scored,
+        )
+        for result, elapsed in ((raw, raw_ns), (grouped, grouped_ns), (ours, ours_ns))
+    ]
+    cards.append(score(llm_only.absent(), truth))
+
+    complete = ours.completeness is not None and ours.completeness.complete
+    return CloseResult(
+        batch=batch,
+        cards=cards,
+        blocking=blocking,
+        candidates=candidates,
+        completeness=ours.completeness,
+        exceptions=list(ours.exceptions),
+        bank_records=[rec for _, rec in sides.bank],
+        settlement_records=group_records,
+        external_of=external_of,
+        scope=sides.scope,
+        ok=not blocking.dropped and complete,
+    )
+
+
+def render(result: CloseResult) -> str:
+    """The page. Blocking recall sits above the match rates because a dropped
+    true pair caps everything below it (invariant 6), and the exception table
+    sits below them because that is where the baseline stops tying."""
+    lines = [
+        f"batch {result.batch}  ·  "
+        f"{len(result.bank_records) - len(result.scope)} bank credits in scope  ·  "
+        f"{len(result.settlement_records)} settlement rows  ·  "
+        f"{len(result.scope)} out of scope",
+    ]
+    reasons = sorted(set(result.scope.values()))
+    lines += [f"  out of scope: {r}" for r in reasons]
+    lines.append(f"true pairs (payouts banked in period): {result.cards[0].true_pairs}")
+    if result.candidates is not None:
+        lines.append(f"blocking: {result.candidates.summary()}")
+    if result.blocking is not None:
+        lines.append(f"          {result.blocking.render()}")
+    lines += ["", render_table(result.cards)]
+
+    if result.completeness is not None:
+        lines += ["", result.completeness.render()]
+
+    card = {c.arm: c for c in result.cards}["deterministic"]
+    if card.exceptions is not None:
+        lines += ["", "planted defects, one line each (labels authored at P0):"]
+        lines += [f"  {line}" for line in card.exceptions.detail]
+        lines.append(f"  {card.cost_line()}")
+
+    if result.exceptions:
+        lines.append("\nexceptions raised (deterministic arm):")
+        for exc in result.exceptions:
+            lines.append(f"  {exc.code.value}  ₹{exc.amount:>12}  {exc.hypothesis}")
+            for subset in exc.alternatives or []:
+                lines.append(f"        subset of {len(subset)}: {sorted(subset)[:2]}...")
+    return "\n".join(lines)
+
+
+def prepare_inputs(out: Path = BATCHES) -> list[str]:
+    """Generate the batches if they are absent, then verify them either way.
+
+    Verifying *after* generating rather than instead of it is the point: a run
+    that regenerates unconditionally would silently repair a tampered batch and
+    report clean numbers over rewritten bytes.
+    """
+    from .generator import main as generate
+    from .generator import verify_manifest
+
+    mpath = out / "MANIFEST.json"
+    committed = mpath.read_text(encoding="utf-8") if mpath.exists() else None
+    if not (out / "A" / "labels.json").exists():
+        generate(["--out", str(out)])
+        if committed is not None:
+            # The generator rewrites the manifest from the bytes it just wrote,
+            # so verifying against it would compare the batches with themselves
+            # — an artifact carrying its own evidence, which is audit finding
+            # `F1` in a third costume. The committed manifest is the independent
+            # record, so it is put back before anything is checked.
+            mpath.write_text(committed, encoding="utf-8")
+    return verify_manifest(out)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="bench.run")
-    ap.add_argument("--batch", default="A")
+    ap.add_argument("--batch", default="all", choices=["A", "B", "all"])
     args = ap.parse_args(argv)
 
-    bank, settlement, provenance = load_sides(args.batch)
-    labels = BATCHES / args.batch / "labels.json"
-    truth = truth_pairs(labels)
+    problems = prepare_inputs()
+    if problems:
+        print("REFUSING to measure — batches do not match the committed manifest:")
+        for line in problems:
+            print(f"  {line}")
+        return 2
 
-    candidates = build_candidates(
-        [rec for _, rec in bank], [rec for _, rec in settlement], BlockingPolicy()
-    )
-    report = recall(
-        candidates,
-        truth_groups(labels),
-        {ext: rec.record_id for ext, rec in bank},
-        declared_groups={rec.group_ref for _, rec in settlement if rec.group_ref},
-    )
+    names = ["A", "B"] if args.batch == "all" else [args.batch]
+    results = [close(name) for name in names]
+    for result in results:
+        print(render(result))
+        print()
 
-    ours = deterministic.run(
-        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance, candidates
-    )
-    cards: list[Scorecard] = [
-        score(securo_baseline.run_raw(bank, settlement), truth),
-        score(securo_baseline.run_grouped(bank, settlement), truth),
-        score(ours, truth),
-    ]
-
-    print(
-        f"batch {args.batch}  ·  {len(bank)} gateway credits  ·  {len(settlement)} settlement rows"
-    )
-    print(f"true pairs (payouts banked in period): {len(truth)}")
-    # Printed above the match rates on every run. A blocker that drops a true
-    # pair caps everything below it, and the cap is invisible unless this number
-    # is on the page (CLAUDE.md invariant 6).
-    print(f"blocking: {candidates.summary()}")
-    print(f"          {report.render()}\n")
-    print(render_table(cards))
-
-    if ours.completeness is not None:
-        # Invariant 8, printed like blocking recall: a run that cannot account
-        # for its inputs has not finished, whatever the match rate says.
-        print(f"\n{ours.completeness.render()}")
-
-    if ours.exceptions:
-        print("\nexceptions (deterministic arm):")
-        for exc in ours.exceptions:
-            print(f"  {exc.code.value}  ₹{exc.amount:>12}  {exc.hypothesis}")
-            for subset in exc.alternatives or []:
-                print(f"        subset of {len(subset)}: {sorted(subset)[:2]}...")
-    # A dropped true pair and an undisposed input are both failed runs.
-    incomplete = ours.completeness is not None and not ours.completeness.complete
-    return 0 if not (report.dropped or incomplete) else 1
+    print("the eight metrics: " + " · ".join(EIGHT_METRICS))
+    failed = [r.batch for r in results if not r.ok]
+    if failed:
+        print(f"\nFAILED — batch(es) {failed} dropped a true pair or left an input undisposed")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

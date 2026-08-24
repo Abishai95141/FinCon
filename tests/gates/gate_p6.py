@@ -115,7 +115,7 @@ def test_an_out_of_scope_declaration_without_a_reason_is_not_a_disposition():
 
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_every_input_has_a_disposition_on_the_real_batches(batch):
-    bank, settlement, provenance = load_sides(batch)
+    bank, settlement, provenance = load_sides(batch).in_scope()
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
@@ -130,7 +130,7 @@ def test_every_input_has_a_disposition_on_the_real_batches(batch):
 def test_every_unmatched_anchor_and_unclaimed_group_carries_an_exception(batch):
     """Before P6 the E06 payout's bank line and two unclaimed groups — 57 records
     on batch A — ended the run mentioned nowhere."""
-    bank, settlement, provenance = load_sides(batch)
+    bank, settlement, provenance = load_sides(batch).in_scope()
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
@@ -149,7 +149,7 @@ def test_every_unmatched_anchor_and_unclaimed_group_carries_an_exception(batch):
 def test_e14_states_facts_rather_than_guessing_a_cause():
     """The engine knows an item did not match and what it is worth, not why.
     Force-fitting `E06` or `E01` would put a guess where rules key on codes."""
-    bank, settlement, provenance = load_sides("A")
+    bank, settlement, provenance = load_sides("A").in_scope()
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
@@ -166,7 +166,7 @@ def test_e14_states_facts_rather_than_guessing_a_cause():
 def test_records_named_in_an_exceptions_alternatives_count_as_explained():
     """E09 names its competing subsets in `alternatives`, not `record_ids`. Those
     rows are anything but unmentioned."""
-    bank, settlement, provenance = load_sides("A")
+    bank, settlement, provenance = load_sides("A").in_scope()
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
@@ -312,7 +312,7 @@ def test_healthy_sources_are_unaffected():
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_p3_numbers_are_unchanged_by_p6(batch):
     """Completeness reporting adds exceptions. It must not add or remove a match."""
-    bank, settlement, provenance = load_sides(batch)
+    bank, settlement, provenance = load_sides(batch).in_scope()
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )

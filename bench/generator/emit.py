@@ -82,11 +82,22 @@ def _rows_of(batch: Batch) -> list[dict[str, str]]:
     return rows
 
 
+#: Logical key -> filename. The manifest keys off the same map the writer uses,
+#: so a rename cannot leave the verifier looking for a file nobody writes.
+FILENAMES = {
+    "orders": "orders.csv",
+    "settlement": "settlement.csv",
+    "bank_csv": "bank_icici.csv",
+    "bank_camt": "bank_icici_camt053.xml",
+    "labels": "labels.json",
+}
+
+
 def emit(batch: Batch, out: Path) -> dict[str, Path]:
     out.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
 
-    orders = out / "orders.csv"
+    orders = out / FILENAMES["orders"]
     with orders.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["Order ID", "Created At", "Total", "Payment Id", "Email"])
@@ -102,7 +113,7 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
             )
     written["orders"] = orders
 
-    settlement = out / "settlement.csv"
+    settlement = out / FILENAMES["settlement"]
     rows = _rows_of(batch)
     with settlement.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
@@ -112,7 +123,7 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
 
     # Bank, rendered two ways from the same lines: a messy CSV and a CAMT.053.
     # Same account, same movements — the intake layer may consume either.
-    bank_csv = out / "bank_icici.csv"
+    bank_csv = out / FILENAMES["bank_csv"]
     with bank_csv.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["Txn Date", "Narration", "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"])
@@ -154,11 +165,11 @@ def emit(batch: Batch, out: Path) -> dict[str, Path]:
         ET.SubElement(
             ET.SubElement(ntry, f"{{{CAMT_NS}}}NtryDtls"), f"{{{CAMT_NS}}}AddtlNtryInf"
         ).text = line.narration
-    bank_xml = out / "bank_icici_camt053.xml"
+    bank_xml = out / FILENAMES["bank_camt"]
     ET.ElementTree(doc).write(bank_xml, encoding="utf-8", xml_declaration=True)
     written["bank_camt"] = bank_xml
 
-    labels = out / "labels.json"
+    labels = out / FILENAMES["labels"]
     labels.write_text(json.dumps(_labels(batch), indent=2, sort_keys=True), encoding="utf-8")
     written["labels"] = labels
     return written

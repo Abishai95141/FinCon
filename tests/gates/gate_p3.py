@@ -42,7 +42,7 @@ def sides():
 
 
 def _run(sides, batch):
-    bank, settlement, provenance = sides[batch]
+    bank, settlement, provenance = sides[batch].in_scope()
     truth = truth_pairs(BATCHES / batch / "labels.json")
     return bank, settlement, provenance, truth
 
@@ -61,9 +61,11 @@ def test_deterministic_arm_scores_with_zero_false_matches(sides, batch):
 
     assert card.true_pairs == 22
     assert card.false_matches == 0, "a wrong match corrupts the books; this must stay at zero"
-    assert card.false_match_rate == 0.0
-    assert card.precision == 1.0
-    assert card.auto_match_rate >= 0.90
+    # P10 made rates carry their own decomposition, so the number is `.value`.
+    # The assertions are unchanged; only the type they are read from moved.
+    assert card.false_match_rate.value == 0.0
+    assert card.precision.value == 1.0
+    assert card.auto_match_rate.value >= 0.90
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])

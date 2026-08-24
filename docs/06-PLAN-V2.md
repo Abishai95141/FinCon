@@ -99,12 +99,14 @@ that cannot reproduce the run is not an audit trail.
 ### P10 — Measurement ◆ SHIP LINE
 The old P6, unchanged in content. Everything after this is upside.
 
-- [ ] `make eval` — one command, batches A and B, the eight metrics.
-- [ ] Arms: securo_raw, securo_grouped, deterministic. The LLM-only arm reports **absent**, not zero
+- [x] `make eval` — one command, batches A and B, the eight metrics.
+- [x] Arms: securo_raw, securo_grouped, deterministic. The LLM-only arm reports **absent**, not zero
       — a zero reads as "it tried and failed".
-- [ ] Every rate ships with its decomposition; the renderer makes omitting it awkward.
+- [x] Every rate ships with its decomposition; the renderer makes omitting it awkward.
 
-**Gate:** full comparison table from a clean checkout, one command.
+**Gate:** full comparison table from a clean checkout, one command. **GREEN 2026-08-24** — taken
+before P9 at the user's direction; safe in this order because P9's gate is "reconstruct the same
+scorecard", and until P10 there was no canonical scorecard to reconstruct. Evidence in STATUS.md.
 
 ### P11 — Open taxonomy
 Before the agent, because the agent needs to be able to name a novel finding without crashing.
