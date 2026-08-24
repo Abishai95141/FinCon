@@ -89,6 +89,23 @@ def parse_decimal(value: str, fm: FieldMap, row: dict[str, str]) -> Decimal:
     return amount
 
 
+def parse_decimal_minor(value: str, fm: FieldMap, row: dict[str, str]) -> Decimal:
+    """Integer minor units to major. Scaling here rather than in the engine
+    keeps `Record.amount` meaning one thing everywhere downstream."""
+    raw = _strip(value, fm)
+    if not raw:
+        raise ParseError(fm.source or "?", value, "empty")
+    try:
+        amount = Decimal(raw).scaleb(-2)
+    except InvalidOperation as exc:
+        raise ParseError(fm.source or "?", value, "not an integer minor amount") from exc
+    if fm.sign == "dr":
+        amount = -abs(amount)
+    elif fm.sign == "cr":
+        amount = abs(amount)
+    return amount
+
+
 def parse_date(value: str, fm: FieldMap, row: dict[str, str]) -> date:
     raw = _strip(value, fm)
     fmt = _TOKEN_RE.sub(lambda m: _DATE_TOKENS[m.group()], fm.fmt or "")
@@ -124,6 +141,7 @@ REGISTRY: dict[ParseVerb, Callable[[str, FieldMap, dict[str, str]], object]] = {
     ParseVerb.CONSTANT: parse_constant,
     ParseVerb.INTEGER: parse_integer,
     ParseVerb.DECIMAL: parse_decimal,
+    ParseVerb.DECIMAL_MINOR: parse_decimal_minor,
     ParseVerb.DATE: parse_date,
     ParseVerb.REGEX: parse_regex,
     ParseVerb.SIGN_FROM_COLUMN: parse_sign_from_column,

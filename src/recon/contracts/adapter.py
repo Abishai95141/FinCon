@@ -51,6 +51,11 @@ class ParseVerb(StrEnum):
 
     TEXT = "text"
     DECIMAL = "decimal"
+    DECIMAL_MINOR = "decimal_minor"
+    """Integer minor units — 1842907 means 18429.07. Added in 1.3.0 after a
+    real source was ingested 100x wrong: the value parsed cleanly as a decimal
+    and no check could contradict it, because that source carried no control
+    total. A missing verb does not fail loudly; it fails plausibly."""
     DATE = "date"
     REGEX = "regex"
     CONSTANT = "constant"
@@ -58,6 +63,10 @@ class ParseVerb(StrEnum):
     LOWER = "lower"
     SIGN_FROM_COLUMN = "sign_from_column"
     """Amount lives in one column, its sign in another (split Dr/Cr exports)."""
+
+
+#: Verbs a fixed `sign` may modify. Anywhere else it is a silent no-op.
+_SIGNABLE = {ParseVerb.DECIMAL, ParseVerb.DECIMAL_MINOR}
 
 
 class RejectWhen(StrEnum):
@@ -131,7 +140,7 @@ class FieldMap(BaseModel):
                 raise ValueError("pattern longer than 200 chars — refused as a DoS risk")
         if self.parse is ParseVerb.SIGN_FROM_COLUMN and not self.sign_column:
             raise ValueError("SIGN_FROM_COLUMN requires `sign_column`")
-        if self.sign is not None and self.parse is not ParseVerb.DECIMAL:
+        if self.sign is not None and self.parse not in _SIGNABLE:
             raise ValueError("`sign` applies to DECIMAL only — elsewhere it is a silent no-op")
         if self.to is CanonicalField.KEY and not self.as_key:
             raise ValueError("mapping to KEY requires `as_key`")

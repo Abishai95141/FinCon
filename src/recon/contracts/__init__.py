@@ -19,7 +19,11 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "1.2.0"
+CONTRACT_VERSION = "1.3.0"
+# 1.3.0 — P5 added ParseVerb.DECIMAL_MINOR: integer minor units. Found by
+#         ingesting a source whose amounts were paise-as-integer; it parsed
+#         cleanly and was 100x wrong, and no proof could contradict it because
+#         that source carried no control total. New enum member, so minor.
 # 1.2.0 — P5 loosened ReconException.alternatives from disjoint to distinct.
 #         Disjointness was a modelling error: {A,B} and {B,C} both summing to
 #         the target is genuine ambiguity, and rejecting it would have forced
