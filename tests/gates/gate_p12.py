@@ -822,3 +822,23 @@ def test_the_llm_only_arm_carries_no_proof_at_all(edge):
     naive = llm_only.run(sides.anchors, sides.settlement, edge)
     assert naive.proofs == []
     assert any("nothing verifies" in n for n in naive.notes)
+
+
+def test_a_single_classification_pass_is_labelled_as_a_draw(triaged):
+    """The criticism that landed hardest, made structural.
+
+    `20% -> 40%, doubled, holds on held-out B` was reported as a result. It is
+    one draw: repeated passes over the same five exceptions with the same prompt
+    and model score 2 to 4 correct — 40% to 80% — and the codes proposed swing
+    across `E01`, `E03`, `E06`, `E10`, `E13`. On a denominator of five, one
+    record is twenty points.
+
+    Nothing here can stop a single pass being run. What it can do is refuse to
+    let the number travel without the caveat, which is the rule the scorecard
+    already applies to numerator and denominator.
+    """
+    from recon.triage.classify import SINGLE_PASS_CAVEAT
+
+    assert "n=5" in SINGLE_PASS_CAVEAT
+    assert "40%-80%" in SINGLE_PASS_CAVEAT
+    assert triaged, "the fixture is a single pass, which is exactly the point"

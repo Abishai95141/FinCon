@@ -43,6 +43,23 @@ from .client import ModelEdge, ProposalRefused
 
 ACTOR = "agent:triage"
 
+#: What one classification pass is worth as evidence, stated where the numbers
+#: are produced rather than in a document nobody reads with them.
+#:
+#: Measured over six passes on batch A and three on B: the same five exceptions,
+#: the same prompt, the same model — 2 to 4 correct, i.e. **40%-80%**. The codes
+#: proposed swing across `E01`, `E03`, `E06`, `E10`, `E13` between runs. On a
+#: denominator of five, one record is twenty points, so a single pass is a draw
+#: and not a measurement.
+#:
+#: Any headline classification figure must carry this. It is the same rule the
+#: scorecard already runs on — a rate ships with its decomposition — applied to
+#: variance instead of to numerator and denominator.
+SINGLE_PASS_CAVEAT = (
+    "one pass, n=5: classification ranged 40%-80% across repeated runs on "
+    "identical inputs, so a single figure is a draw, not a measurement"
+)
+
 #: The best a model proposal can ever carry — a named human attesting it.
 PROPOSAL_TIER = ProofTier.P2_ATTESTED
 
