@@ -1,0 +1,143 @@
+"""Mutation harness. Revert a control, confirm the suite goes red.
+
+    python -m tools.mutate                 # every mutation set
+    python -m tools.mutate --set p12       # one set
+    python -m tools.mutate --list
+
+Every "N/N mutations caught" claim in STATUS.md came from scripts in `/tmp`, so
+none of them was reproducible by anyone else — the single most load-bearing
+verification in this build was also the least checkable. It lives here now and
+`make mutate` runs it.
+
+Three properties learned the hard way:
+
+**Pre-flight or refuse.** An interrupted run once left a mutation in the source
+and every result after it described a tree nobody meant to test. Each anchor
+must be present exactly once before anything is touched, and the tree is
+compared afterwards.
+
+**A mutant proves reachability, not meaning.** `max_selectivity_pct` shipped
+with a mutation that killed it and was still refuted by a metamorphic relation.
+Mutation testing is necessary and insufficient; `tests/property/` is the other
+half.
+
+**A surviving mutant is usually a weak test, not a missing control.** Of the
+survivors this harness has found, almost all were assertions of mine that passed
+for the wrong reason — a guard masking a dead one, a fixture that could not
+distinguish what it claimed to test.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib
+import pathlib
+import subprocess
+
+SETS = ("p9", "p10", "p11", "p12", "p12b")
+
+
+def _module(name: str):
+    return importlib.import_module(f"tools.mutations.{name}")
+
+
+def _load(name: str):
+    return _module(name).MUTATIONS
+
+
+def run_set(name: str, env: dict) -> tuple[int, int]:
+    mutations = _load(name)
+    files = {path for _, path, _, _ in mutations}
+
+    # Pre-flight. Anchors must be unambiguous or nothing is touched.
+    problems = [
+        label
+        for label, path, old, _ in mutations
+        if pathlib.Path(path).read_text(encoding="utf-8").count(old) != 1
+    ]
+    if problems:
+        print(f"[{name}] REFUSING — anchors missing or ambiguous:")
+        for label in problems:
+            print(f"    {label}")
+        return 0, len(mutations)
+
+    baseline = {p: pathlib.Path(p).read_text(encoding="utf-8") for p in files}
+    caught = 0
+    width = max(len(label) for label, _, _, _ in mutations)
+
+    for label, path, old, new in mutations:
+        target = pathlib.Path(path)
+        original = target.read_text(encoding="utf-8")
+        target.write_text(original.replace(old, new, 1), encoding="utf-8")
+        try:
+            proc = subprocess.run(
+                [
+                    ".venv/bin/python",
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-x",
+                    "--no-header",
+                    "-p",
+                    "no:cacheprovider",
+                    *_module(name).TARGETS,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=900,
+                env=env,
+            )
+        finally:
+            target.write_text(original, encoding="utf-8")
+        red = proc.returncode != 0
+        caught += red
+        print(f"  {label:<{width}}  {'RED' if red else '*** SURVIVED ***'}")
+
+    for path, text in baseline.items():
+        if pathlib.Path(path).read_text(encoding="utf-8") != text:
+            print(f"  !! {path} was not restored — results above are untrustworthy")
+            pathlib.Path(path).write_text(text, encoding="utf-8")
+    return caught, len(mutations)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import os
+
+    ap = argparse.ArgumentParser(prog="tools.mutate")
+    ap.add_argument("--set", dest="only", choices=SETS)
+    ap.add_argument("--list", action="store_true")
+    args = ap.parse_args(argv)
+
+    if args.list:
+        for name in SETS:
+            print(f"  {name:<6} {len(_load(name))} mutations")
+        return 0
+
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "src", "bench"], capture_output=True, text=True
+    ).stdout.strip()
+    if dirty:
+        print(
+            "REFUSING — src/ or bench/ has uncommitted changes. A mutation run "
+            "rewrites files in place; commit or stash first so a crash cannot "
+            "lose work."
+        )
+        return 2
+
+    env = dict(os.environ)
+    total_caught = total = 0
+    for name in [args.only] if args.only else SETS:
+        if name in ("p12", "p12b") and not env.get("DEEPSEEK_API_KEY"):
+            print(f"[{name}] skipped — needs DEEPSEEK_API_KEY (no offline mode, rule 1)")
+            continue
+        print(f"\n[{name}]")
+        caught, count = run_set(name, env)
+        total_caught += caught
+        total += count
+
+    print(f"\n{total_caught}/{total} mutations caught")
+    return 0 if total_caught == total else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

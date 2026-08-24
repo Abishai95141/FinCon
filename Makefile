@@ -27,6 +27,8 @@ help:
 	@echo "  lint      ruff + the no-float rule"
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
+	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p12b]"
+	@echo "  status-table  regenerate the known-broken table from its reproducers"
 	@echo "  status    print the tracker header"
 
 setup:
@@ -68,6 +70,16 @@ eval:
 # The gate's own claim, runnable by hand: rebuild the scorecard from the record.
 replay:
 	uv run python -m bench.replay_cli $(or $(B),A)
+
+# The verification that finds shallow proxies. Lived in /tmp until now, which
+# meant every "N/N caught" in STATUS was a claim nobody could check.
+mutate:
+	uv run python -m tools.mutate $(if $(SET),--set $(SET),)
+
+# The known-broken table, generated rather than written. An xfail that starts
+# passing fails the suite and forces its row out.
+status-table:
+	uv run python -m tools.status_table
 
 test:
 	@echo "note: gate(s) P$(LIVE_GATES) need a live model and are excluded here."

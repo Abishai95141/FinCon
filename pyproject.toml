@@ -54,6 +54,12 @@ pythonpath = ["src", "."]
 # silently skipped on directory collection and a "green" gate rots unnoticed.
 python_files = ["test_*.py", "gate_p*.py"]
 addopts = "--strict-markers"
+# A known-broken row is an xfail reproducer, not a line in a table someone
+# remembers to edit. `strict` makes XPASS fail the suite, so the day a problem
+# closes CI breaks and forces the row to be removed. Without it the fix lands,
+# nobody notices, and the table rots — which is exactly what happened to F1-F4.
+xfail_strict = true
 markers = [
   "gate: a phase gate — green only when its output is pasted into STATUS.md",
+  "known_broken: an xfail reproducer for an open problem. XPASS means it is fixed and the row must go.",
 ]
