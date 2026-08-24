@@ -19,7 +19,17 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "2.1.0"
+CONTRACT_VERSION = "3.0.0"
+# 3.0.0 — P11 opened the exception taxonomy. `ReconException.code` was an
+#         `ExceptionCode` enum member and is now a pattern-validated string, so
+#         this is a retype on a required field: MAJOR. The enum survives as
+#         named constants for the seeded ids and carries no authority.
+#         New: TaxonomyRegistry / CodeDefinition / CodeStatus / Authority — the
+#         registry says what a code means and what it may do, and it is a
+#         separate versioned input the proposer cannot supply (finding F2's
+#         shape). New event kinds CodeProposed / CodeAccepted / CodePromoted,
+#         and CloseStarted now pins the taxonomy digest beside the policy one.
+#         Done now, deliberately, while there are no external consumers.
 # 2.1.0 — P9 added the decision-log surface: Event, EventKind, the per-kind
 #         payload models, and PRODUCERS (which kind is written by what, and for
 #         the three with no producer yet, the phase that will build them). All
@@ -101,6 +111,9 @@ from .event import (  # noqa: E402
     CloseBlockedPayload,
     CloseCompletedPayload,
     CloseStartedPayload,
+    CodeAcceptedPayload,
+    CodePromotedPayload,
+    CodeProposedPayload,
     Event,
     EventKind,
     ExceptionRaisedPayload,
@@ -125,17 +138,36 @@ from .rule import (  # noqa: E402
     RuleAction,
     RuleStatus,
 )
+from .taxonomy import (  # noqa: E402
+    AUTHORITY,
+    CODE_PATTERN,
+    Authority,
+    CodeDefinition,
+    CodeId,
+    CodeStatus,
+    TaxonomyRegistry,
+    TaxonomyViolation,
+)
 
 __all__ = [
+    "AUTHORITY",
+    "CODE_PATTERN",
     "CONTRACT_VERSION",
     "GENESIS",
     "PAYLOADS",
     "PRODUCERS",
     "AdapterSpec",
+    "Authority",
     "CanonicalField",
     "CloseBlockedPayload",
     "CloseCompletedPayload",
     "CloseStartedPayload",
+    "CodeAcceptedPayload",
+    "CodeDefinition",
+    "CodeId",
+    "CodePromotedPayload",
+    "CodeProposedPayload",
+    "CodeStatus",
     "Event",
     "EventKind",
     "ExceptionCode",
@@ -170,4 +202,6 @@ __all__ = [
     "RulePromotedPayload",
     "RuleStatus",
     "SourceIngestedPayload",
+    "TaxonomyRegistry",
+    "TaxonomyViolation",
 ]

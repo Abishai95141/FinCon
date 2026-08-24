@@ -80,7 +80,7 @@ def test_ambiguous_payout_raises_e09_with_the_labelled_subsets(env, batch):
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
 
-    e09 = [e for e in outcome.exceptions if e.code is ExceptionCode.E09_NETTING_AMBIGUITY]
+    e09 = [e for e in outcome.exceptions if e.code == ExceptionCode.E09_NETTING_AMBIGUITY]
     assert len(e09) == 1
     exc = e09[0]
     assert exc.blocks_close

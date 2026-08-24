@@ -143,7 +143,7 @@ def test_every_unmatched_anchor_and_unclaimed_group_carries_an_exception(batch):
         rows = [r for _, r in settlement if r.group_ref == group_ref]
         assert any(r.record_id in named for r in rows), f"group {group_ref} unmentioned"
 
-    assert any(e.code is ExceptionCode.E14_UNEXPLAINED for e in outcome.exceptions)
+    assert any(e.code == ExceptionCode.E14_UNEXPLAINED for e in outcome.exceptions)
 
 
 def test_e14_states_facts_rather_than_guessing_a_cause():
@@ -153,7 +153,7 @@ def test_e14_states_facts_rather_than_guessing_a_cause():
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
-    e14 = [e for e in outcome.exceptions if e.code is ExceptionCode.E14_UNEXPLAINED]
+    e14 = [e for e in outcome.exceptions if e.code == ExceptionCode.E14_UNEXPLAINED]
     assert e14
     for exc in e14:
         assert exc.is_honesty_code
@@ -170,7 +170,7 @@ def test_records_named_in_an_exceptions_alternatives_count_as_explained():
     outcome = run_tiers(
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
-    e09 = next(e for e in outcome.exceptions if e.code is ExceptionCode.E09_NETTING_AMBIGUITY)
+    e09 = next(e for e in outcome.exceptions if e.code == ExceptionCode.E09_NETTING_AMBIGUITY)
     listed = {rid for s in e09.alternatives for rid in s}
     assert listed
     for rid in listed:

@@ -186,14 +186,14 @@ def score_planted(
             continue
 
         surfaced += 1
-        codes = {exc.code.value for exc in hits}
+        codes = {exc.code for exc in hits}
         named = item.code in codes
         classified += int(named)
         verdict = f"surfaced as {item.code}" if named else f"surfaced as {'/'.join(sorted(codes))}"
 
         if item.alternatives:
             agreed = any(
-                exc.code is ExceptionCode.E09_NETTING_AMBIGUITY
+                exc.code == ExceptionCode.E09_NETTING_AMBIGUITY
                 and subsets_agree(item.alternatives, exc.alternatives)
                 for exc in hits
             )

@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from ..contracts import Policy, ReconException, Record
+from ..contracts import Policy, ReconException, Record, TaxonomyRegistry
 from ..contracts.event import (
     CloseBlockedPayload,
     CloseStartedPayload,
@@ -71,6 +71,8 @@ class Decisions:
     profile: str
     policy: Policy
     policy_digest: str
+    taxonomy: TaxonomyRegistry
+    taxonomy_digest: str
     source_digests: dict[str, str]
     sources: list[IntakeProof]
     scope: dict[str, str]
@@ -130,6 +132,8 @@ def derive(decisions: Decisions) -> list[Event]:
                 batch=decisions.batch,
                 profile=decisions.profile,
                 policy_digest=decisions.policy_digest,
+                taxonomy_ref=decisions.taxonomy.ref,
+                taxonomy_digest=decisions.taxonomy_digest,
                 source_digests=dict(decisions.source_digests),
                 label_digest=decisions.label_digest,
                 period=list(decisions.period),
@@ -233,7 +237,7 @@ def derive(decisions: Decisions) -> list[Event]:
                 EventKind.EXCEPTION_RAISED,
                 ExceptionRaisedPayload(
                     exception_id=exc.exception_id,
-                    code=exc.code.value,
+                    code=exc.code,
                     amount=exc.amount,
                     leg=exc.leg,
                     as_of=exc.as_of.isoformat(),

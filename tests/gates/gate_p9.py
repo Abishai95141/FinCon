@@ -379,14 +379,18 @@ def test_a_kind_with_no_producer_yet_names_the_phase_that_will_build_it():
     unbuilt = {k: v for k, v in PRODUCERS.items() if v.startswith("P")}
     assert EventKind.RULE_INDUCED in unbuilt
     assert EventKind.ADAPTER_AUTHORED in unbuilt
-    assert EventKind.CODE_PROPOSED in unbuilt
+    # `CodeProposed` was on this list until P11 built the registry that produces
+    # it. The property is the point, not the membership: a kind either names a
+    # producer or names the phase that will build one.
+    assert EventKind.CODE_PROPOSED not in unbuilt
     for kind, phase in unbuilt.items():
-        assert phase[:3] in {"P11", "P12"}, f"{kind} claims phase {phase}"
+        assert phase[:3] == "P12", f"{kind} claims phase {phase}"
 
 
 def test_the_close_reports_which_kinds_it_could_not_produce(closed):
     assert "RuleInduced" in closed.unproduced_kinds
     assert "MatchProven" not in closed.unproduced_kinds
+    assert "CodeProposed" not in closed.unproduced_kinds
 
 
 # --------------------------------------------------------------------------
@@ -421,7 +425,16 @@ def test_an_unattributable_credit_parks_in_suspense_not_in_income(closed):
     entry = next(e for e in closed.entries if e.meta.get("amount") == "1160.00")
     roles = {p.role for p in entry.postings}
     assert roles == {AccountRole.BANK, AccountRole.SUSPENSE}
-    assert AccountRole.INCOME not in roles
+
+    # Widened at P11. Once the code registry started directing bookings, this
+    # test passed because the *registry* says suspense rather than because the
+    # rule refuses revenue — so flipping the fallback to income survived it. No
+    # exception entry may credit revenue, whichever layer decided.
+    revenue = {AccountRole.INCOME, AccountRole.REFUNDS}
+    booked = [e for e in closed.entries if e.meta.get("exception_id")]
+    assert booked
+    for candidate in booked:
+        assert not (revenue & {p.role for p in candidate.postings}), candidate.entry_id
 
 
 def test_a_settlement_group_that_never_reached_the_bank_is_not_posted(closed):

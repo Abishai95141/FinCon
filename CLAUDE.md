@@ -96,7 +96,7 @@ Compaction loses these first. They are load-bearing — use them exactly.
 
 **The rule is "never move silently," not "refuse what you can't prove."** A close may complete carrying P2 and P3 items — it may not carry them undeclared. Every headline rate ships with its tier split.
 
-**Exception codes** — closed enum *today*; P11 replaces it with a registry whose codes have a lifecycle, so an agent can name a novel finding without it having any power until promoted
+**Exception codes** — an **open registry** since P11 (`data/taxonomy/codes.json`). The fourteen below ship seeded and ratified; anything discovered later is minted in the `X-` namespace and walks `PROPOSED → PROVISIONAL → PROMOTED → RETIRED`. **Naming grants nothing** — a code may label from birth, route to a named owner once a human accepts it, and fire a rule or direct a posting only once promoted with a written definition. `RETIRED` still resolves, so an old decision log stays readable
 | | | | |
 |---|---|---|---|
 | `E01` Timing / in-transit | `E02` Fee variance vs contract | `E03` FX / rounding | `E04` Partial payment |
@@ -147,8 +147,9 @@ src/recon/
   intake/        readers · spec interpreter · closed parse verbs · five proofs
   ledger/        beancount wiring, balance assertions, posting rules
   engine/        blocking · tiers T0–T3 · subset-sum · tolerance budget · verifier
-  triage/        model edge — normalize, classify, induce. Proposals only.
+  triage/        worklist (ranked, routed) + model edge: normalize, classify, induce
   profiles/      loop definitions as data (settlement_3way, gstr2b)
+  ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
   journal/       append-only decision log — hash chain, derivation, replay
   mcp/           FastMCP server — verify_proof is stateless and public
   api/           FastAPI + OpenAPI

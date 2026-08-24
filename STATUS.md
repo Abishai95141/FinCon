@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Current phase** | `P11` — open taxonomy ([plan v2](docs/06-PLAN-V2.md)). **P6–P10 are all green: the ship line is closed.** |
-| **Last green gate** | **P9** — 47/47. `make verify` runs P0–P10. **259 tests, 97% coverage** over 3,179 statements. Contract **2.1.0**. |
-| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, **posted**, **recorded**. `make replay` rebuilds the scorecard from the decision log alone. |
+| **Current phase** | `P12` — the model edge ◆ the lift number ([plan v2](docs/06-PLAN-V2.md)). Everything below the ship line is green. |
+| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **316 tests, 97% coverage** over 3,468 statements. Contract **3.0.0**. |
+| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
 | **Last verified numbers** | A/B: **90.9% auto-match, 0.00% false-match** — and the number that separates us from the baseline we tie: **exception coverage 80% vs 0%**, classification **20%** |
 | **Updated** | 2026-08-24 |
 
@@ -39,7 +39,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | **`GREEN`** | [below](#p9--the-record--2026-08-24) |
 | **P10** ◆ | `make eval` produces the full comparison on A and B from a clean checkout, one command | **`GREEN`** | [below](#p10--measurement--ship-line--2026-08-24) |
 | — | **◆ SHIP LINE** — everything below is upside | | |
-| **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | `not started` | — |
+| **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | **`GREEN`** | [below](#p11--open-taxonomy--2026-08-24) |
 | **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | `not started` | — |
 | **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | `not started` | — |
 | **P14** | A controller completes one close through the UI without a terminal | `not started` | — |
@@ -62,6 +62,160 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P11 — open taxonomy · 2026-08-24
+
+```
+$ make verify   P0 11 · P1 19 · P2 29 · P3 24 · P4 14 · P5 17 · P6 21 · P7 21
+                P8 16 · P9 47 · P10 40 · P11 57
+$ pytest -q     316 passed        $ make lint   All checks passed!
+$ pytest --cov  97% over 3,468 statements
+
+the lifecycle, one code walked end to end:
+
+step         status       authority                        owner       posting
+------------------------------------------------------------------------------------
+proposed     proposed     label only                    -> controller  bank / suspense
+  refused: EXC-X1 (X-FX-TIMING): asked to book to 'fee_variance' but the code is
+           proposed, not promoted — held in suspense until a human ratifies it
+accepted     provisional  label + route                 -> treasury    bank / suspense
+  refused: EXC-X1 (X-FX-TIMING): asked to book to 'fee_variance' but the code is
+           provisional, not promoted — held in suspense until a human ratifies it
+promoted     promoted     label + route + rule + posting -> treasury    bank / fee_variance
+
+$ make eval
+worklist (settlement-taxonomy@v1, 5 items, ranked by cash impact x age):
+    1. E14            ₹    90259.47   87d  → controller
+    2. E14            ₹    84769.72   86d  → controller
+    3. E09            ₹    87250.40   64d  → controller
+    4. E14            ₹    43684.26   87d  → controller
+    5. E14            ₹     1160.00   67d  → controller
+  5 items → 1 owner(s): controller · routing has nothing to discriminate on —
+  every code here resolves to the same desk, which is what an unclassified tail
+  looks like
+```
+
+**The unflattering number this phase produces: routing dispersion is 1.** The
+router works, and it has nothing to route. Every exception the engine raises on
+this corpus is an honesty code — `E09` ambiguity, `E14` unexplained — and honesty
+codes all belong to the controller, so five items with three different causes land
+on one desk. The machinery is not the bottleneck; classification at 20% is, and
+`summarise()` computes the dispersion rather than my asserting it, so the number
+moves on its own when P12 lands. The gate holds it from both sides: it asserts
+the 1 on the real batch **and** that three codes with different owners produce a
+3, so the summary is measuring rather than concluding.
+
+**Naming is not authority — that is the whole phase.** A closed enum leaves an
+agent meeting something new with two options: pick the nearest wrong code, or
+crash. A wrong code routes work to the wrong desk and may fire the wrong rule,
+which is a confident wrong answer. So the vocabulary opens and the *power* is
+what stays closed, handed back a step at a time:
+
+| status | label | route to a named owner | fire a rule | direct a posting |
+|---|---|---|---|---|
+| `PROPOSED` | yes | no | no | no |
+| `PROVISIONAL` | yes | yes | no | no |
+| `PROMOTED` | yes | yes | yes | yes |
+| `RETIRED` | yes | no | no | no |
+
+The matrix lives in one place and every check reads it, rather than comparing
+statuses inline in five files. `AUTHORITY` is asserted complete against
+`CodeStatus` at import, like the parse-verb registry.
+
+**The refusal only means something because the promotion works.** A gate that
+refuses every proposed code is indistinguishable from having no taxonomy, and
+"cannot affect a posting" was trivially true while nothing consulted the code at
+all. So the posting rule now *reads* the code's booking, and the same code proves
+it in both directions — suspense while proposed, `Expenses:GatewayFees:Variance`
+once ratified. That is P8's discriminating-pair discipline applied here.
+
+**`RETIRED` still labels, deliberately.** A code that stopped resolving when it
+was retired would make last quarter's decision log unreadable by the act of
+tidying up this quarter's vocabulary. It stops being *assignable*; it never stops
+being *readable*, and it carries `superseded_by` so a reader has somewhere to go.
+
+**Ids never change.** A discovered code keeps its `X-` prefix after promotion.
+Renaming on promotion would break every reference already written into a log,
+and the prefix is honest provenance: this category was found, not designed.
+
+**Open is not "anything goes".** The contract validates the *shape* of a code
+(`^(E[0-9]{2}|X-[A-Z][A-Z0-9-]{2,31})$`); the registry says what one *means*. A
+well-formed id that resolves in no entry **stops the run** — that is the
+typo-becomes-a-category failure, and it is caught in the worklist builder, before
+the record is written, so an unresolvable code is never logged as if it were a
+finding.
+
+**A proposal cannot grant itself anything.** `propose()` takes `**ignored` on
+purpose: a proposal arriving with `status: promoted` and `promoted_by: nobody`
+has those fields dropped on the floor rather than validated. The status is
+assigned by the registry, never read from the proposal — audit finding `F1` in a
+taxonomy costume. And an agent may only mint in the `X-` namespace: `E15` would
+sit in the canonical space beside codes a human ratified.
+
+**The promotion gate learned about the taxonomy.** A rule keyed on
+`code == "X-FX-TIMING"` is refused while that code is unratified — otherwise a
+code minted this morning acquires power through the side door of a rule that
+mentions it. `evaluate()` takes the registry as a separate input, not from the
+rule.
+
+**The taxonomy is pinned like the policy.** `CloseStarted` now carries a sha256
+of the registry file and its ref, so a run judged under a vocabulary nobody
+approved is visible in the record rather than invisible in memory. Every
+lifecycle step is recorded: `CodeProposed`, `CodeAccepted`, `CodePromoted`, and
+`ProposalRefused` for a refusal — written **before** the raise, as at P8 and P9.
+`CodeProposed` had `P11` as its declared producer since P9; it now names a real
+one.
+
+**The worklist exists at all now.** `ReconException.rank` had been a field with a
+docstring and no writer since P1. Ranking is integer paise-days — a score that
+drifts on float rounding reorders someone's queue between runs for no reason
+anyone can explain — and ties break on the exception id so the order is stable.
+
+**Contract 2.1.0 → 3.0.0, the second major.** `ReconException.code` was an enum
+member and is now a pattern-validated string: a retype on a required field.
+`ExceptionCode` survives as named constants for the seeded ids and carries no
+authority. Done now, deliberately, while there are no external consumers —
+ADR-002 says the cost of this only goes up.
+
+**Mutation-tested 24/24**, and 20/20 on P9 and 15/15 on P10 re-run. Two survivors
+on the first pass, both genuine holes in my own gate:
+
+1. **The ranking test could not tell age from money.** Its amounts already sorted
+   correctly on cash alone, so deleting the age factor entirely left it green.
+   The case that discriminates is a *smaller* item old enough to outrank a bigger
+   fresh one — ₹1,000 sitting fifty days beats ₹20,000 from yesterday.
+2. **The contract validator was only ever exercised through the engine.**
+   `promote()` checks for a written definition, so removing the same check from
+   `CodeDefinition` survived — but the contract is what guards a registry
+   hand-edited on disk, and a promoted code is one that directs money.
+
+**One regression P11 caused in P9, found and fixed.** Once the registry started
+directing bookings, P9's "unattributable credit parks in suspense" test passed
+because the *registry* says suspense, not because the rule refuses revenue — so
+flipping the fallback to income survived it. Widened: no exception entry may
+credit revenue, whichever layer decided.
+
+**P10's numbers are unchanged** (90.9% / 0.00%, coverage 80%, classification 20%)
+and the replay still reconstructs them from the log alone.
+
+**Not built, and it matters:**
+- **The proposer in the gate is a test actor, not a model.** `actor="agent:triage"`
+  is a string. P11 builds the control plane a proposal passes through and proves
+  what it withholds; a proposal *originated by a model* lands at P12. Nothing here
+  claims otherwise, and no metric is reported from it.
+- **`is_honesty_code` still reads the seeded set.** `E09`/`E13`/`E14` are
+  structural — the engine raises them — so honesty is not a registry attribute
+  today. A novel code that also means "I do not know" cannot say so.
+- **The registry is loaded and pinned, not signed.** Same limit as the policy: the
+  digest proves what ran, not who approved it.
+- **Promotion has no regression gate.** A rule cannot be promoted while it breaks
+  history (P8). A *code* has no equivalent: promoting one changes where money
+  books from that moment, and nothing replays past closes to show what would move.
+- **`X-` codes never reach the ledger on this corpus**, because nothing proposes
+  one during a real close. The path is proven in the gate, not exercised in `make
+  eval` — and it stays that way until something can classify.
+
+---
 
 ### P9 — the record · 2026-08-24
 
@@ -993,7 +1147,11 @@ Track anything that is failing, stubbed, or degraded. An empty section here whil
 | ~~Policy provenance unverified~~ | **Closed at P9.** The header event pins a sha256 of the policy file and every judged decision names its policy ref, so a run under an unapproved version is visible in the record. A *signature* is still absent — the digest proves what ran, not who approved it. | signing: post-v1 |
 | ~~Completeness does not cover postings~~ | **Closed at P9.** The close posts, and the audit gained a postings dimension: a proven match with no journal entry makes it fail. | resolved |
 | **Partial payment / 1:N have no strategy** | Both now raise `E14` rather than going silent, but neither can be *matched*. They become configuration at P15. | P15 |
-| **A novel finding still cannot be named** | `E14` is the honest placeholder; a real registry with a lifecycle is P11. | P11 |
+| ~~A novel finding cannot be named~~ | **Closed at P11.** An open registry with a `PROPOSED → PROVISIONAL → PROMOTED → RETIRED` lifecycle; naming grants nothing. | resolved |
+| **Routing dispersion is 1** | The router works and has nothing to route: every code the engine raises is an honesty code, and they all belong to the controller. Classification is the bottleneck, not the machinery. | P12 |
+| **No regression gate on code promotion** | A rule cannot be promoted while it breaks history (P8). Promoting a *code* changes where money books from that moment and nothing replays past closes to show what would move. | when a corpus of closes exists |
+| **`is_honesty_code` reads the seeded set** | `E09`/`E13`/`E14` are structural, so honesty is not a registry attribute. A novel code that also means "I do not know" cannot say so. | when one exists |
+| **Taxonomy loaded and pinned, not signed** | Same limit as the policy: the digest proves what ran, not who approved it. | signing: post-v1 |
 | No control plane | `approved_by` / `attested_by` are contract fields with no enforcement code. No validate/constrain/approve/execute/escalate/record layer exists. | before P7 |
 | `triage/`, `mcp/`, `api/` | Skeleton — every module raises `NotImplementedError` naming its phase | P12–P14 |
 | **No retention or custody for the log** | `data/runs/` is local scratch. One log per close, replaced on re-run. No archive, no external anchor: the chain proves internal consistency, not custody. | post-v1 |
@@ -1049,29 +1207,37 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**The ship line is closed.** P6–P10 are all green: the system measures itself,
-accounts for every input, posts what it proves, and can be re-derived from its
-own record. Everything from here is upside.
+**P12 — the model edge. ◆ THE LIFT NUMBER.** The last gate that carries the
+claim, and the first that needs an API key.
 
-**Start P11 — open taxonomy.** Before the agent, because the agent needs to name
-a novel finding without crashing.
+1. **Adapter-spec synthesis** — declarative spec only, no codegen (ADR-001),
+   first-use approval.
+2. **Exception triage** — classify into the registry, hypothesis, cited
+   evidence, rank by cash impact × age. May propose a new code.
+3. **Rule induction** — proposal + regression report through the P8 gate.
 
-1. **Exception-code registry** with a lifecycle replacing the closed enum:
-   `PROPOSED → PROVISIONAL → PROMOTED → RETIRED`.
-2. `PROPOSED` may label and route; **cannot fire a rule or affect a posting**.
-3. Contract **major bump** — breaking. Do it while there are no external
-   consumers.
+**Gate:** resolve three exceptions on batch A, approve three induced rules,
+re-run on held-out batch B, and the scorecard attributes the improvement rule by
+rule. Plus: drop a source in a format never seen and watch it author, verify and
+ingest without configuration.
 
-**Gate:** a novel finding gets a `PROPOSED` code, appears in triage, routes to an
-owner, and is proven unable to affect a posting. Promotion requires a named human
-and a written definition.
+**Everything it needs is now measured, governed and recorded.** The numbers it
+has to move are already on the page and are not flattering:
 
-Three things P9 leaves ready for it. `CodeProposed` already exists as an event
-kind with `P11` named as its producer, so the registry has somewhere to write.
-The posting rules are now the place to prove a `PROPOSED` code cannot reach the
-books — a claim that was unfalsifiable while nothing posted. And `E14` is doing
-the registry's job badly today: 4 of 5 planted defects surface and 1 is named,
-so **classification 20% is the number P11 and P12 have to move.**
+| | today | what P12 must do |
+|---|---|---|
+| exception classification | **20% (1/5)** | name what the engine can only notice |
+| routing dispersion | **1 owner** | send different causes to different desks |
+| LLM-only arm | **absent** | the silent-error comparison, from real calls |
+
+Three things to get right. **The key is required and the gate must not skip
+silently** — a skipped P12 that reads as green is the pytest-collection trap from
+P1 in a new costume, so `make verify` must report skipped gates and STATUS must
+record "unmeasured, no key" rather than the last measured figure. **P0–P11 must
+stay runnable offline** — a fresh clone reaches P11 green with no key. And
+**metrics come from real calls or they are not reported** (CLAUDE.md rule 1): a
+recorded replay tape is for the demo, recorded *from* the real path, never a
+substitute for it.
 
 ---
 
@@ -1081,6 +1247,7 @@ Newest first. One line per session. Record what actually changed, not what was a
 
 | Date | Change |
 |---|---|
+| 2026-08-24 | **P11 GREEN.** Exception taxonomy opened: `PROPOSED → PROVISIONAL → PROMOTED → RETIRED`, with an authority matrix in one place — naming grants nothing, and each step hands back one power. The posting rule now *reads* a code's booking, so "cannot direct a posting" is proven by the same code failing while proposed and succeeding once ratified. Deterministic worklist (ranked by integer paise-days, routed by the registry) — `ReconException.rank` had been a field with no writer since P1. Taxonomy pinned in the log beside the policy; every lifecycle step recorded. **The number this produces is uncomfortable: routing dispersion is 1 — the router works and has nothing to route, because classification is 20%.** Contract → **3.0.0** (second major): `code` retyped from enum to pattern-validated string. 24/24 mutations after closing two holes in my own gate; also fixed a P9 test P11 had quietly weakened. |
 | 2026-08-24 | **P9 GREEN — the ship line is closed (P6–P10 all green).** Append-only decision log, hash-chained; 15 typed event kinds derived by set arithmetic over the audit's own structures, not by instrumenting the happy path. `make replay` rebuilds the scorecard from the log alone with the engine made to raise. **The close now posts** — 23 balanced entries, unattributable credits to suspense, settlement the bank never received deliberately not posted with the reason printed — which makes invariant 1 checkable for the first time. Policy bytes pinned in the header, closing P7's provenance gap. **Found two real bugs in P8: `Decimal("0.00")` is falsy so a tolerance-tightening rule regressed as a no-op, and a P8 test that could pass by not running.** 21/21 mutations caught after closing four genuine holes; coverage 96% → 97%. Contract → 2.1.0. |
 | 2026-08-24 | **P10 GREEN ◆ SHIP LINE.** `make eval` from a clean checkout: 4 arms, 8 metrics, A and B. Rates carry their decomposition; the LLM arm reports absent and refuses to produce a number; the tier split must account for every match. **Found: the runner was filtering the bank side before the completeness audit could see it, so the planted `E08` — a ₹1,160 credit with nothing behind it — left every run undisposed while invariant 8 read `complete`.** First measurement of the differentiator: exception coverage 80% vs the baseline's 0%; classification 20%, which is P12's denominator. 15/15 mutations caught; coverage 93% → 96%. |
 | 2026-08-21 | **P8 GREEN.** Promotion gate: regression re-run rather than read, additions counted and capped, added matches must verify, promotion is an event with an evidence hash. `R-EVIL` refused, narrow rule promotes. Contract → **2.0.0** (first major). Mutation found a weak test of mine that changed two fields at once. |

@@ -40,6 +40,7 @@ from recon.contracts import (
     ProofTier,
     ReconException,
     Record,
+    TaxonomyRegistry,
 )
 from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
@@ -53,6 +54,8 @@ from recon.ledger.accounts import SETTLEMENT_CHART
 from recon.ledger.beancount_io import CloseResult as LedgerResult
 from recon.ledger.beancount_io import JournalEntry, post_and_assert
 from recon.ledger.posting_rules import entries_for
+from recon.triage.worklist import WorkItem, summarise
+from recon.triage.worklist import build as build_worklist
 
 from .arms import deterministic, llm_only, securo_baseline
 from .metrics import (
@@ -69,9 +72,13 @@ from .planted import load_planted, score_planted
 BATCHES = Path("data/batches")
 POLICY_DIR = Path("data/policy")
 POLICY_FILE = POLICY_DIR / "settlement_3way.json"
+TAXONOMY_FILE = Path("data/taxonomy/codes.json")
 RUNS = Path("data/runs")
 #: Authority, loaded from disk like an adapter spec so a change shows in a diff.
 SETTLEMENT_POLICY = Policy.model_validate_json(POLICY_FILE.read_text(encoding="utf-8"))
+#: The vocabulary, loaded like the policy — a separate versioned input, not
+#: something the thing being judged gets to supply.
+TAXONOMY = TaxonomyRegistry.model_validate_json(TAXONOMY_FILE.read_text(encoding="utf-8"))
 WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 
 #: Which planted defects this loop is able to see. The bank<->settlement leg is
@@ -145,6 +152,8 @@ class CloseResult:
     matches: list = field(default_factory=list)
     entries: list[JournalEntry] = field(default_factory=list)
     not_posted: list[str] = field(default_factory=list)
+    taxonomy: TaxonomyRegistry | None = None
+    worklist: list[WorkItem] = field(default_factory=list)
     ledger: LedgerResult | None = None
     journal_path: Path | None = None
     decisions: Decisions | None = None
@@ -265,6 +274,7 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         exceptions=list(ours.exceptions),
         records=records,
         anchor_side=SETTLEMENT_3WAY.anchor_side,
+        taxonomy=TAXONOMY,
     )
     ledger = post_and_assert(
         entries,
@@ -284,12 +294,19 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         posted_proof_ids=[e.proof_id for e in entries if e.proof_id],
     )
 
+    # --- the queue a human actually works --------------------------------
+    # Built before the record so an unresolvable code stops the run here rather
+    # than being written into a log as if it were a finding.
+    worklist = build_worklist(list(ours.exceptions), TAXONOMY, as_of=WINDOW[1])
+
     # --- the record ------------------------------------------------------
     decisions = Decisions(
         batch=batch,
         profile=SETTLEMENT_3WAY.name,
         policy=SETTLEMENT_POLICY,
         policy_digest=_digest(POLICY_FILE),
+        taxonomy=TAXONOMY,
+        taxonomy_digest=_digest(TAXONOMY_FILE),
         source_digests=sides.digests,
         sources=sides.proofs,
         scope=sides.scope,
@@ -343,6 +360,8 @@ def close(batch: str, journal_dir: Path | None = None) -> CloseResult:
         entries=entries,
         not_posted=not_posted,
         ledger=ledger,
+        taxonomy=TAXONOMY,
+        worklist=worklist,
         journal_path=journal.path,
         decisions=decisions,
         unproduced_kinds={k.value: v for k, v in PRODUCERS.items() if v.startswith("P")},
@@ -398,10 +417,21 @@ def render(result: CloseResult) -> str:
                 + ", ".join(f"{k} ({v.split(' ')[0]})" for k, v in result.unproduced_kinds.items())
             )
 
+    if result.worklist:
+        # The tail is the product, so the queue a human works is on the page —
+        # ranked, routed, and showing which codes nobody has ratified yet.
+        lines += [
+            "",
+            f"worklist ({result.taxonomy.ref}, {len(result.worklist)} items, "
+            f"ranked by cash impact x age):",
+        ]
+        lines += [f"  {item.render()}" for item in result.worklist]
+        lines.append(f"  {summarise(result.worklist)}")
+
     if result.exceptions:
         lines.append("\nexceptions raised (deterministic arm):")
         for exc in result.exceptions:
-            lines.append(f"  {exc.code.value}  ₹{exc.amount:>12}  {exc.hypothesis}")
+            lines.append(f"  {exc.code}  ₹{exc.amount:>12}  {exc.hypothesis}")
             for subset in exc.alternatives or []:
                 lines.append(f"        subset of {len(subset)}: {sorted(subset)[:2]}...")
     return "\n".join(lines)

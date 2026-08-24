@@ -13,10 +13,14 @@ Three rules, and the third is the one that matters.
 belongs to the capture side, which this loop does not reconcile — inventing it
 here would put numbers in the books that no source in this close supports.
 
-**A bank credit nobody can attribute parks in suspense.** The money *is* in the
-account and the balance has to say so; what it is for is unknown. `Dr Bank / Cr
-Liabilities:UnappliedCash`. Guessing it into revenue is precisely the error the
-suspense account exists to prevent, and the E08 case is planted to prove it.
+**A bank credit parks where its code says, and suspense is the default.** The
+money *is* in the account and the balance has to say so; what it is *for* comes
+from the exception's code — but only if that code has been ratified. A
+`PROPOSED` code's `books_to` is not consulted at all, so a category an agent
+minted this morning cannot move money into revenue no matter what it claims.
+Unratified means suspense, which is the absence of a decision, and that is the
+correct one. The refusal is returned rather than swallowed: a rule that quietly
+overrides a request is indistinguishable from one that never read it.
 
 **Settlement the bank never received is not posted at all.** A group the gateway
 says it sent and no anchor claims is a receivable, not cash. Posting it would
@@ -29,7 +33,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..contracts import ReconException, Record
+from ..contracts import ReconException, Record, TaxonomyRegistry
 from .accounts import AccountRole
 from .beancount_io import JournalEntry, Posting
 
@@ -58,6 +62,7 @@ def entries_for(
     exceptions: list[ReconException],
     records: dict[str, Record],
     anchor_side: str,
+    taxonomy: TaxonomyRegistry | None = None,
 ) -> tuple[list[JournalEntry], list[str]]:
     """Returns the entries and the reasons anything was *not* posted.
 
@@ -89,22 +94,34 @@ def entries_for(
         on_anchor = [r for r in exc.record_ids if records.get(r) and records[r].side == anchor_side]
         if not on_anchor:
             declined.append(
-                f"{exc.exception_id} ({exc.code.value}, ₹{exc.amount}): no bank line — the money "
+                f"{exc.exception_id} ({exc.code}, ₹{exc.amount}): no bank line — the money "
                 f"never reached the account, so this is a receivable and posting it would put "
                 f"cash in the books that is not in the bank"
             )
             continue
         anchor = records[on_anchor[0]]
+        directed = taxonomy.booking_for(exc.code) if taxonomy is not None else None
+        if directed is None and taxonomy is not None:
+            entry = taxonomy[exc.code]
+            if entry.books_to and not entry.authority.may_direct_posting:
+                declined.append(
+                    f"{exc.exception_id} ({exc.code}): asked to book to "
+                    f"{entry.books_to!r} but the code is {entry.status.value}, not "
+                    f"promoted — held in suspense until a human ratifies it"
+                )
+        role = directed or AccountRole.SUSPENSE
+        held = "held in suspense" if role is AccountRole.SUSPENSE else f"booked to {role.value}"
         entries.append(
             _entry(
                 f"JE-EXC-{index:03d}",
                 anchor.posted_on,
-                f"{exc.code.value} unattributed receipt held in suspense",
+                f"{exc.code} unattributed receipt {held}",
                 AccountRole.BANK,
-                AccountRole.SUSPENSE,
+                role,
                 abs(anchor.amount),
                 exception_id=exc.exception_id,
-                code=exc.code.value,
+                code=exc.code,
+                books_to=role.value,
                 amount=f"{abs(anchor.amount):.2f}",
             )
         )

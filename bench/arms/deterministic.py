@@ -73,7 +73,7 @@ def run(
     notes = [
         f"tiers: {tiers or 'none'}",
         *(
-            ["exceptions raised: " + ", ".join(f"{e.code.value} ₹{e.amount}" for e in exceptions)]
+            ["exceptions raised: " + ", ".join(f"{e.code} ₹{e.amount}" for e in exceptions)]
             if exceptions
             else []
         ),

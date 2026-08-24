@@ -45,9 +45,11 @@ class EventKind(StrEnum):
     CLOSE_COMPLETED = "CloseCompleted"
     RULE_PROMOTED = "RulePromoted"
     PROPOSAL_REFUSED = "ProposalRefused"
+    CODE_PROPOSED = "CodeProposed"
+    CODE_ACCEPTED = "CodeAccepted"
+    CODE_PROMOTED = "CodePromoted"
     RULE_INDUCED = "RuleInduced"
     ADAPTER_AUTHORED = "AdapterAuthored"
-    CODE_PROPOSED = "CodeProposed"
 
 
 #: kind -> who writes it. A value starting with "P" is a phase that has not run:
@@ -65,9 +67,11 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CLOSE_COMPLETED: "engine",
     EventKind.RULE_PROMOTED: "recon.engine.promotion.promote",
     EventKind.PROPOSAL_REFUSED: "recon.engine.promotion.promote",
+    EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
+    EventKind.CODE_ACCEPTED: "recon.engine.taxonomy.accept",
+    EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
     EventKind.RULE_INDUCED: "P12 — rule induction has no producer until a model authors one",
     EventKind.ADAPTER_AUTHORED: "P12 — adapter synthesis has no producer until a model authors one",
-    EventKind.CODE_PROPOSED: "P11 — the exception-code registry",
 }
 
 
@@ -96,6 +100,12 @@ class _Payload(BaseModel):
 class CloseStartedPayload(_Payload):
     batch: str
     profile: str
+    taxonomy_ref: str = ""
+    taxonomy_digest: str = ""
+    """sha256 of the code registry *file*. Same reason the policy is pinned: a
+    run judged under a vocabulary nobody approved should be visible in the
+    record rather than invisible in memory."""
+
     policy_digest: str
     """sha256 of the policy *file*. P7 shipped with policy loaded from disk and
     trusted; a run judged under a version nobody approved is now visible in the
@@ -227,6 +237,34 @@ class ProposalRefusedPayload(_Payload):
     reasons: list[str]
 
 
+class CodeProposedPayload(_Payload):
+    code: str
+    title: str
+    definition: str
+    claimed_owner: str | None = None
+    claimed_booking: str | None = None
+    """What the proposal *asked for*. Recorded rather than honoured, so a later
+    reader can see the difference between what was requested and what was
+    granted."""
+
+    routed_to: str = ""
+    granted: str = ""
+
+
+class CodeAcceptedPayload(_Payload):
+    code: str
+    owner: str
+    granted: str = ""
+
+
+class CodePromotedPayload(_Payload):
+    code: str
+    definition: str
+    owner: str | None = None
+    books_to: str | None = None
+    granted: str = ""
+
+
 class UnproducedPayload(_Payload):
     """For kinds whose producer has not been built. Carries the phase, so an
     event of this shape appearing in a log is itself a bug worth seeing."""
@@ -247,9 +285,11 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CLOSE_COMPLETED: CloseCompletedPayload,
     EventKind.RULE_PROMOTED: RulePromotedPayload,
     EventKind.PROPOSAL_REFUSED: ProposalRefusedPayload,
+    EventKind.CODE_PROPOSED: CodeProposedPayload,
+    EventKind.CODE_ACCEPTED: CodeAcceptedPayload,
+    EventKind.CODE_PROMOTED: CodePromotedPayload,
     EventKind.RULE_INDUCED: UnproducedPayload,
     EventKind.ADAPTER_AUTHORED: UnproducedPayload,
-    EventKind.CODE_PROPOSED: UnproducedPayload,
 }
 
 # Asserted at import, like the parse-verb registry: a kind added without a

@@ -27,9 +27,10 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from ..contracts import Policy, PolicyViolation, ProofTier, Record
+from ..contracts import Policy, PolicyViolation, ProofTier, Record, TaxonomyRegistry
 from ..contracts.event import EventKind, ProposalRefusedPayload, RulePromotedPayload
 from ..contracts.rule import ActionKind, PromotionEvent, Rule, RuleStatus
+from ..contracts.taxonomy import TaxonomyViolation
 from .verifier import verify
 
 SAMPLE_SIZE = 5
@@ -163,11 +164,34 @@ def regress(rule: Rule, history: MatchHistory, profile, policy: Policy) -> Regre
     )
 
 
-def evaluate(rule: Rule, outcome: RegressionOutcome, policy: Policy) -> Decision:
+def evaluate(
+    rule: Rule,
+    outcome: RegressionOutcome,
+    policy: Policy,
+    taxonomy: TaxonomyRegistry | None = None,
+) -> Decision:
     """Judge a measured outcome against policy. Returns every reason it found
     rather than the first — an approver deciding whether to override needs the
-    whole picture, not the earliest objection."""
+    whole picture, not the earliest objection.
+
+    The taxonomy joins the judgement at P11. A rule keyed on an exception code
+    is a rule that acts on a *category*, so the category has to be one somebody
+    ratified — otherwise a code minted this morning acquires power through the
+    side door of a rule that mentions it.
+    """
     reasons: list[str] = []
+
+    if taxonomy is not None:
+        for predicate in rule.when:
+            if predicate.field != "code":
+                continue
+            for value in (
+                predicate.value if isinstance(predicate.value, list) else [predicate.value]
+            ):
+                try:
+                    taxonomy.check_may_fire_rule(value)
+                except TaxonomyViolation as exc:
+                    reasons.append(str(exc))
 
     if rule.profile != policy.profile:
         reasons.append(
@@ -207,6 +231,7 @@ def promote(
     policy: Policy,
     actor: str,
     journal: object | None = None,
+    taxonomy: TaxonomyRegistry | None = None,
 ) -> Rule:
     """Promote, or refuse and say why.
 
@@ -221,7 +246,7 @@ def promote(
     if not actor or not actor.strip():
         raise PolicyViolation("a promotion must name who granted it")
 
-    decision = evaluate(rule, outcome, policy)
+    decision = evaluate(rule, outcome, policy, taxonomy)
     if not decision.allowed:
         _record(
             journal,

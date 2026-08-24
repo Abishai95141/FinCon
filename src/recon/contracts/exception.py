@@ -1,12 +1,21 @@
-"""ReconException — one unresolved item, classified into a closed taxonomy.
+"""ReconException — one unresolved item, labelled from an open vocabulary.
 
 Named ReconException rather than Exception to avoid shadowing the builtin: a
 model named `Exception` in a package that also raises would be a trap for every
 future reader.
 
-The code set is closed on purpose. A model that can invent a category can drift;
-an enum forces a genuinely new class of failure through a contract version bump
-where someone has to look at it.
+**The code set was closed until P11 and is now open, with the authority moved
+rather than removed.** The old argument was that a model which can invent a
+category can drift. True — but a closed enum leaves an agent meeting something
+genuinely new with two options, pick the nearest wrong code or crash, and a
+wrong code routes work to the wrong desk and may fire the wrong rule. That is a
+confident wrong answer, which is the failure this project exists to prevent.
+
+So the split is: this contract validates the *shape* of a code, and
+`TaxonomyRegistry` says what one *means* and what it may do. Minting a code
+grants nothing; the lifecycle hands power back a step at a time. A well-formed
+id that resolves in no registry entry fails the close — open is not "anything
+goes".
 """
 
 from __future__ import annotations
@@ -17,9 +26,19 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import CONTRACT_VERSION, Money
+from .taxonomy import CodeId
 
 
 class ExceptionCode(StrEnum):
+    """The ids that ship seeded, as named constants.
+
+    **Not the vocabulary.** Since P11 `ReconException.code` is a pattern-validated
+    string and the registry is the authority; this enum exists so code that means
+    `E09` can say so instead of writing a string literal. A member here is just an
+    id that happens to be seeded — it carries no more weight than any other entry
+    in the registry, and `X-...` codes are equally real.
+    """
+
     E01_TIMING = "E01"
     E02_FEE_VARIANCE = "E02"
     E03_FX_ROUNDING = "E03"
@@ -70,7 +89,11 @@ class ReconException(BaseModel):
 
     contract_version: str = CONTRACT_VERSION
     exception_id: str
-    code: ExceptionCode
+    code: CodeId
+    """A pattern-validated id, not an enum member. What it *means* — who owns it,
+    whether a rule may key on it, where it books — comes from the registry, which
+    is a separate versioned input the proposer cannot supply."""
+
     as_of: date
 
     amount: Money
@@ -110,7 +133,7 @@ class ReconException(BaseModel):
 
     @model_validator(mode="after")
     def _ambiguity_shows_its_alternatives(self) -> ReconException:
-        if self.code is ExceptionCode.E09_NETTING_AMBIGUITY:
+        if self.code == ExceptionCode.E09_NETTING_AMBIGUITY:
             if not self.alternatives or len(self.alternatives) < 2:
                 raise ValueError("E09 must carry at least two competing subsets")
             if any(not subset for subset in self.alternatives):

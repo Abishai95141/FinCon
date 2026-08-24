@@ -114,13 +114,16 @@ scorecard", and until P10 there was no canonical scorecard to reconstruct. Evide
 ### P11 — Open taxonomy
 Before the agent, because the agent needs to be able to name a novel finding without crashing.
 
-- [ ] **Exception-code registry** with a lifecycle replacing the closed enum:
+- [x] **Exception-code registry** with a lifecycle replacing the closed enum:
       `PROPOSED → PROVISIONAL → PROMOTED → RETIRED`.
-- [ ] `PROPOSED` may label and route; **cannot fire a rule or affect a posting**.
-- [ ] Contract **major bump** — breaking. Do it while there are no external consumers.
+- [x] `PROPOSED` may label and route; **cannot fire a rule or affect a posting**.
+- [x] Contract **major bump** — breaking. Do it while there are no external consumers.
+- [x] *Added:* the deterministic worklist — ranked by cash impact × age, routed by the registry.
+      Ranking and routing need no model; what an exception *is* stays P12's problem.
 
 **Gate:** a novel finding gets a `PROPOSED` code, appears in triage, routes to an owner, and is
 proven unable to affect a posting. Promotion requires a named human and a written definition.
+**GREEN 2026-08-24** — evidence in STATUS.md.
 
 ### P12 — The model edge ◆ THE LIFT NUMBER
 The old P7. Not cuttable — without it there is no agent and no lift.
