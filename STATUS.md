@@ -69,7 +69,19 @@ Notes: anything surprising, anything still weak.
 $ make verify  P2-P11, 12 gates green    $ make test    428 passed, 46 deselected, 1 xfailed
 $ make lint    clean                     $ make mutate  p13 10/10 · p9 20/20 · p10 15/15
 $ make replay  90.9% · coverage 4/5 · classification 2/5   p11 24/24 · p12d 12/12
+live gates with a key: 73 passed (gate_p12 41 · gate_p12b 22 · gate_p12c 10),
+run separately — a single back-to-back run exhausted the DeepSeek endpoint and
+returned 29 `ModelUnavailable` SSL handshake timeouts. Infrastructure, not code.
 ```
+
+**Known-flaky, recorded rather than smoothed.** `gate_p12c`'s authoring fixture
+is model-variant: on one run deepseek-v4-flash proposed `to: "source_row_id"`,
+which is not a `CanonicalField`, and the spec was refused. The refusal is the
+system working — an invalid spec is a validation error, never an execution
+(ADR-001) — but a gate asserting that authoring *succeeds* is a gate that
+depends on one sample of a model. The tool schema's enum is already generated
+from `CanonicalField`, so this is not vocabulary drift; the model simply emitted
+a value outside the enum it was given.
 
 **A1 — `src/recon/close.py` is the pipeline; `bench/run.py` calls it.**
 
