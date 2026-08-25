@@ -182,14 +182,24 @@ run separately — a single back-to-back run exhausted the DeepSeek endpoint and
 returned 29 `ModelUnavailable` SSL handshake timeouts. Infrastructure, not code.
 ```
 
-**Known-flaky, recorded rather than smoothed.** `gate_p12c`'s authoring fixture
-is model-variant: on one run deepseek-v4-flash proposed `to: "source_row_id"`,
-which is not a `CanonicalField`, and the spec was refused. The refusal is the
-system working — an invalid spec is a validation error, never an execution
-(ADR-001) — but a gate asserting that authoring *succeeds* is a gate that
-depends on one sample of a model. The tool schema's enum is already generated
-from `CanonicalField`, so this is not vocabulary drift; the model simply emitted
-a value outside the enum it was given.
+**The `gate_p12c` flakiness had a cause, and it was ours.** It failed twice in
+five live runs, each time because the model proposed a spec the contract refused
+for a requirement the tool schema never stated — once `to: "source_row_id"`
+(outside `CanonicalField`), once `parse=constant` with no `value`. The contract
+enforces four per-verb rules; the schema described one, in prose. Same shape as
+the `raise_advisory` target and the action enum: the vocabulary was
+under-described, and the refusal read as model incompetence.
+
+`VERB_REQUIREMENTS` in `contracts/adapter.py` names them as data, the validator
+stays the authority, and the schema renders them for the author. The guard is
+behavioural and **bidirectional** — it derives the required set by omitting each
+candidate argument and seeing what actually raises, then compares that against
+what the author is told. The first version iterated over what the data claimed,
+so deleting a requirement made it pass with nothing left to check: a control
+measuring one direction of harm, in a session spent finding exactly that.
+
+Three consecutive live runs of `gate_p12c` pass since. Three is not a
+distribution, and this remains one model with one prompt.
 
 **A1 — `src/recon/close.py` is the pipeline; `bench/run.py` calls it.**
 
