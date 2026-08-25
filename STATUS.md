@@ -63,6 +63,55 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### Promotion runs in a close · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green   $ make test    464 passed, 46 deselected, 0 xfailed
+$ make lint    clean                    $ make mutate  p15 8/8 · p14 14/14 · p13 10/10
+$ make replay  90.9% · 4/5 · 2/5                       p12d 12/12 · p9 20/20 · p10 15/15 · p11 24/24
+```
+
+`engine/promotion.py` was 20/20 never executed in a close. It produced a signed
+record with an approver, a policy reference and an evidence hash, and nothing
+downstream read any of it — `rulestore.load` checked `status == PROMOTED` and
+stopped. Two consequences, both measured rather than supposed:
+
+| | before | now |
+|---|---|---|
+| rule approved under `some-other-policy@v99`, close under `settlement-in@v1` | **acted** | refused, reason recorded |
+| promoted rule named by nobody (`model_copy` past the validator) | **acted** | refused |
+| revoked rule | **acted** | refused |
+| suppress rule destroys a match: 20 → 19 | `ok=True`, nothing flagged | `ok=False`, anchor named |
+
+**`promotion.admissible(rule, policy)`** runs on every rule before it acts.
+Policy is where the ceilings live: a rule approved when the tolerance ceiling was
+higher does not get to keep acting after it drops, because an approval nobody
+re-examines is a permission with no expiry.
+
+**`promotion.broken_by_rules()`** is invariant 5 with a batch in front of it.
+Promotion measured breakage against the history a rule was promoted on; nothing
+measured it against the close being run. `RuleEffect` could not see it either —
+A3 measures whether a rule *moved* something, not whether the movement was a
+loss, which is the same blind spot as a gate that counts only what a change adds.
+Not advisory: a close that loses a match to its own bundle is `ok=False`. Costs
+one extra tier pass, only when there is a bundle to blame — measured at ~50ms,
+inside the noise.
+
+**What still does not run in a close, and should not.** `regress`, `evaluate` and
+`promote` — the promotion *decision*. A close has no candidate rule, and
+promoting one mid-close would be the model writing to the ledger without a human,
+which is rule 2. `verify_promotion` also cannot run in a close: its evidence hash
+is over the history the promotion rested on, not over this batch. So
+`promotion.py` is 20/22 rather than 0/22, and the two that run are the two that
+belong on this path.
+
+**A defect this surfaced in our own tests.** Sixteen tests reached `PROMOTED`
+with `model_copy(update={"status": ...})`, which **bypasses pydantic
+validators** — so they were asserting on rules the contract forbids: promoted,
+and named by nobody. Invisible for as long as nothing checked the approval.
+`tests/conftest.py:promoted()` now builds a real `PromotionEvent`, and the
+synthetic evidence hash says in its own field that it is not a regression.
+
 ### A3 · in-band rule effects, and A4 · signed authority · 2026-08-25
 
 ```
