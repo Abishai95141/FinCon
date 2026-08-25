@@ -90,3 +90,30 @@ def test_a_different_set_of_records_is_a_different_break(closes):
     e14 = [e for e in a.exceptions if e.code == "E14"]
     assert len(e14) > 1
     assert len({fingerprint.of(e, a.records) for e in e14}) == len(e14)
+
+
+def test_identity_survives_a_re_export_with_different_row_numbering(closes):
+    """Built from natural keys, not record ids.
+
+    A record id is `source:natural-key-hash:occurrence` — it already carries the
+    source and a position. If a counterparty re-exports the same file with rows
+    in a different order, every record id shifts and the break is unchanged; an
+    identity built from record ids would call it a new one every time.
+    """
+    a, _ = closes
+    exc = next(e for e in a.exceptions if len(e.record_ids) > 1)
+    before = fingerprint.of(exc, a.records)
+
+    # Same rows, same natural keys, re-exported under different ids.
+    renumbered = {}
+    remapped = []
+    for rid in exc.record_ids:
+        rec = a.records[rid]
+        moved = rec.model_copy(update={"record_id": f"re-export:{rec.natural_key}:0"})
+        renumbered[moved.record_id] = moved
+        remapped.append(moved.record_id)
+    reissued = exc.model_copy(update={"record_ids": remapped})
+
+    assert fingerprint.of(reissued, renumbered) == before, (
+        "a re-export with different row numbering looked like a new break"
+    )
