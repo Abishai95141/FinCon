@@ -14,6 +14,7 @@ document below answers the question in front of you.
 | 06 | [Plan v2](06-PLAN-V2.md) | **The working plan.** P6–P15 re-planned after the audits: control plane before the agent, decision log earlier, ship line at P10. Supersedes 03 from P6 onward. |
 | 07 | [Architecture audit](07-ARCHITECTURE-AUDIT.md) | The root cause: the certifying-algorithm discipline is applied to one decision type out of five. Graph + runtime tracing + five experiments. |
 | 08 | [As built](08-AS-BUILT.md) | The flow that **runs today** — input, processing, output — what a customer gets, and what is missing. Read beside 01's §4, which is the flow we intend. Revised when P13/P14 landed a product surface. |
+| 09 | [Product direction](09-PRODUCT-DIRECTION.md) | **PROPOSED, not approved.** The user journey, screen map, design system, auth and AWS deployment for the product surface. Nothing in §§2–6 is built. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Running it
@@ -47,6 +48,7 @@ Republishing to the same URL requires passing it as `url` to the Artifact tool.
 | Five Ways Past the Gate | https://claude.ai/code/artifact/20d9bec6-36ef-4f70-bd87-278812c1ab80 | `04-CONTROL-PLANE-AUDIT.md` |
 | Where the Run Goes Quiet | https://claude.ai/code/artifact/f23cb3b6-be3a-400b-9be4-999162743893 | `05-FAILURE-REGISTER.md` |
 | The Route From Here | https://claude.ai/code/artifact/b43c41e6-fd0a-4fb8-8422-bd0c327b14a8 | `06-PLAN-V2.md` |
+| Glass and Evidence | https://claude.ai/code/artifact/22e06f61-e217-4959-943c-692dffd14479 | `09-PRODUCT-DIRECTION.md` |
 
 The walkthrough has no markdown mirror in this repo; its numbers are illustrative and internally
 consistent (verified with a script at authoring time), not measurements. Real numbers come from
