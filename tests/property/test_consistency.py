@@ -173,3 +173,41 @@ def test_coverage_reaches_every_planted_defect_in_scope(batch):
     card = next(c for c in close(batch).cards if "determin" in c.arm)
     assert card.exceptions.coverage.numerator == card.exceptions.coverage.denominator == 5
     assert card.false_matches == 0, "coverage bought with a false match is not coverage"
+
+
+def test_the_majority_defines_the_relation_even_when_the_minority_comes_first():
+    """Which offset wins must be decided by how many rows hold it, not by which
+    row the file happened to list first.
+
+    Caught by mutation, twice over: replacing `most_common` with "the first one
+    seen" produces an identical answer on both batches, because the majority
+    offset also happens to be the first inserted. A control that only bites on
+    inputs we do not have is a control nobody has tested — so this orders the
+    input against it.
+    """
+    result = close("A", rules=[])
+    rows = result.settlement_records
+    charges = {r.keys.get("payment_id"): r for r in rows if r.keys.get("row_type") == "charge"}
+
+    found = find(rows, SPEC, tolerance=TOLERANCE)[0]
+    odd_ones = set(found.record_ids)
+    minority = [r for r in rows if r.record_id in odd_ones]
+    majority = [
+        r
+        for r in rows
+        if r.keys.get("row_type") == "fee"
+        and r.record_id not in odd_ones
+        and r.keys.get("gateway") == found.peer
+    ]
+    assert len(minority) < len(majority)
+
+    # Minority first. If the first offset seen won, these twelve rows would
+    # define the relation and the other 164 would be reported as the finding.
+    reordered = [*charges.values(), *minority, *majority]
+    again = find(reordered, SPEC, tolerance=TOLERANCE)
+
+    assert len(again) == 1
+    assert set(again[0].record_ids) == odd_ones, (
+        "the minority defined the relation and the majority was declared wrong"
+    )
+    assert again[0].variance == found.variance
