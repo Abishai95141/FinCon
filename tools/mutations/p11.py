@@ -131,8 +131,8 @@ MUTATIONS = [
     ),
     (
         "the close skips the worklist",
-        "bench/run.py",
-        """    worklist = build_worklist(list(ours.exceptions), TAXONOMY, as_of=WINDOW[1])""",
+        "src/recon/close.py",
+        """    worklist = build_worklist(exceptions, request.taxonomy, as_of=request.period[1])""",
         """    worklist = []""",
     ),
     (

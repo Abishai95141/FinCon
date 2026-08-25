@@ -188,19 +188,33 @@ def test_the_duplicate_rule_creates_a_real_proven_match(sides):
     suppressed = set(select(DEDUP, [r for _, r in a.settlement]).matched)
     assert sorted(ext[r] for r in suppressed) == ["ch_00493", "fee_00247"]
 
-    kept = [r for _, r in a.settlement if r.record_id not in suppressed]
+    # Hand-filtering the suppressed rows and running the tiers over what is left
+    # produced a proof claiming `P0 ARITHMETIC` over a group with rows missing.
+    # 7.0.0 refuses that, correctly: it is the laundered tier, and this test was
+    # manufacturing it. The rule goes to the engine, which gives the match the
+    # provenance it has actually earned.
     after = run_tiers(
         [r for _, r in a.anchors],
-        kept,
+        [r for _, r in a.settlement],
         SETTLEMENT_3WAY,
         ProofTier.P0_ARITHMETIC,
         policy=SETTLEMENT_POLICY,
+        rules=[DEDUP],
+        simulate=True,
     )
     match = next(m for m in after.matches if ext[m.anchor_id] == "bl_00011")
     assert match.tier.value == "T0"
     assert match.proof.residual == 0
+    assert match.proof.provenance is ProofTier.P1_RULE, (
+        "a residual that closes only once a rule removed rows is not arithmetic"
+    )
+    assert match.proof.rule_id == DEDUP.rule_id
+
     records = {r.record_id: r for _, r in a.bank + a.settlement}
-    assert verify(match.proof, records, SETTLEMENT_POLICY).proven
+    assert verify(match.proof, records, SETTLEMENT_POLICY, bundle=[DEDUP]).proven
+    # ...and the same proof without the bundle is not verifiable, which is the
+    # point of carrying the rule id: the checker must be able to fetch it.
+    assert not verify(match.proof, records, SETTLEMENT_POLICY).proven
 
 
 def test_the_duplicate_rule_clears_every_control_but_the_one_that_matters(sides):

@@ -1,0 +1,358 @@
+"""One close, in the library rather than in the benchmark.
+
+Until 2026-08-25 `bench/run.py:close()` was the only thing that assembled
+intake -> tiers -> ledger -> journal -> worklist, and `src/recon/api/` and
+`src/recon/mcp/` were empty files. `src/recon` was a library with no
+application, so the benchmark harness was the product's only executable form.
+
+That is why so many controls could be green while guarding nothing. A control
+that only a test drives can be checked on its *inputs*; nothing observes its
+*outputs*, because outside a test it has none. Moving the pipeline here gives
+"in band" somewhere to be: the benchmark, the API and the MCP server become
+driving adapters that call `run_close`, and a checker placed here runs on every
+real close rather than on whatever a test happened to construct.
+
+**What is deliberately not here.** Scoring. Truth labels. Ablation arms. Those
+are the benchmark's business and the product cannot do them — in production
+nobody knows the right answer, which is the whole problem. Extracting this
+surfaced one thing that had been hidden by the entanglement: the log's terminal
+event committed to a digest of the *benchmark scorecard*, so a close outside the
+benchmark could not write its own terminator. It now commits to `outcome_digest`,
+computed from the close's own decisions, which needs no labels. A caller that
+*can* score may attach its digest through `annotations` — recorded, never read.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+from .contracts import (
+    CloseCompletedPayload,
+    EventKind,
+    Policy,
+    ProofTier,
+    ReconException,
+    Record,
+    TaxonomyRegistry,
+)
+from .contracts.rule import Rule
+from .engine.blocking import BlockingPolicy, CandidateSet
+from .engine.blocking import build as build_candidates
+from .engine.completeness import CompletenessReport
+from .engine.tiers import MatchProfile
+from .engine.tiers import run as run_tiers
+from .engine.verifier import verify
+from .intake.proofs import IntakeProof
+from .journal import Journal
+from .journal.derive import Decisions, RejectedMatch, derive
+from .ledger.accounts import ChartOfAccounts
+from .ledger.beancount_io import CloseResult as LedgerResult
+from .ledger.beancount_io import JournalEntry, post_and_assert
+from .ledger.posting_rules import entries_for
+from .triage.worklist import WorkItem
+from .triage.worklist import build as build_worklist
+
+
+@dataclass(frozen=True)
+class CloseRequest:
+    """Everything one close needs, and nothing about how it will be judged.
+
+    Records arrive already ingested: *which* files a loop reads is the adapter's
+    business, and `recon.intake.ingest` is the product function it uses to read
+    them. Keeping that choice outside means a batch on disk, an upload through
+    the API and a fixture in a test all reach this function the same way.
+    """
+
+    run_id: str
+    anchors: Sequence[tuple[str, Record]]
+    """(external id, record) — the external id is what a human calls the row."""
+    groups: Sequence[tuple[str, Record]]
+    profile: MatchProfile
+    policy: Policy
+    taxonomy: TaxonomyRegistry
+    chart: ChartOfAccounts
+    period: tuple[date, date]
+    opened_on: date
+    journal_path: Path
+    source_proofs: Sequence[IntakeProof] = ()
+    provenance: ProofTier = ProofTier.P0_ARITHMETIC
+    out_of_scope: Mapping[str, str] = field(default_factory=dict)
+    """Records this loop does not reconcile, each with a reason. A *disposition*,
+    not a filter: the completeness audit still walks them (invariant 8), and
+    `audit` refuses a blank reason so nothing can be dropped quietly."""
+
+    rules: Sequence[Rule] = ()
+    policy_digest: str = ""
+    taxonomy_digest: str = ""
+    annotations: Mapping[str, str] = field(default_factory=dict)
+    """Facts a caller knows and the product does not — the benchmark's label
+    digest and scorecard digest. Written into the record and never read by
+    anything here. A caller cannot grant itself a permission through them."""
+
+
+@dataclass(frozen=True)
+class CloseOutcome:
+    run_id: str
+    matches: list = field(default_factory=list)
+    rejected: list[RejectedMatch] = field(default_factory=list)
+    exceptions: list[ReconException] = field(default_factory=list)
+    entries: list[JournalEntry] = field(default_factory=list)
+    not_posted: list[str] = field(default_factory=list)
+    ledger: LedgerResult | None = None
+    completeness: CompletenessReport | None = None
+    worklist: list[WorkItem] = field(default_factory=list)
+    scope: dict[str, str] = field(default_factory=dict)
+    records: dict[str, Record] = field(default_factory=dict)
+    external_of: dict[str, str] = field(default_factory=dict)
+    candidates: CandidateSet | None = None
+    decisions: Decisions | None = None
+    journal_path: Path | None = None
+    outcome_digest: str = ""
+    rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
+    ok: bool = True
+
+
+def outcome_digest(
+    matches: Sequence, exceptions: Sequence[ReconException], entries: Sequence, scope: Mapping
+) -> str:
+    """A fingerprint of what this close decided, from the close alone.
+
+    The terminator used to commit to a digest of the benchmark *scorecard*,
+    which is computed against truth labels — so a close run anywhere but the
+    benchmark could not write its own terminal event, and "replay a close from
+    its log" quietly meant "replay a close that has labels". This commits to the
+    decisions instead: which anchor matched which group, at which tier and
+    provenance, which exceptions were raised, what was posted, what was excluded.
+
+    Timing is excluded on purpose — a wall clock is a fact about our machine and
+    a digest that moved every run would say nothing about whether the answers
+    matched.
+    """
+    body = {
+        "matches": sorted(
+            {
+                "anchor": m.anchor_id,
+                "groups": sorted(m.group_ids),
+                "tier": m.tier.value,
+                "provenance": m.proof.provenance.value,
+                "rule": m.proof.rule_id,
+            }.__repr__()
+            for m in matches
+        ),
+        "exceptions": sorted(f"{e.code}:{e.amount}:{sorted(e.record_ids)}" for e in exceptions),
+        "postings": sorted(f"{e.proof_id}:{len(e.postings)}" for e in entries),
+        "out_of_scope": sorted(scope),
+    }
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class MatchOutcome:
+    """The matching stage: what was matched, what was refused, what was raised.
+
+    Split out so the benchmark's deterministic arm and a real close share one
+    implementation of matching-and-verification rather than two that agree by
+    inspection. An arm using a *stage* of the pipeline is a driving adapter; an
+    arm with its own copy of the stage is the second code path this whole
+    refactor exists to remove.
+    """
+
+    matches: list = field(default_factory=list)
+    rejected: list[RejectedMatch] = field(default_factory=list)
+    refuted: list[str] = field(default_factory=list)
+    exceptions: list[ReconException] = field(default_factory=list)
+    scope: dict[str, str] = field(default_factory=dict)
+    records: dict[str, Record] = field(default_factory=dict)
+    external_of: dict[str, str] = field(default_factory=dict)
+    candidates: CandidateSet | None = None
+    completeness: CompletenessReport | None = None
+    rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
+    tiers: dict[str, int] = field(default_factory=dict)
+    run: object | None = None
+    """The raw `engine.tiers.MatchRun`, for callers that need what the
+    stage saw rather than what it decided."""
+
+
+def match_and_verify(request: CloseRequest) -> MatchOutcome:
+    """Match, then check every match on real output before anyone sees it.
+
+    An unverified match is not a match (invariant 2) and its refusal is recorded
+    rather than absorbed. The checker re-derives from the records, takes its
+    policy separately, and now takes the rule bundle separately too — a proposer
+    may not hand in the rules that excuse its own proof.
+    """
+    anchors = [rec for _, rec in request.anchors]
+    groups = [rec for _, rec in request.groups]
+    records = {rec.record_id: rec for _, rec in [*request.anchors, *request.groups]}
+    external_of = {rec.record_id: ext for ext, rec in [*request.anchors, *request.groups]}
+    rules = list(request.rules)
+
+    candidates = build_candidates(anchors, groups, BlockingPolicy())
+    outcome = run_tiers(
+        anchors,
+        groups,
+        request.profile,
+        request.provenance,
+        candidates,
+        request.policy,
+        request.out_of_scope,
+        rules,
+    )
+
+    kept, rejected, refuted, tiers = [], [], [], {}
+    for match in outcome.matches:
+        verdict = verify(
+            match.proof,
+            records,
+            request.policy,
+            bundle=rules,
+            declared_scope=request.out_of_scope,
+        )
+        if not verdict.proven:
+            refuted.append(f"{match.match_id}: {verdict}")
+            rejected.append(
+                RejectedMatch(
+                    match_id=match.match_id,
+                    proof_id=match.proof.proof_id,
+                    anchor_id=match.anchor_id,
+                    group_ids=list(match.group_ids),
+                    reasons=list(verdict.reasons) or [str(verdict)],
+                )
+            )
+            continue
+        kept.append(match)
+        tiers[match.tier.value] = tiers.get(match.tier.value, 0) + 1
+
+    return MatchOutcome(
+        matches=kept,
+        rejected=rejected,
+        refuted=refuted,
+        exceptions=list(outcome.exceptions),
+        scope=outcome.scope,
+        records=records,
+        external_of=external_of,
+        candidates=candidates,
+        completeness=outcome.completeness,
+        rules_unapplied=outcome.rules_unapplied,
+        tiers=tiers,
+        run=outcome,
+    )
+
+
+def run_close(request: CloseRequest) -> CloseOutcome:
+    """Match, verify, post, record. The product's one path.
+
+    The order is load-bearing and unchanged from the benchmark's: posting
+    happens before the log is derived, because a decision log for a
+    reconciliation that never reached the books is a log of half the system; and
+    deriving happens before the terminator, because `derive` refuses to finish
+    while any input the audit disposed of is named by no event.
+    """
+    from .engine import rulestore
+
+    staged = match_and_verify(request)
+    records, external_of = staged.records, staged.external_of
+    rules = list(request.rules)
+    kept, rejected = staged.matches, staged.rejected
+
+    exceptions = staged.exceptions
+    entries, not_posted = entries_for(
+        matches=kept,
+        exceptions=exceptions,
+        records=records,
+        anchor_side=request.profile.anchor_side,
+        taxonomy=request.taxonomy,
+        overrides=rulestore.booking_overrides(rules, exceptions, records),
+    )
+    ledger = post_and_assert(
+        entries,
+        request.chart,
+        opened_on=request.opened_on,
+        period_end=request.period[1],
+        policy=request.policy,
+    )
+
+    # Extended, not recomputed. The engine's audit already did the set arithmetic
+    # over records; the postings and the intake strengths are what it could not
+    # know. Auditing twice leaves two answers to one question, and the one
+    # nobody reads is the one that rots.
+    completeness = staged.completeness.extend(
+        sources={p.source: p.strength for p in request.source_proofs},
+        proof_ids=[m.proof.proof_id for m in kept],
+        posted_proof_ids=[e.proof_id for e in entries if e.proof_id],
+    )
+
+    # Built before the record, so an unresolvable code stops the run here rather
+    # than being written into a log as if it were a finding.
+    worklist = build_worklist(exceptions, request.taxonomy, as_of=request.period[1])
+
+    digest = outcome_digest(kept, exceptions, entries, staged.scope)
+    decisions = Decisions(
+        batch=request.run_id,
+        profile=request.profile.name,
+        policy=request.policy,
+        policy_digest=request.policy_digest,
+        taxonomy=request.taxonomy,
+        taxonomy_digest=request.taxonomy_digest,
+        source_digests={p.source: p.doc_hash for p in request.source_proofs},
+        sources=list(request.source_proofs),
+        scope=staged.scope,
+        matches=kept,
+        rejected=rejected,
+        exceptions=exceptions,
+        entries=entries,
+        completeness=completeness,
+        records=records,
+        external_of=external_of,
+        blocked_reasons=[f"{e.kind}: {e.message}" for e in ledger.errors],
+        label_digest=request.annotations.get("label_digest", digest),
+        period=[request.period[0].isoformat(), request.period[1].isoformat()],
+    )
+
+    journal = Journal(request.journal_path, fresh=True)
+    journal.extend(derive(decisions))
+    complete = completeness.complete
+    journal.append(
+        EventKind.CLOSE_COMPLETED,
+        actor="engine",
+        outcome="complete" if complete else "incomplete",
+        input_hash=decisions.label_digest,
+        policy_ref=request.policy.ref,
+        payload=CloseCompletedPayload(
+            events_before_this=journal.count,
+            matches=len(kept),
+            rejected=len(rejected),
+            exceptions=len(exceptions),
+            postings=len(entries),
+            out_of_scope=len(staged.scope),
+            outcome_digest=digest,
+            scorecard_digest=request.annotations.get("scorecard_digest", ""),
+            complete=complete,
+        ),
+    )
+
+    return CloseOutcome(
+        run_id=request.run_id,
+        matches=kept,
+        rejected=rejected,
+        exceptions=exceptions,
+        entries=entries,
+        not_posted=not_posted,
+        ledger=ledger,
+        completeness=completeness,
+        worklist=worklist,
+        scope=staged.scope,
+        records=records,
+        external_of=external_of,
+        candidates=staged.candidates,
+        decisions=decisions,
+        journal_path=journal.path,
+        outcome_digest=digest,
+        rules_unapplied=staged.rules_unapplied,
+        ok=complete and not ledger.blocked,
+    )

@@ -173,15 +173,17 @@ def test_the_close_derivation_refuses_to_finish_with_an_unlogged_input(closed):
 
 
 def test_a_refusal_by_the_verifier_is_recorded_as_a_decision(closed, tmp_path, monkeypatch):
-    import bench.arms.deterministic as arm
     from bench.run import close
 
+    import recon.close as close_mod
     from recon.contracts import EventKind
     from recon.engine.verifier import Verdict, VerdictKind
     from recon.journal import read
 
     monkeypatch.setattr(
-        arm, "verify", lambda *a, **k: Verdict(VerdictKind.REFUTED, None, ["mutation"], "p@v1")
+        close_mod,
+        "verify",
+        lambda *a, **k: Verdict(VerdictKind.REFUTED, None, ["mutation"], "p@v1"),
     )
     result = close("A", journal_dir=tmp_path)
     kinds = [e.kind for e in read(result.journal_path)]
@@ -666,7 +668,6 @@ def test_the_close_feeds_its_posting_audit_from_the_entries_it_wrote(tmp_path, m
     """Found by mutation, and it is the shallow-proxy shape this project keeps
     finding: feed the audit the proof ids it is checking and the check passes by
     construction. Withhold one real entry and the close must go incomplete."""
-    import bench.run as run_mod
     from bench.run import close
 
     import recon.ledger.posting_rules as rules
@@ -677,7 +678,10 @@ def test_the_close_feeds_its_posting_audit_from_the_entries_it_wrote(tmp_path, m
         entries, declined = real(**kwargs)
         return [e for e in entries if not e.proof_id or e is not entries[0]], declined
 
-    monkeypatch.setattr(run_mod, "entries_for", one_short)
+    # Posting moved into `recon.close.run_close` with A1; the patch follows it.
+    import recon.close as close_mod
+
+    monkeypatch.setattr(close_mod, "entries_for", one_short)
     result = close("A", journal_dir=tmp_path)
     assert not result.completeness.complete
     assert result.completeness.undisposed_postings
@@ -745,14 +749,16 @@ def test_an_unknown_kind_is_rejected_before_anything_reads_it():
 
 
 def test_a_log_of_refusals_replays_to_an_empty_scorecard(tmp_path, monkeypatch):
-    import bench.arms.deterministic as arm
     from bench.replay import replay_close, scorecard_from_log
     from bench.run import close
 
+    import recon.close as close_mod
     from recon.engine.verifier import Verdict, VerdictKind
 
     monkeypatch.setattr(
-        arm, "verify", lambda *a, **k: Verdict(VerdictKind.REFUTED, None, ["mutation"], "p@v1")
+        close_mod,
+        "verify",
+        lambda *a, **k: Verdict(VerdictKind.REFUTED, None, ["mutation"], "p@v1"),
     )
     result = close("A", journal_dir=tmp_path)
     replayed = replay_close(result.journal_path)

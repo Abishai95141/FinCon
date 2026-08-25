@@ -54,11 +54,11 @@ MUTATIONS = [
     ),
     (
         "the decision log goes back to the caller's copy of scope",
-        "bench/run.py",
-        """        sources=sides.proofs,
-        scope=ours.scope,""",
-        """        sources=sides.proofs,
-        scope=sides.scope,""",
+        "src/recon/close.py",
+        """        sources=list(request.source_proofs),
+        scope=staged.scope,""",
+        """        sources=list(request.source_proofs),
+        scope=dict(request.out_of_scope),""",
     ),
     (
         "an action a close cannot perform stops blocking promotion",

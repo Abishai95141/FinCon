@@ -220,7 +220,22 @@ class CloseCompletedPayload(_Payload):
     exceptions: int
     postings: int
     out_of_scope: int
-    scorecard_digest: str
+    outcome_digest: str
+    """A fingerprint of what this close decided, from the close alone.
+
+    The terminator committed only to `scorecard_digest` until 7.0.0 — a digest
+    of the *benchmark scorecard*, which is computed against truth labels. So a
+    close run anywhere but the benchmark could not write its own terminal event,
+    and "replay a close from its log" quietly meant "replay a close that has
+    labels". This commits to the decisions: which anchor matched which group, at
+    which tier and provenance, which exceptions were raised, what was posted,
+    what was excluded."""
+
+    scorecard_digest: str = ""
+    """Optional, and a *benchmark* fact rather than a product one. A caller that
+    can score against ground truth attaches its digest here; production leaves
+    it empty because in production nobody knows the right answer."""
+
     complete: bool
 
 

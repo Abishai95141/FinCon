@@ -33,10 +33,9 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from recon.close import CloseRequest, run_close
 from recon.contracts import (
     PRODUCERS,
-    CloseCompletedPayload,
-    EventKind,
     Policy,
     ProofTier,
     ReconException,
@@ -51,14 +50,11 @@ from recon.engine.completeness import CompletenessReport
 from recon.engine.tiers import MatchProfile
 from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
-from recon.journal import Journal
-from recon.journal.derive import Decisions, derive
+from recon.journal.derive import Decisions
 from recon.ledger.beancount_io import CloseResult as LedgerResult
-from recon.ledger.beancount_io import JournalEntry, post_and_assert
-from recon.ledger.posting_rules import entries_for
+from recon.ledger.beancount_io import JournalEntry
 from recon.profiles.chart import load_chart
 from recon.triage.worklist import WorkItem, summarise
-from recon.triage.worklist import build as build_worklist
 
 from .arms import deterministic, llm_only, securo_baseline
 from .metrics import (
@@ -165,6 +161,7 @@ class CloseResult:
     journal_path: Path | None = None
     decisions: Decisions | None = None
     unproduced_kinds: dict[str, str] = field(default_factory=dict)
+    outcome_digest: str = ""
     ok: bool = True
 
 
@@ -309,86 +306,38 @@ def close(
             )
         )
 
-    # --- the books -------------------------------------------------------
-    records = {rec.record_id: rec for _, rec in sides.bank + sides.settlement}
-    entries, not_posted = entries_for(
-        matches=ours.matches,
-        exceptions=list(ours.exceptions),
-        records=records,
-        anchor_side=SETTLEMENT_3WAY.anchor_side,
-        taxonomy=TAXONOMY,
-        # The last of the five. `book_to` was measured by a posting delta at
-        # promotion and reached no posting at close, so a rule could be approved
-        # for rerouting money it never rerouted.
-        overrides=rulestore.booking_overrides(active_rules, list(ours.exceptions), records),
+    # --- the product's one path ------------------------------------------
+    # Everything from here to the terminator is `recon.close.run_close`. This
+    # function used to *be* the pipeline; it is now a driving adapter that feeds
+    # the pipeline and then does the one thing the product cannot: score the
+    # answer against labels nobody has in production.
+    outcome = run_close(
+        CloseRequest(
+            run_id=batch,
+            anchors=sides.bank,
+            groups=sides.settlement,
+            profile=SETTLEMENT_3WAY,
+            policy=SETTLEMENT_POLICY,
+            taxonomy=TAXONOMY,
+            chart=CHART,
+            period=WINDOW,
+            opened_on=date(2026, 7, 1),
+            journal_path=(journal_dir or RUNS) / batch / "decisions.jsonl",
+            source_proofs=sides.proofs,
+            provenance=sides.provenance,
+            out_of_scope=sides.scope,
+            rules=active_rules,
+            policy_digest=_digest(POLICY_FILE),
+            taxonomy_digest=_digest(TAXONOMY_FILE),
+            annotations={
+                "label_digest": _digest(labels),
+                "scorecard_digest": scorecard_digest({c.arm: c for c in cards}["deterministic"]),
+            },
+        )
     )
-    ledger = post_and_assert(
-        entries,
-        CHART,
-        opened_on=date(2026, 7, 1),
-        period_end=WINDOW[1],
-        policy=SETTLEMENT_POLICY,
-    )
-
-    # Extended, not recomputed. The engine's audit already did the set
-    # arithmetic over records; the postings and the intake strengths are what it
-    # could not know. Auditing twice would leave two answers to the same
-    # question, and the one nobody reads is the one that rots.
-    completeness = ours.completeness.extend(
-        sources=sides.strengths,
-        proof_ids=[m.proof.proof_id for m in ours.matches],
-        posted_proof_ids=[e.proof_id for e in entries if e.proof_id],
-    )
-
-    # --- the queue a human actually works --------------------------------
-    # Built before the record so an unresolvable code stops the run here rather
-    # than being written into a log as if it were a finding.
-    worklist = build_worklist(list(ours.exceptions), TAXONOMY, as_of=WINDOW[1])
-
-    # --- the record ------------------------------------------------------
-    decisions = Decisions(
-        batch=batch,
-        profile=SETTLEMENT_3WAY.name,
-        policy=SETTLEMENT_POLICY,
-        policy_digest=_digest(POLICY_FILE),
-        taxonomy=TAXONOMY,
-        taxonomy_digest=_digest(TAXONOMY_FILE),
-        source_digests=sides.digests,
-        sources=sides.proofs,
-        scope=ours.scope,
-        matches=list(ours.matches),
-        rejected=list(ours.rejected),
-        exceptions=list(ours.exceptions),
-        entries=entries,
-        completeness=completeness,
-        records=records,
-        external_of=external_of,
-        blocked_reasons=[f"{e.kind}: {e.message}" for e in ledger.errors],
-        label_digest=_digest(labels),
-        period=[WINDOW[0].isoformat(), WINDOW[1].isoformat()],
-    )
-    journal = Journal((journal_dir or RUNS) / batch / "decisions.jsonl", fresh=True)
-    journal.extend(derive(decisions))
-
-    complete = completeness.complete
-    card = {c.arm: c for c in cards}["deterministic"]
-    journal.append(
-        EventKind.CLOSE_COMPLETED,
-        actor="engine",
-        outcome="complete" if complete else "incomplete",
-        input_hash=decisions.label_digest,
-        policy_ref=SETTLEMENT_POLICY.ref,
-        payload=CloseCompletedPayload(
-            events_before_this=journal.count,
-            matches=card.produced,
-            rejected=len(ours.rejected),
-            exceptions=len(ours.exceptions),
-            postings=len(entries),
-            out_of_scope=len(ours.scope),
-            scorecard_digest=scorecard_digest(card),
-            complete=complete,
-        ),
-    )
+    records = outcome.records
+    entries, not_posted = outcome.entries, outcome.not_posted
+    ledger, completeness, worklist = outcome.ledger, outcome.completeness, outcome.worklist
 
     return CloseResult(
         batch=batch,
@@ -396,22 +345,23 @@ def close(
         blocking=blocking,
         candidates=candidates,
         completeness=completeness,
-        exceptions=list(ours.exceptions),
+        exceptions=outcome.exceptions,
         bank_records=[rec for _, rec in sides.bank],
         settlement_records=group_records,
-        external_of=external_of,
-        scope=ours.scope,
+        external_of=outcome.external_of,
+        scope=outcome.scope,
         records=records,
-        matches=list(ours.matches),
+        matches=outcome.matches,
         entries=entries,
         not_posted=not_posted,
         ledger=ledger,
         taxonomy=TAXONOMY,
         worklist=worklist,
-        journal_path=journal.path,
-        decisions=decisions,
+        journal_path=outcome.journal_path,
+        decisions=outcome.decisions,
         unproduced_kinds={k.value: v for k, v in PRODUCERS.items() if v.startswith("P")},
-        ok=not blocking.dropped and complete and not ledger.blocked,
+        outcome_digest=outcome.outcome_digest,
+        ok=not blocking.dropped and outcome.ok,
     )
 
 

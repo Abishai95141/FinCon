@@ -358,12 +358,19 @@ def regress(
     from .tiers import run as run_tiers
 
     suppressed = _suppressed_by(rule, history.group_records)
-    kept = [r for r in history.group_records if r.record_id not in suppressed]
+    # Was: filter the suppressed rows out by hand, then run the tiers over what
+    # was left. That produced proofs claiming `P0 ARITHMETIC` over a group with
+    # rows missing — the exact laundered shape the verifier learned to refuse in
+    # 7.0.0, and the regression was manufacturing it. Handing the rule to the
+    # engine instead means the simulation runs the same code a close runs, and
+    # the proofs it judges carry the provenance a close would have given them.
     after = run_tiers(
         history.anchors,
-        _normalized_by(rule, kept),
-        _apply(rule, profile),
+        history.group_records,
+        profile,
         ProofTier.P0_ARITHMETIC,
+        rules=[rule],
+        simulate=True,
     )
     # Like for like. `history.exceptions` came out of a full close — policy,
     # candidate bounding, declared scope — and `after` is a bare tier run, so
@@ -392,7 +399,12 @@ def regress(
     unverifiable = [
         anchor_id
         for anchor_id in added
-        if not verify(after_by_anchor[anchor_id].proof, history.records, policy).proven
+        if not verify(
+            after_by_anchor[anchor_id].proof,
+            history.records,
+            policy,
+            bundle=[rule],
+        ).proven
     ]
 
     payload = "|".join(

@@ -562,11 +562,12 @@ def test_a_match_the_verifier_refuses_never_reaches_the_scorecard(monkeypatch):
     from bench.metrics import score
     from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides, truth_pairs
 
+    import recon.close as close_mod
     from recon.engine.verifier import Verdict, VerdictKind
 
     sides = load_sides("A")
     monkeypatch.setattr(
-        arm,
+        close_mod,
         "verify",
         lambda *a, **k: Verdict(VerdictKind.REFUTED, None, ["mutation"], "settlement-in@v1"),
     )

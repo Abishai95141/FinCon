@@ -94,8 +94,8 @@ MUTATIONS = [
     ),
     (
         "verifier refusals are dropped instead of logged",
-        "bench/arms/deterministic.py",
-        """            refusals.append(
+        "src/recon/close.py",
+        """            rejected.append(
                 RejectedMatch(""",
         """            _ = (
                 RejectedMatch(""",
@@ -135,14 +135,14 @@ MUTATIONS = [
     ),
     (
         "the posting audit is fed the ids it is checking",
-        "bench/run.py",
+        "src/recon/close.py",
         """        posted_proof_ids=[e.proof_id for e in entries if e.proof_id],""",
-        """        posted_proof_ids=[m.proof.proof_id for m in ours.matches],""",
+        """        posted_proof_ids=[m.proof.proof_id for m in kept],""",
     ),
     (
         "the engine's own audit is discarded and recomputed loosely",
-        "bench/run.py",
-        """    completeness = ours.completeness.extend(""",
+        "src/recon/close.py",
+        """    completeness = staged.completeness.extend(""",
         """    from recon.engine.completeness import CompletenessReport as _CR
     completeness = _CR(anchors={}, records={}, sources={}).extend(""",
     ),

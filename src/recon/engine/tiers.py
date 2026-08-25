@@ -152,6 +152,7 @@ def _build_proof(
     budget: ToleranceBudget,
     provenance: ProofTier,
     rule: Rule | None = None,
+    bundle_digest: str | None = None,
 ) -> Proof:
     group_total = sum((r.amount for r in group), ZERO)
     return Proof(
@@ -159,6 +160,7 @@ def _build_proof(
         match_id=match_id,
         tier=tier,
         provenance=provenance,
+        rule_bundle_digest=bundle_digest,
         rule_id=rule.rule_id if rule is not None else None,
         rule_version=rule.version if rule is not None else None,
         legs=[
@@ -250,6 +252,7 @@ def run(
     policy: Policy | None = None,
     out_of_scope: Mapping[str, str] | None = None,
     rules: list[Rule] | None = None,
+    simulate: bool = False,
 ) -> MatchRun:
     """T0 then T1. A group already claimed by an earlier tier is not offered to
     a later one — a group can back exactly one anchor.
@@ -280,7 +283,8 @@ def run(
     # the completeness audit does not walk — invariant 8 sees a rule's effect on
     # exactly the terms it sees an operator's.
     active = list(rules or [])
-    applied = rulestore.apply(active, group_records, profile=profile.name)
+    applied = rulestore.apply(active, group_records, profile=profile.name, simulate=simulate)
+    digest = rulestore.bundle_digest(active)
     scope.update(applied.scope)
     # The remaining two match-affecting actions, in the order the regression
     # measures them: suppression removes rows, then key rewrites change what is
@@ -339,6 +343,7 @@ def run(
                     profile,
                     budget,
                     *tier_for_group,
+                    bundle_digest=digest,
                 ),
             )
         )
@@ -350,7 +355,9 @@ def run(
         unmatched = [a for a in pending if not attempt(a, tier)]
 
     ungrouped_pool = [r for r in group_records if not r.group_ref and r.record_id not in scope]
-    unmatched, exceptions = _subset_pass(unmatched, ungrouped_pool, profile, provenance, matches)
+    unmatched, exceptions = _subset_pass(
+        unmatched, ungrouped_pool, profile, provenance, digest, matches
+    )
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
@@ -436,6 +443,7 @@ def _subset_pass(
     pool: list[Record],
     profile: MatchProfile,
     provenance: ProofTier,
+    _bundle: str | None,
     matches: list[Match],
 ) -> tuple[list[Record], list[ReconException]]:
     """T2: reconstruct which rows back a credit when the source declared no
@@ -517,6 +525,7 @@ def _subset_pass(
                         profile,
                         budget,
                         provenance,
+                        bundle_digest=_bundle,
                     ),
                 )
             )

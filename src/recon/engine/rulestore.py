@@ -21,6 +21,7 @@ rule into arithmetic, which is the one thing the tier ladder exists to prevent.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -92,6 +93,19 @@ class Applied:
         for rule_id, kinds in sorted(self.unapplied.items()):
             parts.append(f"{rule_id}: {'/'.join(kinds)} not applied at close")
         return "; ".join(parts)
+
+
+def bundle_digest(rules: list[Rule]) -> str:
+    """Which promoted rule set was active, as one stable id.
+
+    A decision that names the bundle that produced it is the shape OPA's
+    decision log uses: a year later you can fetch the same rules instead of
+    taking a proof's word for what a rule id meant at the time.
+    """
+    if not rules:
+        return "empty"
+    body = json.dumps(sorted(r.model_dump_json() for r in rules), sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()[:16]
 
 
 def load(profile: str, store: Path | None = None) -> list[Rule]:

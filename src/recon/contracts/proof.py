@@ -93,6 +93,13 @@ class Proof(BaseModel):
     tolerance_allowed: Money
     tolerance_used: Money
 
+    rule_bundle_digest: str | None = None
+    """Which promoted rule set was active when this match was made.
+
+    A decision that names the bundle that produced it is the OPA decision-log
+    shape, and it is what lets a checker fetch the same rules a year later
+    instead of taking the proof's word for what a rule id meant."""
+
     rule_id: str | None = None
     rule_version: int | None = None
     """Required when provenance is P1 — a rule proof must say which rule."""

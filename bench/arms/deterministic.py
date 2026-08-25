@@ -9,14 +9,13 @@ publish.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
+from pathlib import Path
 
 from recon.contracts import Policy, ProofTier, Record
 from recon.contracts.rule import Rule
 from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
-from recon.engine.tiers import run as run_tiers
-from recon.engine.verifier import verify
-from recon.journal.derive import RejectedMatch
 
 from . import ArmResult
 
@@ -31,52 +30,45 @@ def run(
     out_of_scope: Mapping[str, str] | None = None,
     rules: list[Rule] | None = None,
 ) -> ArmResult:
-    anchors = [rec for _, rec in bank]
-    group_records = [rec for _, rec in settlement]
-    outcome = run_tiers(
-        anchors,
-        group_records,
-        profile,
-        provenance,
-        candidates,
-        policy,
-        out_of_scope,
-        rules,
+    """The deterministic arm, as an adapter over the product's matching stage.
+
+    This used to call `run_tiers` and then verify every match itself, which was a
+    second implementation of matching-and-verification sitting beside the one a
+    real close used. They agreed by inspection. `recon.close.match_and_verify` is
+    now the only one, and this function is what the benchmark wraps around it —
+    a driving adapter, in the shape the scorecard wants.
+
+    `candidates` is accepted and ignored: the stage builds its own candidate set
+    from the same `BlockingPolicy`, so an arm cannot hand in a wider or narrower
+    one than a close would use. Callers pass it for the old signature's sake.
+    """
+    from recon.close import CloseRequest, match_and_verify
+
+    staged = match_and_verify(
+        CloseRequest(
+            run_id="arm",
+            anchors=bank,
+            groups=settlement,
+            profile=profile,
+            policy=policy,
+            taxonomy=None,  # matching raises exceptions; only posting reads the registry
+            chart=None,
+            period=(date.min, date.max),
+            opened_on=date.min,
+            journal_path=Path("/dev/null"),
+            provenance=provenance,
+            out_of_scope=out_of_scope or {},
+            rules=list(rules or []),
+        )
     )
-
-    records = {rec.record_id: rec for _, rec in bank + settlement}
-    external = {rec.record_id: ext for ext, rec in bank + settlement}
-
-    pairs: dict[str, frozenset[str]] = {}
-    proofs = []
-    kept: list = []
-    refusals: list[RejectedMatch] = []
-    refuted: list[str] = []
-    # The split of what we *report*, not of what the tiers produced. A match the
-    # verifier refused must leave both numbers together, or the scorecard would
-    # decompose a count it does not have.
-    tiers: dict[str, int] = {}
-
-    for match in outcome.matches:
-        verdict = verify(match.proof, records, policy)
-        if not verdict.proven:
-            # An unverified match is not a match. Recorded so the count of
-            # rejections is visible rather than silently absorbed.
-            refuted.append(f"{match.match_id}: {verdict}")
-            refusals.append(
-                RejectedMatch(
-                    match_id=match.match_id,
-                    proof_id=match.proof.proof_id,
-                    anchor_id=match.anchor_id,
-                    group_ids=list(match.group_ids),
-                    reasons=list(verdict.reasons) or [str(verdict)],
-                )
-            )
-            continue
-        pairs[external[match.anchor_id]] = frozenset(external[r] for r in match.group_ids)
-        proofs.append(match.proof)
-        tiers[match.tier.value] = tiers.get(match.tier.value, 0) + 1
-        kept.append(match)
+    outcome = staged.run
+    external = staged.external_of
+    kept = staged.matches
+    refusals = staged.rejected
+    refuted = staged.refuted
+    tiers = staged.tiers
+    proofs = [m.proof for m in kept]
+    pairs = {external[m.anchor_id]: frozenset(external[r] for r in m.group_ids) for m in kept}
 
     exceptions = outcome.exceptions
     notes = [

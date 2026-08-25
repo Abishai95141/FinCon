@@ -22,12 +22,14 @@ make any set of numbers close.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from ..contracts import Policy, PolicyViolation, Proof, Record
+from ..contracts import Policy, PolicyViolation, Proof, ProofTier, Record
+from ..contracts.rule import ActionKind, Rule
+from .rules import fires_on
 
 ZERO = Decimal("0.00")
 
@@ -67,12 +69,21 @@ def verify(
     proof: Proof,
     records: Mapping[str, Record],
     policy: Policy,
+    *,
+    bundle: Sequence[Rule] = (),
+    declared_scope: Iterable[str] = (),
 ) -> Verdict:
     """Re-derive the match from the records and report whether it holds.
 
     `records` must be the same records a third party would fetch — the verifier
     is meant to be runnable by someone who does not trust us and holds only the
     source files, the policy, and this function.
+
+    `bundle` is the promoted rule set, supplied separately for the same reason
+    `policy` is: it is not something the proposer may hand in with its proof.
+    `declared_scope` is the close's own out-of-scope dispositions, which are part
+    of the *input* the close ran on — a checker is given `x`, and refusing to
+    look at `x` is what made a laundered tier verifiable.
     """
     ref = policy.ref
     reasons: list[str] = []
@@ -134,6 +145,8 @@ def verify(
             f"ceiling {policy.tolerance_ceiling})"
         )
 
+    reasons += _rule_dependency(proof, records, bundle, declared_scope)
+
     if recomputed_total != proof.residual:
         reasons.append(
             f"claimed residual {proof.residual} but the records give "
@@ -157,3 +170,78 @@ def verify_all(
     policy: Policy,
 ) -> dict[str, Verdict]:
     return {p.proof_id: verify(p, records, policy) for p in proofs}
+
+
+def _rule_dependency(
+    proof: Proof,
+    records: Mapping[str, Record],
+    bundle: Sequence[Rule],
+    declared_scope: Iterable[str],
+) -> list[str]:
+    """Whether the *provenance* this proof claims survives re-derivation.
+
+    Everything above checks arithmetic, and arithmetic was never the hole. After
+    a rule suppresses a row the legs hold only what was kept, so the sum is
+    honestly zero and the claim is under-determined — the witness never carried
+    what the rule removed. Measured on 2026-08-25: a `P1 RULE` proof relabelled
+    `P0 ARITHMETIC` verified, and so did one citing a rule that did not exist.
+
+    So the exclusion is **derived, not read**. The population comes from
+    `records`, the effect comes from re-running the cited rule, and nothing here
+    consults a field the producer could have written. An earlier draft rebuilt
+    the population from the proof's own legs plus a claimed exclusion list, and
+    a witness that under-reported its exclusions was then checked against an
+    input that already had them removed — audit finding `F1` exactly, a check
+    reading its input from the artifact it checks.
+    """
+    cited = {rid for leg in proof.legs for rid in leg.record_ids}
+    groups = {records[r].group_ref for r in cited if r in records and records[r].group_ref}
+    if not groups:
+        # T2 reconstructs its group by subset-sum out of ungrouped rows, so there
+        # is no declared population to be missing from. Nothing to say.
+        return []
+
+    population = [r for r in records.values() if r.group_ref in groups]
+    missing = {r.record_id for r in population} - cited
+    unexplained = missing - set(declared_scope)
+
+    if proof.provenance is ProofTier.P0_ARITHMETIC:
+        if unexplained:
+            return [
+                f"claims {ProofTier.P0_ARITHMETIC.value} but {len(unexplained)} record(s) of "
+                f"group {sorted(groups)} are absent from the legs and from the close's declared "
+                f"scope: {sorted(unexplained)[:3]}. A third party re-deriving from raw records "
+                f"does not reach this residual"
+            ]
+        return []
+
+    if proof.provenance is not ProofTier.P1_RULE:
+        return []
+
+    if not proof.rule_id:
+        return [f"claims {ProofTier.P1_RULE.value} but names no rule"]
+    cited_rule = next((r for r in bundle if r.rule_id == proof.rule_id), None)
+    if cited_rule is None:
+        return [
+            f"cites rule {proof.rule_id!r}, which is not in the bundle supplied to this "
+            f"verification ({len(bundle)} rule(s))"
+        ]
+    if not any(a.kind is ActionKind.SUPPRESS for a in cited_rule.then):
+        # A rule that removes nothing cannot be what removed these rows.
+        return (
+            []
+            if not unexplained
+            else [
+                f"cites {proof.rule_id!r}, which suppresses nothing, yet "
+                f"{len(unexplained)} record(s) are missing from the legs"
+            ]
+        )
+
+    fired = {r.record_id for r in population if fires_on(cited_rule, r)} - set(declared_scope)
+    if fired != unexplained:
+        return [
+            f"re-running {proof.rule_id!r} over group {sorted(groups)} excludes "
+            f"{len(fired)} record(s), but {len(unexplained)} are missing from the legs "
+            f"— the rule does not account for the partition this proof claims"
+        ]
+    return []
