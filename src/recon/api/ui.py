@@ -415,7 +415,9 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
         )
 
     if recorded:
-        run_rows = "".join(_run_row(rid, views[rid]) for rid in recorded)
+        run_rows = "".join(
+            _run_row(rid, views[rid], review.state(rid, runs_dir).signed_off_by) for rid in recorded
+        )
         closes = (
             f"<div class='tbl'><table><tr><th>Run</th><th>Loop</th>"
             f"<th class='right'>Matched</th><th class='right'>Worklist</th>"
@@ -438,7 +440,7 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
     return shell(user, active="periods", crumb="<b>Periods</b>", body=body, worklist=open_items)
 
 
-def _run_row(run_id: str, view: service.CloseView | None) -> str:
+def _run_row(run_id: str, view: service.CloseView | None, signed: str = "") -> str:
     if view is None:
         return (
             f"<tr><td><a href='/periods/{escape(run_id)}'>{escape(run_id)}</a></td>"
@@ -449,7 +451,7 @@ def _run_row(run_id: str, view: service.CloseView | None) -> str:
         f"<td>{escape(view.loop)}</td>"
         f"<td class='right num'>{escape(view.tiers.rate)}</td>"
         f"<td class='right num'>{len(view.exceptions)}</td>"
-        f"<td>{_state_badge(view)}</td></tr>"
+        f"<td>{_state_badge(view, signed)}</td></tr>"
     )
 
 
@@ -773,7 +775,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
     )
     crumb = (
         f"<a href='/periods'>Periods</a><span>/</span><b>{escape(view.run_id)}</b>"
-        f"<span>/</span>{_state_badge(view)}"
+        f"<span>/</span>{_state_badge(view, state.signed_off_by)}"
     )
     return shell(
         user,

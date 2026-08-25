@@ -88,6 +88,14 @@ def test_taking_every_blocking_item_opens_the_gate(closed):
     assert state.note == "October reconciled"
     assert review.problems(run_id, runs_root) == [], "the review record does not vouch for itself"
 
+    # And every surface that shows a state has to show *this* one. A panel that
+    # says signed beside a badge that says "Needs review" is the product
+    # disagreeing with itself, which is worse than either answer alone.
+    page = client.get(f"/periods/{run_id}").text
+    assert "Needs review" not in page, "the close page still calls a signed close unreviewed"
+    assert "Signed off by" in page
+    assert "Needs review" not in client.get("/periods").text
+
 
 def test_a_signed_close_cannot_be_quietly_revised(closed):
     client, run_id, runs_root = closed
