@@ -149,6 +149,8 @@ class CloseResult:
     outcome_digest: str = ""
     rule_effects: list = field(default_factory=list)
     inert_rules: list[str] = field(default_factory=list)
+    matches_broken_by_rules: list[str] = field(default_factory=list)
+    inadmissible: dict[str, list[str]] = field(default_factory=dict)
     authority: list = field(default_factory=list)
     ok: bool = True
 
@@ -352,6 +354,8 @@ def close(
         outcome_digest=outcome.outcome_digest,
         rule_effects=outcome.rule_effects,
         inert_rules=outcome.inert_rules,
+        matches_broken_by_rules=outcome.matches_broken_by_rules,
+        inadmissible=outcome.inadmissible,
         authority=outcome.authority,
         ok=not blocking.dropped and outcome.ok,
     )

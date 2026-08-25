@@ -137,6 +137,12 @@ class CloseOutcome:
     action kinds shipped in and nobody could see it."""
 
     inert_rules: list[str] = field(default_factory=list)
+    matches_broken_by_rules: list[str] = field(default_factory=list)
+    """Anchors this batch would have matched without the rule bundle. Not
+    advisory: invariant 5 says a rule may not break a match, and a close that
+    lost one to its own rules has not finished successfully."""
+
+    inadmissible: dict[str, list[str]] = field(default_factory=dict)
     authority: list = field(default_factory=list)
     """`trust.Verdict` per bundle — which authority this close ran under, and
     who put their name to it. A digest proves what ran; a signature proves who
@@ -201,6 +207,10 @@ class MatchOutcome:
     completeness: CompletenessReport | None = None
     rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
     rule_effects: dict = field(default_factory=dict)
+    inadmissible: dict[str, list[str]] = field(default_factory=dict)
+    """Rules whose approval does not hold in this close, and why. They are
+    not applied — and a refusal nobody records reads like a rule working."""
+
     tiers: dict[str, int] = field(default_factory=dict)
     run: object | None = None
     """The raw `engine.tiers.MatchRun`, for callers that need what the
@@ -215,11 +225,23 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
     policy separately, and now takes the rule bundle separately too — a proposer
     may not hand in the rules that excuse its own proof.
     """
+    from .engine.promotion import admissible
+
     anchors = [rec for _, rec in request.anchors]
     groups = [rec for _, rec in request.groups]
     records = {rec.record_id: rec for _, rec in [*request.anchors, *request.groups]}
     external_of = {rec.record_id: ext for ext, rec in [*request.anchors, *request.groups]}
-    rules = list(request.rules)
+
+    # A rule's approval is checked before it acts, not merely at the moment it
+    # was granted. `rulestore.load` looked at `status` and stopped, so a rule
+    # approved under a policy that is not the one in force acted unchanged.
+    rules, inadmissible = [], {}
+    for rule in request.rules:
+        reasons = admissible(rule, request.policy)
+        if reasons:
+            inadmissible[rule.rule_id] = reasons
+        else:
+            rules.append(rule)
 
     candidates = build_candidates(anchors, groups, BlockingPolicy())
     outcome = run_tiers(
@@ -269,6 +291,7 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         completeness=outcome.completeness,
         rules_unapplied=outcome.rules_unapplied,
         rule_effects=outcome.rule_effects,
+        inadmissible=inadmissible,
         tiers=tiers,
         run=outcome,
     )
@@ -283,9 +306,24 @@ def run_close(request: CloseRequest) -> CloseOutcome:
     deriving happens before the terminator, because `derive` refuses to finish
     while any input the audit disposed of is named by no event.
     """
+    import dataclasses as _dc
+
     from .engine import rulestore
+    from .engine.promotion import broken_by_rules
 
     staged = match_and_verify(request)
+
+    # Invariant 5 with a batch in front of it. Promotion measured breakage
+    # against the history a rule was promoted on; nothing measured it against
+    # the close being run, so a suppress rule aimed at a matched group took a
+    # close from 20 matches to 19 with `ok=True` and nothing flagged.
+    #
+    # One extra tier pass, and only when there is a bundle to blame: with no
+    # rules there is nothing that could have broken anything.
+    broken: list[str] = []
+    if request.rules:
+        unruled = match_and_verify(_dc.replace(request, rules=()))
+        broken = broken_by_rules(unruled.matches, staged.matches)
     records, external_of = staged.records, staged.external_of
     rules = list(request.rules)
     kept, rejected = staged.matches, staged.rejected
@@ -445,6 +483,8 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         rules_unapplied=staged.rules_unapplied,
         rule_effects=effects,
         inert_rules=inert,
+        matches_broken_by_rules=broken,
+        inadmissible=staged.inadmissible,
         authority=authority,
-        ok=complete and not ledger.blocked,
+        ok=complete and not ledger.blocked and not broken,
     )

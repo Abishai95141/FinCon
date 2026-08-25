@@ -20,6 +20,7 @@ from recon.contracts import ProofTier
 from recon.contracts.rule import ActionKind, Operator, Rule, RuleStatus
 from recon.engine import rulestore
 from recon.engine.promotion import MatchHistory, evaluate, regress
+from tests.conftest import promoted
 
 
 def _rule(status: RuleStatus = RuleStatus.PROMOTED, **kw) -> Rule:
@@ -31,7 +32,15 @@ def _rule(status: RuleStatus = RuleStatus.PROMOTED, **kw) -> Rule:
     )
     base.update(kw)
     rule = Rule(**base)
-    return rule if status is RuleStatus.DRAFT else rule.model_copy(update={"status": status})
+    if status is RuleStatus.DRAFT:
+        return rule
+    if status is RuleStatus.PROMOTED:
+        # A real promotion event. `model_copy(update={"status": PROMOTED})`
+        # bypasses the validator that forbids a promoted rule with no approver,
+        # so every test built this way was asserting on an object the contract
+        # rejects — invisible until a close began checking the approval itself.
+        return promoted(rule)
+    return rule.model_copy(update={"status": status})
 
 
 def _history(batch: str = "A") -> tuple[MatchHistory, list]:

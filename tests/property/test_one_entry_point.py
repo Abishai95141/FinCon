@@ -31,6 +31,7 @@ from bench.run import (
 )
 
 from recon.close import CloseRequest, match_and_verify, run_close
+from tests.conftest import promoted
 
 
 def _request(batch: str, tmp: Path, **over) -> CloseRequest:
@@ -142,18 +143,20 @@ def test_the_terminal_event_can_be_written_without_truth_labels():
 def test_the_outcome_digest_moves_when_a_decision_moves(tmp_path):
     """A digest that never moves commits to nothing. It must also *not* move on
     a re-run, or replay could never agree with the run."""
-    from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction, RuleStatus
+    from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
 
     plain = run_close(_request("A", tmp_path / "a"))
     again = run_close(_request("A", tmp_path / "b"))
     assert plain.outcome_digest == again.outcome_digest, "not reproducible"
 
-    rule = Rule(
-        rule_id="R-DIG",
-        profile="settlement_3way",
-        when=[Predicate(field="key_occurrence", op=Operator.GT, value="0")],
-        then=[RuleAction(kind=ActionKind.SUPPRESS, reason="a repeat")],
-    ).model_copy(update={"status": RuleStatus.PROMOTED})
+    rule = promoted(
+        Rule(
+            rule_id="R-DIG",
+            profile="settlement_3way",
+            when=[Predicate(field="key_occurrence", op=Operator.GT, value="0")],
+            then=[RuleAction(kind=ActionKind.SUPPRESS, reason="a repeat")],
+        )
+    )
     ruled = run_close(_request("A", tmp_path / "c", rules=[rule]))
     assert ruled.outcome_digest != plain.outcome_digest
 

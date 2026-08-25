@@ -23,6 +23,7 @@ refused rule cannot explain the refusal. `evaluate` decides.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -698,3 +699,64 @@ def verify_promotion(rule: Rule, history: MatchHistory, profile, policy: Policy)
         and event.matches_broken == len(fresh.broken)
         and event.policy_ref == policy.ref
     )
+
+
+# --------------------------------------------------------------------------
+# what promotion owes a close
+# --------------------------------------------------------------------------
+
+
+def admissible(rule: Rule, policy: Policy) -> list[str]:
+    """Whether this rule's approval is valid *here*, checked before it acts.
+
+    Promotion produced a signed record with an approver, a policy reference and
+    an evidence hash, and until 2026-08-25 no close read any of it. `load()`
+    checked `status == PROMOTED` and stopped, so a rule approved under
+    `some-other-policy@v99` acted unchanged in a close governed by
+    `settlement-in@v1` — measured, not hypothesised.
+
+    That matters because policy is where the ceilings live. A rule approved when
+    the tolerance ceiling was ₹1,000 does not get to keep acting after the
+    ceiling drops: its approval was granted against a bar that no longer exists,
+    and an approval nobody re-examines is a permission with no expiry.
+
+    Cheap and always on. `verify_promotion` re-derives the regression, which a
+    close cannot do — the evidence hash is over the history the promotion rested
+    on, not over this batch.
+    """
+    reasons: list[str] = []
+    if rule.status is not RuleStatus.PROMOTED:
+        reasons.append(f"status is {rule.status.value}, not promoted")
+    if rule.revoked_at is not None:
+        reasons.append(f"revoked at {rule.revoked_at.isoformat()}")
+    event = rule.promotion
+    if event is None:
+        reasons.append("promoted with no promotion event — nobody is named")
+        return reasons
+    if not event.promoted_by.strip():
+        reasons.append("promotion names no approver")
+    if event.policy_ref != policy.ref:
+        reasons.append(
+            f"approved under {event.policy_ref}, but this close is governed by "
+            f"{policy.ref} — the bar it was measured against is not the bar in force"
+        )
+    return reasons
+
+
+def broken_by_rules(baseline: Iterable, ruled: Iterable) -> list[str]:
+    """Anchors that matched without the rule bundle and not with it.
+
+    Invariant 5 says a rule cannot be promoted if it breaks a historical match,
+    and the regression gate is not advisory. It was also the only place that
+    check ever ran: promotion measured breakage against the history it was
+    promoted on, and nothing measured it against the batch in front of us.
+
+    A suppress rule aimed at a matched group took a close from 20 matches to 19
+    with `ok=True` and nothing flagged. `RuleEffect` could not see it — it
+    measures whether a rule *moved* something, not whether the movement was a
+    loss, which is the same blind spot as a gate that counts only what a change
+    adds.
+    """
+    before = {m.anchor_id for m in baseline}
+    after = {m.anchor_id for m in ruled}
+    return sorted(before - after)

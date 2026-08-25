@@ -19,15 +19,18 @@ from recon.contracts import EventKind
 from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction, RuleStatus
 from recon.engine import rulestore
 from recon.journal import read
+from tests.conftest import promoted
 
 
 def _rule(rule_id: str, action: dict, field: str = "key_occurrence", op=Operator.GT, value="0"):
-    return Rule(
-        rule_id=rule_id,
-        profile="settlement_3way",
-        when=[Predicate(field=field, op=op, value=value)],
-        then=[RuleAction(**action)],
-    ).model_copy(update={"status": RuleStatus.PROMOTED})
+    return promoted(
+        Rule(
+            rule_id=rule_id,
+            profile="settlement_3way",
+            when=[Predicate(field=field, op=op, value=value)],
+            then=[RuleAction(**action)],
+        )
+    )
 
 
 REAL = {"kind": ActionKind.RAISE_ADVISORY, "target": "E06", "reason": "a repeat"}
@@ -104,14 +107,20 @@ def test_every_promoted_rule_reaches_the_decision_log():
 
 
 def test_an_unpromoted_rule_is_recorded_as_having_done_nothing():
-    """It is refused at the point of effect — and refusing silently would leave
-    a close that looks identical to one where the rule worked."""
+    """Refused with a reason, not in silence — a close where a rule was quietly
+    dropped looks identical to one where it worked.
+
+    The refusal now lands in `inadmissible` rather than in `rule_effects`,
+    because a close checks the approval *before* the rule reaches the applier:
+    an unapproved rule should not get as far as being measured. `rulestore.apply`
+    keeps its own status check for callers that reach it directly.
+    """
     draft = _rule("R-DRAFT", SUPPRESS).model_copy(update={"status": RuleStatus.DRAFT})
     result = close("A", rules=[draft])
 
-    effect = next(e for e in result.rule_effects if e.rule_id == "R-DRAFT")
-    assert effect.fired == 0 and not effect.observable
-    assert "status=draft" in effect.unapplied
+    assert not any(e.rule_id == "R-DRAFT" for e in result.rule_effects), "a draft rule acted"
+    assert "R-DRAFT" in result.inadmissible
+    assert any("not promoted" in r for r in result.inadmissible["R-DRAFT"])
 
 
 def test_inert_on_one_batch_is_not_a_finding_but_inert_on_every_batch_is():
