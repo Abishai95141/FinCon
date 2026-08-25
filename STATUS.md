@@ -69,6 +69,8 @@ Notes: anything surprising, anything still weak.
 $ make verify  P2-P11, 12 gates green   $ make test    481 passed, 46 deselected, 0 xfailed
 $ make lint    clean                    $ make mutate  p16 8/8 · p15 8/8 · p14 14/14 · p13 10/10
 $ make eval    coverage 100% (5/5) · classification 60% (3/5) · ambiguity 100% (1/1)
+live gates with a key: 73 passed. With the model edge on top, classification
+reaches 80% (4/5) — the engine derives three, triage names a fourth.
 ```
 
 | | A | B (held out) |

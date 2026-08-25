@@ -486,7 +486,11 @@ def test_classification_improves_on_the_deterministic_baseline(closed, triaged):
     from bench.run import close as _close
 
     unruled = score_planted(planted, _close("A", rules=[]).exceptions, in_scope_legs={"bank"})
-    assert unruled.classified == 1, f"P10's baseline moved: {unruled.classification}"
+    # P10 measured 1/5 on an engine that could name one defect. That number has
+    # since been passed twice — by `R-DUP-06`, and by the consistency pass
+    # deriving `E02` — so pinning it as an equality made a *better* engine fail
+    # its own gate. What is worth guarding is that it never goes back.
+    assert unruled.classified >= 1, f"below P10's baseline: {unruled.classification}"
     assert before.classified >= unruled.classified, (
         f"the promoted rule made classification worse: {unruled.classification} -> "
         f"{before.classification}"
