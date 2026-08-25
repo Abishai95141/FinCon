@@ -1,6 +1,6 @@
 """Ablation runner — the measurement, one command.
 
-    python -m bench.run              # batches A and B, four arms, eight metrics
+    python -m bench.run              # batches A and B, four arms, every metric
     python -m bench.run --batch A
 
 Three things this does that a printing script does not.
@@ -473,7 +473,10 @@ def main(argv: list[str] | None = None) -> int:
         print(render(result))
         print()
 
-    print("the eight metrics: " + " · ".join(METRICS))
+    # Counted, not asserted. It read "the eight metrics" while printing nine —
+    # `unprovable matches` was added when the benchmark turned out to be
+    # rewarding answers that do not tie, and the sentence beside it did not move.
+    print(f"the {len(METRICS)} metrics: " + " · ".join(METRICS))
     failed = [r.batch for r in results if not r.ok]
     if failed:
         print(f"\nFAILED — batch(es) {failed} dropped a true pair or left an input undisposed")

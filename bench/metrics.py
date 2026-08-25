@@ -30,7 +30,7 @@ from .arms import ArmResult, Pairs
 from .planted import ExceptionScore
 from .rate import ArmAbsent, Rate
 
-#: The eight metrics the plan claims, in the order they are rendered. Named so
+#: Every metric the plan claims, in the order they are rendered. Named so
 #: a reader can tick them off against the page instead of taking the count on
 #: trust — `METRICS` is asserted to appear in the output.
 #: Nine since the LLM-only arm exposed what the eighth was missing.

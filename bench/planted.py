@@ -1,6 +1,6 @@
 """Scoring the exception list against the defects P0 planted.
 
-Three of the eight metrics live here, and they are the three that separate this
+Three of the nine metrics live here, and they are the three that separate this
 system from the baseline it ties on match rate:
 
     coverage        did the run notice the defect at all

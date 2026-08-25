@@ -44,12 +44,16 @@ Three rules decided the sequence, in priority order.
 ### P6 — Completeness and honest failure
 No crash, no silence. Small, no dependencies, highest value on the list.
 
-- [ ] **Completeness audit — invariant 8.** At end of run, assert every source, record and anchor has
+- [x] **Completeness audit — invariant 8.** At end of run, assert every source, record and anchor has
       a disposition, computed independently of the code paths that produced them.
-- [ ] **Readers report instead of raising.** Return a failed `IntakeProof`; makes `ingest()`'s
+- [x] **Readers report instead of raising.** Return a failed `IntakeProof`; makes `ingest()`'s
       docstring true and stops one bad file killing a close.
-- [ ] **A source producing zero records fails** regardless of row count.
-- [ ] **`UNMAPPABLE` verb outcome** carrying column name and three sample values.
+- [x] **A source producing zero records fails** regardless of row count.
+- [x] **`UNMAPPABLE` verb outcome** carrying column name and three sample values.
+
+*(All four verified in code 2026-08-25 — the checkboxes were never ticked when the phase went
+green: `engine/completeness.py:audit`, `ingest()` returning a failed `IntakeProof`,
+`intake/proofs.py` failing a source that produced zero records, and `ParseVerb.UNMAPPABLE`.)*
 
 **Gate:** the four crash cases and three silent cases from the register each produce a disposition
 instead. A deliberately undisposed anchor makes the completeness audit fail — asserted directly, so
@@ -62,13 +66,18 @@ finds the unknown ones.
 ### P7 — Policy and the constraint layer
 The single change that closes both critical bypasses.
 
-- [ ] **`Policy` contract** — versioned, human-owned, signed, supplied out-of-band.
-- [ ] **`verify(proof, records, policy)`** replaces `verify(proof, records, side_signs)`. The proof's
+- [x] **`Policy` contract** — versioned, human-owned, signed, supplied out-of-band.
+- [x] **`verify(proof, records, policy)`** replaces `verify(proof, records, side_signs)`. The proof's
       declared tolerance becomes a claim checked against policy, not a permission honoured.
-- [ ] **`MatchProfile` validators** — signs must be ±1, tolerance must sit under the policy ceiling.
-- [ ] **Rejection budget** in policy; intake fails above it rather than reporting `declared`.
-- [ ] **Rounding threshold** in policy; residue above it becomes `E03`, below it posts to the
+- [x] **`MatchProfile` validators** — signs must be ±1, tolerance must sit under the policy ceiling.
+- [x] **Rejection budget** in policy; intake fails above it rather than reporting `declared`.
+- [x] **Rounding threshold** in policy; residue above it becomes `E03`, below it posts to the
       rounding account and is recorded.
+
+*(Verified 2026-08-25: `Policy.rejection_budget_pct`, `Policy.rounding_threshold`,
+`verify(proof, records, policy)`, and `MatchProfile.__post_init__` on the signs. "Signed" landed
+later than this phase, at A4, as a bundle signature rather than a field on the model — a signature
+stored inside the artifact it signs proves nothing.)*
 
 **Gate:** every attack in the audit is reproduced as a failing test first, then turned green. `F1`
 (forged tolerance), `F2` (zero signs), `F4` (rejection volume), sub-paisa drift. A proof that passed
@@ -77,10 +86,15 @@ verification before P7 and should not have must now be refuted.
 ### P8 — The promotion gate
 Blocks rule induction. Must land before anything authors a rule.
 
-- [ ] **Regression gate v2** — count matches **added** as well as broken; re-run the regression under
+- [x] **Regression gate v2** — count matches **added** as well as broken; re-run the regression under
       current policy rather than trusting the report shipped with the rule; cap the match delta by
       policy; require a sample of added matches in the approval.
-- [ ] Promotion becomes an **event**, not a field: actor, policy version, evidence hash.
+- [x] Promotion becomes an **event**, not a field: actor, policy version, evidence hash.
+
+*(Verified 2026-08-25: `regress` counts added as well as broken, re-runs under the policy in
+force, caps the delta, and requires a sample; `PromotionEvent` carries actor, policy version and
+evidence hash. Two dimensions were added after this phase — `value_suppressed` and the posting
+delta — because the original three could pass a strictly harmful rule.)*
 
 **Gate:** the `R-EVIL` rule from the audit — tolerance to ₹1,000,000, 0 broken, 93 cleared — is
 **refused**. A legitimate narrow rule still promotes.
@@ -102,7 +116,9 @@ that cannot reproduce the run is not an audit trail. **GREEN 2026-08-24** — ev
 ### P10 — Measurement ◆ SHIP LINE
 The old P6, unchanged in content. Everything after this is upside.
 
-- [x] `make eval` — one command, batches A and B, the eight metrics.
+- [x] `make eval` — one command, batches A and B, the eight metrics. *(Nine now:
+      `unprovable matches` was added when the benchmark turned out to be rewarding
+      answers that do not tie.)*
 - [x] Arms: securo_raw, securo_grouped, deterministic. The LLM-only arm reports **absent**, not zero
       — a zero reads as "it tried and failed".
 - [x] Every rate ships with its decomposition; the renderer makes omitting it awkward.
@@ -177,17 +193,25 @@ our database — and a forged proof is refused by that same public call.
       takes anchor + candidates + policy and returns a proposal, and cannot post or verify.
       *(2026-08-25: `engine/strategies.py`, a closed registry; an unknown name is a profile error
       before a close begins. Verified by byte-identical `outcome_digest` on both batches.)*
-- [ ] **Partial-payment and 1:N strategies** as the first two things added *as configuration*.
-      **BLOCKED on evidence, not on code.** `E04` is in neither the adversarial set nor the
-      generator, so there is nothing to run against. Authoring it now — knowing what this engine
-      handles — is authoring and solving in one motion, which the ban table forbids. Doable
-      honestly (author red first, label the provenance as later than P0, implement second); that
-      is a decision about evidence and needs to be made deliberately.
+- [x] **Partial payment** added as configuration — one line in the profile's `strategies` tuple,
+      no engine edit. *(2026-08-25: authored red first as `ADV-11`/`ADV-12` and planted in the
+      generator, committed failing, then implemented. Matches at `T4 DECLARED` with the shortfall
+      as a number the verifier checks against the residual. Coverage 5/6 → 6/6, classification
+      3/6 → 4/6, and it is the first thing to beat `securo_grouped` on match rate — by exactly one
+      pair. The two adversarial cases are labelled in the file as authored later than P0: they
+      were written by someone who knew what this engine handled, which is not the independence
+      the original ten have.)*
+- [ ] **1:N strategy** as the second thing added *as configuration*. Not started.
 - [ ] **Second loop — GSTR-2B** with zero kernel code changed. **Nothing exists**: no profile, no
       generator, no adapters, no data. This is a second P0, not a P15 afternoon.
 
 **Gate:** a second loop closes on profile and adapters alone. Partial payment goes from "raises an
 exception" (P6) to "matches with a proof" without an engine edit.
+
+**Half met at 2026-08-25.** Partial payment does exactly that — the only change outside the new
+strategy function was one name in the profile's tuple. The second loop is untouched and is the
+part that actually tests generality: one strategy added to an existing profile shows the pipeline
+works, not that the engine is domain-agnostic. Evidence in STATUS.md.
 
 ---
 

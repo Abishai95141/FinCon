@@ -41,17 +41,28 @@ consistent (verified with a script at authoring time), not measurements. Real nu
 Measured, not projected. Regenerate with `python -m bench.run --batch A`.
 
 ```
-blocking: 146/484 pairs (69.8% reduction)
+blocking: 150/506 pairs (70.4% reduction) :: amount=123 date=200 reference=19
           blocking recall 100.0% (21/21 reachable true pairs kept);
           1 true pair not reachable at all — the source declared no group
 
-arm               auto-match  false-match  precision   recall
-securo_raw             0.0%       0.00%       0.0%      0.0%
-securo_grouped        90.9%       0.00%     100.0%     90.9%
-deterministic         90.9%       0.00%     100.0%     90.9%
+arm               auto-match  false-match  precision   recall  correct  false  missed  unprovable
+securo_raw             0.0%       0.00%      0.0%    0.0%        0      0      22           0
+securo_grouped        86.4%       0.00%    100.0%   86.4%       19      0       3           0
+deterministic         90.9%       0.00%    100.0%   90.9%       20      0       2           1
+
+arm               raised   coverage      classification   ambiguity
+securo_grouped         0    0.0% (0/6)      0.0% (0/6)    0.0% (0/1)
+deterministic          7  100.0% (6/6)     66.7% (4/6)  100.0% (1/1)
 ```
 
-The finding to carry forward: **handed the payout grouping, securo's 1:1 rule produces pairs
-identical to ours.** The match rate is not the differentiator. That is the decision spec's thesis
-confirmed from our own data, and it is pinned as a test
-(`gate_p3.py::test_our_matching_rule_does_not_beat_the_fair_baseline`).
+**The finding that stood from P3 to 2026-08-25:** handed the payout grouping, securo's 1:1 rule
+produced pairs *identical* to ours, and the match rate was not the differentiator. The
+partial-payment strategy is the first thing to break that tie, and it breaks it by exactly one
+pair — the short-paid payout, which securo cannot match because the amounts disagree. Pinned as
+`gate_p3.py::test_our_matching_rule_beats_the_fair_baseline_by_exactly_one_declared_pair`, which
+asserts the difference is exactly one and that the extra pair is the declared one.
+
+**The claim is unchanged in shape.** One pair on matching; everything on the tail — coverage
+100% against 0%, classification 66.7% against 0%, ambiguity 100% against 0%, because a matcher
+with no exception model scores zero on all three by construction. The one unprovable match is the
+partial payment, and it is declared: the count that must stay at zero is the *undeclared* ones.

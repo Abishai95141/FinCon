@@ -102,7 +102,11 @@ Compaction loses these first. They are load-bearing — use them exactly.
 | `T1` | Tolerant — within a stated tolerance budget |
 | `T2` | Subset-sum — N:1, reconstructing which rows sum to a payout |
 | `T4` | Referenced exactly, amount short, difference **declared** not absorbed |
-| `T3` | Unmatched → exception queue |
+
+`T3` appears in prose as "unmatched → exception queue" and is **not** a
+`MatchTier` member: it is a state, not a way of matching, which is why `T4`
+took the next free label rather than renumbering. Anything unmatched leaves
+through the disposition pass as an exception.
 
 **Proof tiers** — provenance of a committed decision. Never a binary gate.
 | | |
@@ -120,9 +124,16 @@ Compaction loses these first. They are load-bearing — use them exactly.
 | `E01` Timing / in-transit | `E02` Fee variance vs contract | `E03` FX / rounding | `E04` Partial payment |
 | `E05` Overpayment / on-account | `E06` Duplicate | `E07` Chargeback post-period | `E08` Missing remittance |
 | `E09` **Netting ambiguity** | `E10` Reference corruption | `E11` Counterparty alias | `E12` Wrong entity |
-| `E13` Solver timeout | | | |
+| `E13` Solver timeout | `E14` **Unexplained** | | |
 
-`E09` and `E13` are the honesty codes. `E09` means multiple valid subsets exist and there is no correct answer to pick. `E13` means we hit a compute bound — a capacity limit must never masquerade as a data finding.
+`E09`, `E13` and `E14` are the honesty codes, and `E14` is the one every close is
+full of. `E09` means multiple valid subsets exist and there is no correct answer
+to pick. `E13` means we hit a compute bound — a capacity limit must never
+masquerade as a data finding. `E14` means no strategy matched and the engine
+cannot say why: it carries the facts it has and leaves classification to triage,
+because "I do not know" out loud beats a plausible guess routed to the wrong
+desk. Four of seven items in a current close are `E14`, which is the honest
+measure of how much this system still cannot name.
 
 **Ingestion proofs** — five checks, no knowledge of format or domain required
 row conservation · control-total tie-out · balance roll-forward · type/domain validity · idempotence
@@ -164,9 +175,10 @@ src/recon/
   contracts/     Pydantic models = the public semver'd surface
   intake/        readers · spec interpreter · closed parse verbs · five proofs
   ledger/        beancount wiring, balance assertions, posting rules
-  engine/        blocking · tiers T0–T3 · subset-sum · tolerance budget · verifier
+  engine/        blocking · tiers T0/T1/T2/T4 · subset-sum · tolerance · verifier
   triage/        worklist (ranked, routed) · client.py = the only place a model speaks
-                 classify.py = proposals, checked · induce/normalize still stubs (P12)
+                 classify.py = proposals, checked · induce.py = rule induction ·
+                 normalize.py = adapter synthesis. All three land at P12 and run.
   profiles/      loop definitions as data (settlement_3way only — gstr2b is P15 and
                  does not exist: no profile, no generator, no adapters, no data)
   engine/strategies.py  the closed registry a profile names its match order from
@@ -188,10 +200,19 @@ bench/
   replay.py      score a close from its decision log alone
   planted.py     exception coverage / classification / ambiguity, scored vs P0 labels
   rate.py        a rate that cannot be printed without its decomposition
-  metrics.py     the eight metrics
+  metrics.py     the nine metrics
   run.py         `make eval`
 tests/
-  unit/ property/ e2e/
+  gates/         gate_pN.py — one file per phase, and where the unit tests live
+  property/      metamorphic relations and invariants, 14 files
+  known_broken.py  xfail(strict) reproducers — currently empty, and that is a
+                 claim: a fix turns one into an XPASS and forces the row out
+  conftest.py    marks a test `live` if it constructs a ModelEdge, so `make test`
+                 runs everything that needs no key
+  unit/ e2e/     **empty**. Rule 6 explains why: unit tests sit in the gate files
+                 next to what they check, and e2e is `make e2e`. The directories
+                 are kept only so the layout reads, and naming an empty directory
+                 in a file map is how that rule rotted the first time.
 data/
   trust/         the authorized public key + a labelled dev signing key. NOT a
                  bundle: a bundle naming its own verification key vouches for itself
@@ -227,15 +248,27 @@ Run this every session. It is short on purpose.
 make setup        # uv sync, install hooks
 make verify       # every currently-green gate, re-run
 make gate P=3     # run the gate for phase N
-make eval         # ablation runner — 4 arms, 8 metrics, batches A and B
+make eval         # ablation runner — 4 arms, 9 metrics, batches A and B
 make gen          # regenerate synthetic batches from seed
 make test         # unit + property
 make e2e          # end-to-end on a generated batch
 make lint         # ruff + the no-float rule
 make replay       # re-derive a close from its decision log alone
-# gate P=12 needs DEEPSEEK_API_KEY — no offline mode, by rule 1
+make mutate SET=pN   # revert each control, confirm the suite goes red
+make mutate-preflight  # check every mutation anchor, offline and free
+make sign SIGNER='name'  # re-sign the authority bundles
+make status-table    # regenerate the known-broken table from the xfails
+# gate P=12, P=12b, P=12c and mutate SET=p12/p12b need DEEPSEEK_API_KEY —
+# no offline mode, by rule 1
 make graph        # refresh the graphify code graph
 ```
+
+**Two of these have footguns.** `make mutate` rewrites files under `src/` in
+place, one at a time — run nothing else against the tree while it does, or a
+reader sees a half-mutated file and fails somewhere unrelated. And anything you
+change under `data/policy`, `data/taxonomy` or `data/rules` invalidates the
+bundle signature: re-run `make sign` or the close records the authority as
+untrusted.
 
 If a command doesn't exist yet, the phase that creates it hasn't run. Don't fake it — add it when its phase lands.
 
