@@ -28,7 +28,7 @@ from ..contracts import (
     Record,
 )
 from ..contracts.rule import Rule
-from . import consistency, rulestore
+from . import consistency, rulestore, strategies
 from .blocking import CandidateSet
 from .completeness import CompletenessReport, audit
 from .consistency import RelationSpec
@@ -59,6 +59,14 @@ class MatchProfile:
     """Key whose equal values must move together in a subset — a fee and the
     charge it was levied on. Passed through to the solver; naming it here keeps
     the engine domain-agnostic."""
+    strategies: tuple[str, ...] = ("exact", "tolerant", "subset_sum")
+    """The ways this loop may match, in the order it tries them.
+
+    Was a literal tuple inside `run`, so adding a fourth needed an engine edit —
+    which made invariant 7 true of field names and false of behaviour. Resolved
+    against a closed registry before a close begins; an unknown name is a
+    profile error, never an execution (ADR-001)."""
+
     consistency: RelationSpec | None = None
     """A relation this loop's rows are expected to follow, if it has one — a fee
     against the charge it was levied on, per counterparty. Declared here because
@@ -322,23 +330,29 @@ def run(
     matches: list[Match] = []
     unmatched: list[Record] = []
 
-    def attempt(anchor: Record, tier: MatchTier) -> bool:
+    def attempt(anchor: Record, strategy_name: str) -> bool:
         allowed = candidates.groups_for(anchor.record_id) if candidates else None
-        if tier is MatchTier.T0_EXACT:
-            ref = _exact_ref(anchor, grouped)
-            viable = [ref] if ref and ref not in claimed else []
-        else:
-            viable = _tolerant(anchor, grouped, claimed, profile, allowed)
-        if allowed is not None:
-            viable = [ref for ref in viable if ref in allowed]
-
-        if len(viable) != 1:
+        # A claimed group is not offered again: a group backs exactly one anchor,
+        # and re-offering a claimed one is how a match count starts exceeding the
+        # number of payouts.
+        offer = strategies.Offer(
+            anchor=anchor,
+            available={ref: g for ref, g in grouped.items() if ref not in claimed},
+            allowed=allowed,
+            profile=profile,
+            residual=lambda a, g: _residual(a, list(g), profile),
+        )
+        proposal = strategies.STRATEGIES[strategy_name](offer)
+        if proposal is None:
             return False
 
-        group_ref = viable[0]
+        group_ref, tier = proposal.group_ref, proposal.tier
         group = grouped[group_ref]
         budget = ToleranceBudget(allowed=profile.tolerance.absolute)
         residual = _residual(anchor, group, profile)
+        # The budget is spent here rather than inside the strategy: a strategy
+        # that could both propose a match and decide what it cost would be
+        # marking its own homework, and the tier split is a headline number.
         if tier is MatchTier.T0_EXACT:
             if residual != ZERO:
                 return False
@@ -369,14 +383,26 @@ def run(
         claimed.add(group_ref)
         return True
 
-    for tier in (MatchTier.T0_EXACT, MatchTier.T1_TOLERANT):
-        pending = unmatched if unmatched else list(in_scope_anchors)
-        unmatched = [a for a in pending if not attempt(a, tier)]
-
+    # The sequence the profile declared, in the order it declared it. This was a
+    # literal tuple inside this function: correct, and invisible to anything that
+    # might want a fourth way of matching.
+    sequence = strategies.resolve(profile.strategies)
+    exceptions: list[ReconException] = []
     ungrouped_pool = [r for r in group_records if not r.group_ref and r.record_id not in scope]
-    unmatched, exceptions = _subset_pass(
-        unmatched, ungrouped_pool, profile, provenance, digest, matches
-    )
+    for name in sequence:
+        if name in strategies.POOL_STRATEGIES:
+            unmatched, raised = _subset_pass(
+                unmatched or list(in_scope_anchors),
+                ungrouped_pool,
+                profile,
+                provenance,
+                digest,
+                matches,
+            )
+            exceptions.extend(raised)
+            continue
+        pending = unmatched if unmatched else list(in_scope_anchors)
+        unmatched = [a for a in pending if not attempt(a, name)]
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
