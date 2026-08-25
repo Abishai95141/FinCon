@@ -166,7 +166,9 @@ src/recon/
   engine/        blocking · tiers T0–T3 · subset-sum · tolerance budget · verifier
   triage/        worklist (ranked, routed) · client.py = the only place a model speaks
                  classify.py = proposals, checked · induce/normalize still stubs (P12)
-  profiles/      loop definitions as data (settlement_3way, gstr2b)
+  profiles/      loop definitions as data (settlement_3way only — gstr2b is P15 and
+                 does not exist: no profile, no generator, no adapters, no data)
+  engine/strategies.py  the closed registry a profile names its match order from
   ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
   journal/       append-only decision log — hash chain, derivation, replay
   close.py       the pipeline: intake -> tiers -> verify -> post -> journal -> worklist

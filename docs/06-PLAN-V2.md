@@ -173,10 +173,18 @@ our database — and a forged proof is refused by that same public call.
 **Gate:** a controller completes one close through the UI without a terminal.
 
 ### P15 — Generality
-- [ ] **Declarative strategy pipeline** — the profile declares its strategies in order; a strategy
-      takes anchor + candidates + policy and returns a proposal + proof, and cannot post.
+- [x] **Declarative strategy pipeline** — the profile declares its strategies in order; a strategy
+      takes anchor + candidates + policy and returns a proposal, and cannot post or verify.
+      *(2026-08-25: `engine/strategies.py`, a closed registry; an unknown name is a profile error
+      before a close begins. Verified by byte-identical `outcome_digest` on both batches.)*
 - [ ] **Partial-payment and 1:N strategies** as the first two things added *as configuration*.
-- [ ] **Second loop — GSTR-2B** with zero kernel code changed.
+      **BLOCKED on evidence, not on code.** `E04` is in neither the adversarial set nor the
+      generator, so there is nothing to run against. Authoring it now — knowing what this engine
+      handles — is authoring and solving in one motion, which the ban table forbids. Doable
+      honestly (author red first, label the provenance as later than P0, implement second); that
+      is a decision about evidence and needs to be made deliberately.
+- [ ] **Second loop — GSTR-2B** with zero kernel code changed. **Nothing exists**: no profile, no
+      generator, no adapters, no data. This is a second P0, not a P15 afternoon.
 
 **Gate:** a second loop closes on profile and adapters alone. Partial payment goes from "raises an
 exception" (P6) to "matches with a proof" without an engine edit.

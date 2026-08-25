@@ -63,6 +63,63 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### P15a · the strategy pipeline is declarative · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green   $ make test    493 passed, 46 deselected, 0 xfailed
+$ make lint    clean                    $ make mutate  p17 7/7 · p16 8/8 · p15 8/8 · p14 14/14
+$ outcome_digest  A f48ba14f... B 9df5b18a...  — byte-identical to the pre-refactor run
+```
+
+`tiers.run` ran `for tier in (T0_EXACT, T1_TOLERANT)` — a literal tuple inside
+the function. The engine took its side names, key names and signs from a profile
+and its *behaviour* from a line of source nothing outside could see, so
+invariant 7 held for field names and not for behaviour: a loop needing a fourth
+way of matching needed an engine edit.
+
+A profile now declares `strategies` in order, resolved against a closed registry
+in `engine/strategies.py`. An unknown name is a profile error before a close
+begins, never an execution — the rule the parse verbs live under (ADR-001).
+A strategy proposes; it cannot verify, cannot post, and does not hold the
+tolerance budget. Asserted the only way a refactor honestly can be: the same
+close produces the same `outcome_digest`, byte for byte, on both batches.
+
+**Two mutants survived first, and both said the same thing.** `_exact`
+re-checked a residual the driver already checks — two places computing one fact,
+so deleting either changed nothing. And the blocking filter inside a strategy
+could be deleted with no effect, because on these batches widening the candidate
+set never produces a second viable group. Both are now asserted directly rather
+than through data that cannot exercise them. A third, in `p16`, went the same
+way: "use the first offset seen" instead of the majority gives an identical
+answer here, because the majority offset also happens to be first.
+
+**Three controls this session were untestable on the data we have.** That is
+worth more attention than the fixes: the batches cannot exercise them, so
+without mutation they would have read as covered.
+
+---
+
+### P15b and P15c are blocked on data that does not exist
+
+**Neither half of P15's gate can be run.**
+
+`E04` partial payment is in **neither** the adversarial set (ten cases: E06, E09
+x2, E07, E03, T1 x2, T0, reject, out-of-scope) **nor** the generator. So
+"partial payment goes from raising an exception to matching with a proof" has
+nothing to run against.
+
+GSTR-2B does not exist anywhere — no profile, no generator, no adapters, no
+data. `CLAUDE.md`'s file map lists `profiles/ (settlement_3way, gstr2b)` as
+though it does; that is the same stale-claim class as `api/` and `mcp/` being
+0-byte files, and it has now been corrected.
+
+**Why I did not just author the cases.** The adversarial set is authored *before*
+the engine and never edited to match it — that rule is in the ban table. Writing
+`E04` now, knowing exactly what this engine does and does not handle, is
+authoring and solving in one motion. It can be done honestly (author the case
+red first, label its provenance as later than P0, implement second) but it is a
+decision about evidence, not a coding task, and it is not mine to make quietly.
+
 ### E02 closed: exception coverage 4/5 -> 5/5 · 2026-08-25
 
 ```
