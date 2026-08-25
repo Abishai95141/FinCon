@@ -62,6 +62,9 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | An approval checked only where it was granted | A rule approved under `some-other-policy@v99` acted unchanged in a close governed by `settlement-in@v1` — policy is where the ceilings live, so an approval nobody re-examines is a permission with no expiry | Check admissibility where the rule *acts*, against the policy in force |
 | `model_copy(update=...)` to reach a status | It bypasses pydantic validators, so sixteen tests asserted on promoted rules the contract forbids — named by nobody | Build the real event; a fixture that cannot pass validation is telling you something |
 | A design commitment that lives only in prose | ADR-001, invariant 7, "codes are data" — each was contradicted within a phase or two of being written | Every architectural claim needs a test that fails when it is violated, or it is a preference |
+| A record that names evidence it does not contain | `MatchProven` carried a `proof_id` and no proof for thirteen phases. The proof object lived only in the memory of the process that made the match, so the artifact we ask a regulator to audit cited a document nobody could fetch — and "a third party re-derives our answer" was true of a live process and false of the record — found at P13 | The record carries the evidence, not a pointer to it. And build the surface that serves *only* the record: it is a test of the record, and it found three refusals `derive` structurally could not, because none of them entered the structures the completeness audit walks |
+| A test that guards itself with `skip` | Two P13 gate tests skipped when their subject was absent — and the mutation that deleted the control *made it absent*, so both mutants survived under a green suite. A skip is a green tick over a control that has been removed | Assert the subject exists. If the corpus stops producing it, that is a failure to look at, not a test to quietly drop |
+| A surface parameter that carries authority | Every finding in the control-plane audit reduces to "the caller supplied its own permission", and a parameter is how a caller supplies anything — and an MCP caller may be a model | No route and no tool schema takes a policy, tolerance, sign convention, chart or rule set. Checked against the *generated* schemas, because a convention lasts until the next person adds a tool |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
 
@@ -189,12 +192,22 @@ src/recon/
   engine/fingerprint.py content-derived identity for a *break*, so the same one
                  is recognisable in the next close (Formance's alert model)
   ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
-  journal/       append-only decision log — hash chain, derivation, replay
+  journal/       append-only decision log — hash chain, derivation, replay.
+                 Since P13 the MatchProven event carries the *proof*, not a
+                 pointer to one: an auditor holding this file and the source
+                 files re-derives every match with no access to us
   close.py       the pipeline: intake -> tiers -> verify -> post -> journal -> worklist
+  loop.py        a named loop the product can run on its own — which adapter
+                 reads which file, and `run()`, which takes NO authority
+  service.py     the application service. HTTP and MCP are both thin adapters
+                 over it, and a property test compares their bytes
   trust.py       signed authority bundles (Ed25519, key out of band) — OPA's shape
   profiles/settlement.py  the loop's own profile, policy, taxonomy, chart, period
-  mcp/           FastMCP server — verify_proof is stateless and public
-  api/           FastAPI + OpenAPI
+  mcp/           FastMCP server, 16 tools — `verify_proof` is stateless and
+                 public, and no tool schema accepts a policy, a tolerance, a
+                 sign convention or a rule set. `make mcp`
+  api/           FastAPI + OpenAPI + three server-rendered screens (no JS).
+                 `make serve` -> http://127.0.0.1:8000/ui
 bench/
   generator/     synthetic batches + complete labels + manifest verification
   adversarial/   authored at P0, before the engine. Never edited to match it.
@@ -262,6 +275,8 @@ make sign SIGNER='name'  # re-sign the authority bundles
 make status-table    # regenerate the known-broken table from the xfails
 # gate P=12, P=12b, P=12c and mutate SET=p12/p12b need DEEPSEEK_API_KEY —
 # no offline mode, by rule 1
+make serve        # HTTP API + the screens        -> /ui  and  /docs   [P14]
+make mcp          # MCP server on stdio                               [P13]
 make graph        # refresh the graphify code graph
 ```
 

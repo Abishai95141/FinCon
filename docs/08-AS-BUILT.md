@@ -1,8 +1,10 @@
 # As built — the flow, the value, and the gap
 
-Date: 2026-08-25. `docs/01-DECISION-SPEC.md §4` describes the flow we *intend*.
-This describes the one that **runs today**, so the two are never confused. Where
-they differ, the difference is named rather than smoothed.
+Date: 2026-08-25, **revised the same day** when P13 and P14 landed. §2's output
+table and §4's headline both changed materially: there is a product surface now.
+`docs/01-DECISION-SPEC.md §4` describes the flow we *intend*. This describes the
+one that **runs today**, so the two are never confused. Where they differ, the
+difference is named rather than smoothed.
 
 ---
 
@@ -24,7 +26,7 @@ breaks are visibly recurring across A and B where nothing linked them before.
 | `Rule.Revision` + jobs fenced at commit | We are batch, not continuous; nothing races a rule mid-close. The principle — work computed from an old definition may not overwrite the current one — is worth keeping in mind if that changes. |
 | `Severity` on rules and alerts | Our taxonomy carries `owner` and `escalation_is_correct`, which routes. Severity would rank; the worklist already ranks by cash impact. Adding a second ranking axis with no evidence it helps is a knob, not a feature. |
 | `Cadence` / period model | Needs the cross-close state we do not have. This is item 1 in `STATUS.md → Next action`. |
-| Alert lifecycle: `Ack`, `Snooze`, `Resolution` | A workflow feature with no surface to drive it. Belongs with P14, not before. |
+| Alert lifecycle: `Ack`, `Snooze`, `Resolution` | A workflow feature with no surface to drive it. There is a surface now (P14) and this is the first thing to reconsider — it needs the cross-close store, which is the row above. |
 
 *The most valuable thing was not a feature.* Their `TemplateKind` is a typed
 catalog of rule shapes that "compiles deterministically to an internal CEL
@@ -100,17 +102,39 @@ record        an append-only hash-chained decision log; the run refuses to finis
 
 | Artifact | Where | Real today |
 |---|---|---|
-| Scorecard | terminal | yes |
-| Ranked, routed worklist | terminal | yes |
-| Decision log | `data/runs/<batch>/decisions.jsonl` | yes — 62 events for batch A |
-| Journal entries + balance assertion | **in memory** | computed, asserted, **not written to a file** |
-| Audit export | — | **not built** (P14) |
-| UI | — | **not built** (P14) |
-| API / MCP | `src/recon/api/`, `src/recon/mcp/` | **0-byte files** (P13) |
+| Scorecard | terminal · **the screens** · `GET /v1/runs/{id}` | yes |
+| Ranked, routed worklist | terminal · **the screens** · `GET /v1/runs/{id}/worklist` | yes |
+| Decision log | `data/runs/<run_id>/decisions.jsonl` · `GET /v1/runs/{id}/events` | yes — 62 events for batch A |
+| **Audit export** | `GET /v1/runs/{id}/export` | **yes** — every decision with its proof, rule version and approver, plus how to re-derive it |
+| **Independent re-derivation** | `POST /v1/runs/{id}/reverify`, and a button on the page | **yes** |
+| **Stateless public verification** | `POST /v1/verify` · MCP `verify_proof` | **yes** |
+| **UI** | `make serve` → `http://127.0.0.1:8000/ui` | **yes** — three server-rendered pages, no JavaScript |
+| **MCP** | `make mcp` → 16 tools on stdio | **yes** |
+| Journal entries + balance assertion | **in memory** | computed, asserted, **still not written to a file** |
+| Cross-close history on a break | — | **not built** — `fingerprint` is the precondition and landed; the store does not exist |
 
-**The entry point today is `python -m bench.run --batch A` — a benchmark
-runner — or `recon.close.run_close()` as a library.** There is no product CLI.
-A customer cannot use this without writing Python.
+**Two entry points, and neither of them is a benchmark any more.** `make serve`
+starts the HTTP API and the screens; `make mcp` starts the MCP server. Both are
+driving adapters over `recon.service`, and a property test asserts an HTTP body
+and the corresponding MCP tool result are byte-identical, so "one code path" is
+checked rather than claimed. `python -m bench.run` still exists and is now what
+it always should have been: a harness that scores the product against labels
+nobody has in production.
+
+**What the surface refuses, structurally.** No route and no tool schema accepts
+a policy, a tolerance, a sign convention, a chart or a rule set. A caller picks
+which loop and which period; everything deciding whether an answer is *permitted*
+is loaded from the loop's signed bundles. Both gates walk the generated schemas
+and fail on a parameter that could carry authority — a convention would last
+exactly as long as the next person adding a tool.
+
+**The MCP server is where "the model never writes to the ledger" stops being
+prose**, because it is the one interface a model actually drives. It can read,
+run a deterministic close, verify, and *propose*. It cannot promote a rule,
+attest a decision or widen a tolerance, and there is no parameter through which
+to try.
+
+---
 
 ---
 
@@ -138,13 +162,23 @@ no exception model scores zero on all of it by construction:
    files alone, and a match that fails re-derivation is dropped rather than
    reported. The false-match rate is 0.00% because unverifiable answers never
    reach the number.
+   *This was true of the running process and false of the record until
+   2026-08-25: the decision log named a `proof_id` and carried no proof, so the
+   artifact an auditor is handed cited evidence nobody could fetch. It is true
+   of both now — the proof travels in the event, and `POST /v1/verify` is a
+   stateless call that needs no account and no database.*
 2. **Every unmatched thing has a disposition.** No row leaves a close unaccounted
    for — the run fails rather than finishing quietly over an input nobody named.
 3. **Findings a two-way match structurally cannot see.** `E02` is the example: a
    payout billed on the wrong terms still sums to exactly what the bank paid, so
    it reconciles perfectly and the variance walks out the door. We find it by
    noticing the rows disagree with their own population — no contract needed.
-4. **A close that replays.** The decision log alone reproduces the scorecard.
+4. **A close that replays** — and one that checks itself. The decision log alone
+   reproduces the scorecard, and *Re-derive* on the close page re-ingests the
+   source files, confirms each sha256 against the hash the record pinned, and
+   re-derives every proof. Three failure modes reported apart, because they mean
+   different things: different bytes is the reader's mistake, a refutation is our
+   finding, and a missing proof is neither and does not pass.
 5. **Money that never arrived stays visible.** A partial payment matches *and*
    raises `E04` with the shortfall as a number, rather than absorbing it into
    tolerance or refusing the payout outright.
@@ -155,20 +189,38 @@ no exception model scores zero on all of it by construction:
 
 ## 4. What is left
 
-**The honest headline: there is no product surface.** Everything above is real
-and none of it is reachable by anyone who is not running Python in this repo.
-That is the single largest gap and it is P13 + P14.
+**The honest headline until 2026-08-25 was "there is no product surface".** That
+is closed. A controller opens a browser, picks a period whose files have
+arrived, closes it, works a ranked worklist with the proof expandable per row,
+exports the audit bundle, and clicks *Re-derive* to watch the system check
+itself against the source files. An external agent gets the same kernel over MCP
+and cannot reach anything a human has to sign for.
 
 | | What | Why it matters |
 |---|---|---|
-| **P13** | MCP server; `verify_proof` as a stateless public call | An external party re-deriving our proof without our database is the whole trust argument, and it is currently unreachable |
-| **P14** | Scorecard + worklist UI, audit export | "A controller completes one close without a terminal" — today they cannot start one |
-| **P15c** | Second loop (GSTR-2B) | The generality claim is *asserted*. One strategy added to an existing profile shows the pipeline works, not that the engine is domain-agnostic. Nothing exists — no profile, generator, adapters or data. This is a second P0. |
-| — | Cross-close state (`first_seen_at`, `occurrence_count`) | The worklist ranks by the age of the *transaction*, not of the break. `fingerprint` is the precondition and landed; the store does not exist. |
-| — | Persist the ledger | Entries are computed and asserted in memory and never written |
+| **P15c** | Second loop (GSTR-2B) | The generality claim is *asserted*. One strategy added to an existing profile shows the pipeline works, not that the engine is domain-agnostic. Nothing exists — no profile, generator, adapters or data. **This is a second P0 and the only remaining item that tests the claim rather than extending it.** |
+| — | Cross-close state (`first_seen_at`, `occurrence_count`) | The worklist ranks by the age of the *transaction*, not of the break. `fingerprint` is the precondition, landed, and now survives the record in both directions — two of seven breaks recur across A and B and nothing on the page says so. |
+| — | Persist the ledger | Entries are computed and asserted in memory and never written. The API serves a *count* of postings, which is what the record holds. |
+| — | Retention | `data/runs/` is local scratch. "The record" is a file anyone with the checkout can delete; a hash chain proves internal consistency, not custody. |
+| — | A proposal store | `propose_reclassification` persists nothing, because a proposal outlives the close it speaks about. Said in the response rather than left ambiguous. |
 | — | The orders leg | Two of three sources; the third is declared out of scope |
 | — | `E05` overpayment | The branch exists, has never executed, and is asserted structurally — the weakest assertion in the codebase |
 | — | P12's count | One promoted rule against a gate that says three |
+
+### What building the surface changed about the argument
+
+Worth separating from the feature list. A surface that renders **only what the
+decision record says** turned out to be a test of the record, and it found four
+things the engine knew and the record could not say — three of them refusals,
+which is the class `derive` was built to catch and structurally could not, since
+none of them entered the structures the completeness audit walks.
+
+The largest: `MatchProven` carried a `proof_id` and **no proof**. The artifact we
+ask a regulator to audit cited evidence nobody could fetch, so the sentence at
+the top of §3 — *every match carries a proof a third party can re-derive* — was
+true of a live process and false of the record. It is true of both now, and
+`test_verification_needs_nothing_but_the_files_and_the_verifier` runs the
+re-derivation in a process that imports no server, no close and no benchmark.
 
 ### What no amount of further building fixes
 

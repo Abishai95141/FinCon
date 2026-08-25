@@ -173,20 +173,45 @@ record) is inexpressible. Evidence in STATUS.md.
 ### P13 — Substrate
 The old P8's other half.
 
-- [ ] FastMCP server over the kernel; every mutating tool returns a proof or a proposal.
-- [ ] **`verify_proof` as a stateless public call** — takes policy, so an external caller re-derives
-      under the same constraints we do.
-- [ ] Typed events published.
+- [x] FastMCP server over the kernel; 16 tools, and **no tool schema accepts a policy, a tolerance,
+      a sign convention or a rule set**. Every finding in the control-plane audit reduces to "the
+      caller supplied its own permission", and a parameter is how a caller supplies anything — so
+      the boundary is checked against the *generated schemas*, not promised in a comment. The one
+      tool that takes a proposal returns a verdict and persists nothing.
+      *(2026-08-25: `src/recon/mcp/server.py`. `make mcp`.)*
+- [x] **`verify_proof` as a stateless public call.** Name a loop to verify under its published
+      policy, or bring your own — exactly one, no default, because a verification that picked a
+      policy would be deciding the caller's constraints for them. Every verdict names the policy
+      and stamps `policy_source`, so a lenient policy someone brought along cannot be quoted back
+      as ours.
+- [x] Typed events published — `GET /v1/runs/{id}/events` and `get_events`, hash-chained, with
+      `verify_journal` to check the chain and the terminator against the stream.
 
 **Gate:** an external process calls `run_match`, then re-derives the returned proof without touching
-our database — and a forged proof is refused by that same public call.
+our database — and a forged proof is refused by that same public call. **GREEN at 2026-08-25**, and
+taken literally: the server is spawned as a subprocess over stdio, and the re-derivation runs in a
+*third* process that imports no server, no close and no benchmark — decision log off disk, source
+files ingested with the published adapter spec, 20 proofs, 20 re-derived. Seven forgeries refused.
+
+*(The gate also found what made it impossible: `MatchProven` carried a `proof_id` and no proof, so
+the artifact we ask people to audit cited evidence nobody could fetch. Contract 7.4.0.)*
 
 ### P14 — Surface
-- [ ] Scorecard with the proof-tier breakdown and blocking recall.
-- [ ] Exception worklist, proof expandable per row.
-- [ ] Audit export: every decision with proof, rule version, approver.
+- [x] Scorecard with the proof-tier breakdown and blocking recall — recall reported **absent**, not
+      zero, because it is measured against labelled true pairs and production has none.
+- [x] Exception worklist, proof expandable per row. `<details>`, no JavaScript: a page needing a
+      build step before a number appears fails this gate on a fresh machine.
+- [x] Audit export: every decision with proof, rule version and approver, plus the four steps to
+      re-derive it, none of which touch our database.
+- [x] **Not in the plan and worth more than any of it:** a *Re-derive* button. It re-ingests the
+      source files, checks each sha256 against the hash the record pinned, and re-derives every
+      proof in the log. The strongest thing this system can say is "check me", and nothing is
+      persuasive about a claim that takes a terminal to test.
 
-**Gate:** a controller completes one close through the UI without a terminal.
+**Gate:** a controller completes one close through the UI without a terminal. **GREEN at
+2026-08-25** — the test makes HTTP requests only, finds the form the page actually renders rather
+than assuming a URL, posts it, and then checks a real close happened: a terminated decision log on
+disk with postings in it. `make serve`.
 
 ### P15 — Generality
 - [x] **Declarative strategy pipeline** — the profile declares its strategies in order; a strategy
@@ -220,6 +245,13 @@ works, not that the engine is domain-agnostic. Evidence in STATUS.md.
 P15 first, then P14 (demo from the CLI), then P13. **P6 through P10 are not cuttable** — they are the
 difference between a measured system and an asserted one. **P12 is not cuttable for the claim**; the
 system ships without it but the thesis does not.
+
+*Superseded 2026-08-25.* P13 and P14 landed together and ahead of P15c, and the order was right for
+a reason the cut list did not anticipate: a surface that serves **only what the decision record says**
+is a test of the record. It found four things the engine knew and the record could not say, three of
+them refusals — the exact class `derive` was built to catch and structurally could not, because none
+of them entered the structures the completeness audit walks. Building the surface was cheaper than
+auditing the log and found more.
 
 If P11 overruns, ship P12's triage against the closed enum with a hard `UNMAPPABLE` escalation for
 findings that do not fit, and say so.

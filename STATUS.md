@@ -4,12 +4,12 @@
 
 | | |
 |---|---|
-| **Current phase** | `P15` — generality. **P15a landed**: the strategy pipeline is declarative and `partial_payment` was added to a shipped profile as configuration. **P15b/c blocked on evidence** — GSTR-2B does not exist anywhere (no profile, generator, adapters or data); that is a second P0, not an afternoon. |
-| **Last green gate** | **P11** — `make verify` runs P0–P11, 12 gate files. `P12` is **RED on the count**: `R-DUP-06` is promoted, shipping and attributed on held-out B, but the gate says three rules and there is one, and no rule-by-rule lift table exists. |
-| **Tests** | **514 offline** (`make test`) + **73 live** (need `DEEPSEEK_API_KEY`). **0 known-broken rows.** Contract **7.3.0**. |
-| **Mutation** | 8 sets, **~120 mutants, all caught**: p9 20 · p10 15 · p11 24 · p12d 12 · p13 10 · p14 14 · p15 8 · p16 8 · p17 15 · p18 4. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
-| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, verified, posted, recorded, ranked, routed. `make replay` rebuilds the scorecard from the decision log alone. `make sign SIGNER='name'` re-signs the authority bundles after any change to `data/policy`, `data/taxonomy` or `data/rules`. |
-| **Last verified numbers** | Ours vs `securo_grouped`, both batches: auto-match **90.9% / 86.4%**, false-match **0.00% / 0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. Tiers `T0=17 T1=2 T4=1`. 1 unprovable, **all declared**. With the model edge on top, classification reaches **4/5→80%** on A (single sample; the measured range is 40–80%, n=5). |
+| **Current phase** | `P13`/`P14` **landed**: `src/recon/api/` and `src/recon/mcp/` were 0-byte files for thirteen phases, so everything the engine did was real and none of it was reachable by anyone not running Python in this repo. Both surfaces are driving adapters over one `recon.service`. Next is `P15c` — the second loop, which is a second P0. |
+| **Last green gate** | **P14** — `make verify` runs P0–P11 plus P13 and P14, 14 gate files. `P12` is still **RED on the count**: `R-DUP-06` is promoted, shipping and attributed on held-out B, but the gate says three rules and there is one. |
+| **Tests** | **585 offline** (`make test`) + **73 live** (need `DEEPSEEK_API_KEY`). **0 known-broken rows.** Contract **7.4.0**. |
+| **Mutation** | 13 sets, **~184 mutants, all caught**: p9 20 · p10 15 · p11 24 · p12 20 · p12b 14 · p12d 12 · p13 10 · p14 14 · p15 8 · p16 8 · p17 15 · p18 4 · **p19 20**. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
+| **Build runs?** | `make eval` closes A and B from a clean checkout. `make replay` rebuilds the scorecard from the decision log alone. **`make serve`** starts the HTTP API and the screens; **`make mcp`** starts the MCP server on stdio. `make sign SIGNER='name'` re-signs the authority bundles. |
+| **Last verified numbers** | Ours vs `securo_grouped`, both batches: auto-match **90.9% / 86.4%**, false-match **0.00% / 0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. Tiers `T0=17 T1=2 T4=1` on A. 1 unprovable, **all declared**. Blocking recall 100%. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. With the model edge on top, classification reaches **4/5→80%** on A (single sample; measured range 40–80%, n=5). |
 | **Updated** | 2026-08-25 |
 
 ---
@@ -43,8 +43,8 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | — | **◆ SHIP LINE** — everything below is upside | | |
 | **P11** | A novel finding gets a `PROPOSED` code, routes to an owner, and is proven unable to affect a posting | **`GREEN`** | [below](#p11--open-taxonomy--2026-08-24) |
 | **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | **`RED`** — triage + induction built; adapter synthesis not started | [below](#p12-part-2--rule-induction--2026-08-24) |
-| **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | `not started` | — |
-| **P14** | A controller completes one close through the UI without a terminal | `not started` | — |
+| **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | **`GREEN`** | [below](#p13--substrate--2026-08-25) |
+| **P14** | A controller completes one close through the UI without a terminal | **`GREEN`** | [below](#p14--surface--2026-08-25) |
 | **P15** | A second loop closes on profile and adapters alone; partial payment goes from exception to proof without an engine edit | `not started` | — |
 
 ◆ = the gates that carry the claim. **P6–P10 are not cuttable** — they are the difference between a
@@ -64,6 +64,117 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### P13 — substrate · 2026-08-25
+
+```
+$ make gate P=13                        $ make gate P=14
+20 passed in 6.40s                      16 passed, 1 warning in 1.90s
+
+$ make verify   P0-P11 + P13 + P14, 14 gates green
+$ make test     585 passed, 46 deselected, 0 xfailed
+$ make lint     clean
+$ make mutate SET=p19    20/20 caught
+```
+
+**`src/recon/api/` and `src/recon/mcp/` had been 0-byte files for thirteen
+phases.** Everything the engine did was real and none of it was reachable by
+anyone who was not running Python in this repo. Both are now driving adapters
+over one `recon.service`, and
+`tests/property/test_one_surface.py::test_both_surfaces_answer_a_question_identically`
+asserts an HTTP body and the corresponding MCP tool result are **byte-identical**
+for every read operation both expose. Two protocols over one kernel is the
+obvious place to grow the demo path CLAUDE.md bans, so the defence is comparing
+the bytes rather than promising.
+
+**The gate, taken literally.** `test_a_separate_os_process_speaks_the_protocol_
+and_gets_proofs` spawns the MCP server with `subprocess` and speaks real MCP over
+stdio. `test_verification_needs_nothing_but_the_files_and_the_verifier` runs the
+re-derivation in a *third* process that imports no server, no close and no
+benchmark: it reads the decision log off disk, ingests the source files with the
+published adapter spec, and checks the arithmetic. 20 proofs, 20 re-derived. An
+in-process client would have proved the code runs and nothing about whether
+verification needs our state.
+
+Seven forgeries are refused — residual, leg subtotal, a deleted row, a record
+nobody can fetch, a tolerance above the policy ceiling, a declared gap relabelled
+`P0`, and a declared amount of the proof's own choosing.
+
+**The one that mattered most is not arithmetic.** A caller may verify under their
+own policy — that is the point of a stateless public call. What must never happen
+is a verdict produced under a policy *someone brought with them* coming back
+indistinguishable from one produced under the policy in force. Every verdict
+names the policy and stamps `policy_source` as `in-force` or `caller-supplied`.
+
+### Four defects the surface found, all of them refusals
+
+Building something that serves **only what the record says** turned four
+invisible things visible. None was a bug in a check; all four were the record
+not carrying something the system knew.
+
+| | What the record could not say | Why it stayed hidden |
+|---|---|---|
+| **1** | `MatchProven` named a `proof_id` and stored **no proof** | The proof object lived only in the memory of the process that made the match, so the artifact we hand an auditor cited evidence nobody could fetch — and P13's entire claim was unreachable from it |
+| **2** | A rule that **broke a match** set `ok=False` and reached the log nowhere; a rule refused as **inadmissible** was declined silently | Both are refusals, and neither fires on batches A or B. `derive` builds events by set arithmetic over the structures the completeness audit walks, and neither of these ever entered those structures |
+| **3** | `CloseStarted` described only what came **out** | A match count with no denominator is not a rate. "20 matched" could not be turned back into 20/23 by anyone but us |
+| **4** | `ExceptionRaised` carried a label and not its **derivation** | So a replayed `E09` the engine *proved* by enumerating two valid subsets was indistinguishable from one a model guessed — leaving "a proposal may not overwrite a derived answer" unenforceable on everything read back from a log |
+
+Contract **7.4.0**, all four additive and optional, so an old reader ignores them.
+
+A fifth, latent: **`Policy.max_reference_selectivity` defaulted to the string
+`"0.25"`**, never went through the `Ratio` validator, and a `Policy` that omitted
+it could not be serialised to JSON at all. Four phases unexercised because the
+one policy file on disk sets the field. Found when the default reached a
+published OpenAPI schema and pydantic dropped it with a warning.
+
+**And two the screen found after the tests were green.** The worklist's break
+column was a dash on every row: `ReconException.fingerprint` is written into the
+event and `replay` never read it back. The gate test asserted
+`exc.fingerprint[:8] in body`, which with an empty fingerprint is `"" in body`.
+And the decision log named the rule store by an **absolute path**, because
+`rulestore.STORE` resolves from `__file__` — so a regulator's copy read
+`data/policy`, `data/taxonomy` and `/Users/somebody/.../data/rules`.
+
+### P14 — surface · 2026-08-25
+
+Three screens, server-rendered, **no JavaScript** — asserted, because a page that
+needs a build step before a number appears fails the gate on a fresh machine.
+`make serve`, then `http://127.0.0.1:8000/ui`.
+
+```
+AUTO-MATCH          PROOF TIERS      EVERY INPUT DISPOSED   BLOCKING RECALL   BOOKS
+20/23 (87.0%)       P0=19 P3=1       yes                    absent            balanced
+by tier T0=17 T1=2 T4=1
+```
+
+Four surface rules, each with a mutant behind it:
+
+- **Blocking recall is `absent`, not `0.0%`.** It is measured against labelled
+  true pairs and production has none. A zero says we ran it and got nothing.
+- **A rate never appears without its decomposition.** `20/23 (87.0%)` with the
+  tier split beside it, and `1 resting on a declared gap` under the proof tiers.
+- **Nothing is shown that the record cannot say.** Every page renders a
+  `CloseView` rebuilt from the decision log — including when the log has been
+  edited, where the page says so rather than rendering something clean.
+- **"Check me" is a button.** `Re-derive against A` re-ingests the source files,
+  checks each sha256 against the hash the record pinned, and re-derives every
+  proof in the log. Nothing is read from the process that ran the close. Pointed
+  at the wrong period it says *that* — a different-bytes result is your mistake,
+  a refutation is our finding, and a missing proof is neither and does not pass.
+
+**The three mutants that survived first, and what each was.** Two gate tests
+guarded themselves with `pytest.skip`, and the mutation *triggered the skip* —
+delete the line recording how an exception got its label and there are no derived
+exceptions, so the test skipped and the mutant lived. A skip is a green tick over
+a control that has been removed. The third only shows in a close that is stuck
+*twice*: `derive` wrote `blocked_reasons or [sign-off line]`, so a hard blocker
+deleted the sign-off queue from the record, and every other test runs a close
+with no hard blocker where `or` and `+` are indistinguishable.
+
+**The ratchet moved on its own.** `UNREAD_FIELD_BUDGET` fell 57 → 52 and nothing
+was written to close those five: an API and an MCP server simply read fields
+nobody had had a reason to read before. "Unread" was never a property of the
+contract — it was a property of having no consumer.
 
 ### What the comparison repos were worth · 2026-08-25
 
@@ -2393,31 +2504,41 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 Priorities, with the reasons — because the reasons are what stop this being
 re-litigated every session.
 
-**1. `first_seen_at` and `occurrence_count` on a break.** `fingerprint` landed on
-2026-08-25 and is the precondition; the history is not there. The worklist ranks
-by cash impact × the age of the *transaction*, so a break open three months and
-one raised this morning sort the same when the rows share a date. Needs state
-that survives a close — the first thing in this system that has to remember
-anything.
+**1. `P15c` — the second loop.** GSTR-2B exists nowhere: no profile, no
+generator, no adapters, no data. It is the only remaining item that tests the
+claim rather than extending it — "the engine is domain-agnostic" is still
+*asserted*, and one strategy added to an existing profile showed the pipeline
+works, not that the engine is general. Plan it as a second P0, not an afternoon.
+`recon.loop.REGISTRY` is where it lands; nothing in `engine/` should change.
 
-**2. Decide P12's count rather than letting it drift.** The gate says "resolve
+**2. `first_seen_at` and `occurrence_count` on a break.** `fingerprint` landed
+2026-08-25 and now survives the record in both directions, which was the
+precondition. The history is still not there: the worklist ranks by cash impact ×
+the age of the *transaction*, so a break open three months and one raised this
+morning sort the same when the rows share a date. Needs state that outlives a
+close — the first thing in this system that has to remember anything. The
+surface makes the gap visible rather than closing it: two of seven breaks recur
+across A and B and nothing on the page says so.
+
+**3. Decide P12's count rather than letting it drift.** The gate says "resolve
 three exceptions, approve three rules". One rule is promoted, shipping and
 attributed on held-out B. Either produce two more or record the gate as met in
 substance with the count stated. An unmet gate nobody revisits is how a phase
 stays open forever.
 
-**3. `E05` overpayment.** `_partial_payment` declines a positive residual and
+**4. `E05` overpayment.** `_partial_payment` declines a positive residual and
 says `E05` is a different conversation. That branch has never executed — neither
 batch contains an overpayment — so it is asserted *structurally*, which is the
 weakest assertion in this codebase. Plant it or delete the branch.
 
-**4. P13 substrate, then P14 surface.** Deferred on 2026-08-25 because an MCP
-server and a UI over a system whose coverage had not moved since P10 would have
-been more surface on the same capability. Coverage has since moved 80% → 100%,
-so that argument is weaker than it was.
-
-**5. P15c — the second loop.** GSTR-2B exists nowhere: no profile, no generator,
-no adapters, no data. Plan it as a second P0, not a P15 afternoon.
+**5. What the surface exposed and did not fix.** Named so they are not
+rediscovered as findings: the **ledger is still never written to a file** — the
+close computes entries and asserts the balance in memory, and the API serves a
+count of postings rather than the postings themselves; `data/runs/` is local
+scratch with **no retention**, so "the record" is a file anyone with the checkout
+can delete; and `propose_reclassification` **persists nothing**, because a
+proposal outlives the close it speaks about and there is no store for it. Each is
+stated in the response or the docstring rather than quietly absent.
 
 ### Two things a reader should not have to rediscover
 

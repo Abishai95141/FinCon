@@ -12,9 +12,24 @@ document below answers the question in front of you.
 | 04 | [Control-plane audit](04-CONTROL-PLANE-AUDIT.md) | Five reproducible bypasses found by attacking the system at P5, the single root cause, and the three-trust-class redesign. **Blocks P7.** |
 | 05 | [Failure register](05-FAILURE-REGISTER.md) | 19 probes: where a novel input crashes, finishes silently, or finishes wrong — plus invariant 8 and the disposition ladder that routes every case. |
 | 06 | [Plan v2](06-PLAN-V2.md) | **The working plan.** P6–P15 re-planned after the audits: control plane before the agent, decision log earlier, ship line at P10. Supersedes 03 from P6 onward. |
-| [08-AS-BUILT.md](08-AS-BUILT.md) | The flow that **runs today** — input, processing, output — what a customer gets, and what is missing. Read beside 01's §4, which is the flow we intend. |
-| [07-ARCHITECTURE-AUDIT.md](07-ARCHITECTURE-AUDIT.md) | The root cause: the certifying-algorithm discipline is applied to one decision type out of five. Graph + runtime tracing + five experiments. |
+| 07 | [Architecture audit](07-ARCHITECTURE-AUDIT.md) | The root cause: the certifying-algorithm discipline is applied to one decision type out of five. Graph + runtime tracing + five experiments. |
+| 08 | [As built](08-AS-BUILT.md) | The flow that **runs today** — input, processing, output — what a customer gets, and what is missing. Read beside 01's §4, which is the flow we intend. Revised when P13/P14 landed a product surface. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
+
+## Running it
+
+Two surfaces, both real since 2026-08-25. Neither is a benchmark.
+
+```bash
+make serve   # http://127.0.0.1:8000/ui — close a period, work the tail, export the audit
+             # http://127.0.0.1:8000/docs — OpenAPI, with the semver'd contracts in it
+make mcp     # 16 tools on stdio, for an agent
+```
+
+`POST /v1/verify` (and the MCP `verify_proof`) is the one call worth knowing: it is stateless and
+public. Hand it a proof out of an audit export and records you ingested yourself from the source
+files, and it re-derives the arithmetic under a policy you name. No account, no database, no reason
+to trust us — see [08-AS-BUILT.md](08-AS-BUILT.md).
 
 ## Published artifacts
 
