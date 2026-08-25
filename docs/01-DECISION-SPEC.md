@@ -73,6 +73,13 @@ This inverts how agent products age: the system becomes **more deterministic ove
 
 ## 4. User flow
 
+> **This is the intended flow, not the built one.** As of 2026-08-25 steps 05,
+> 07 and 11 have no surface to happen on, step 01 ingests two of the three
+> sources (the orders leg is declared out of scope), and step 03 reads structured
+> files rather than remittance PDFs. See [08-AS-BUILT.md](08-AS-BUILT.md) for
+> what actually runs.
+
+
 | # | Step | Actor |
 |---|---|---|
 | 01 | Drop three sources — invoice register, gateway settlement, bank statement (CAMT.053/OFX/CSV) | Human |

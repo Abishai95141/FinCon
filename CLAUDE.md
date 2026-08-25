@@ -169,6 +169,8 @@ docs/
   04-CONTROL-PLANE-AUDIT.md   five reproducible control bypasses; the trust-class redesign
   05-FAILURE-REGISTER.md      19 probes — where a novel input crashes, goes silent, or goes wrong
   06-PLAN-V2.md               ← THE PLAN. P6–P15, re-planned after the audits.
+  07-ARCHITECTURE-AUDIT.md    the root cause: one checker, five decision types
+  08-AS-BUILT.md              the flow that runs *today*, and what a customer gets
   README.md                   index + the published artifact URLs
   decisions/                  ADRs — one per notable or irreversible choice
 src/recon/
