@@ -41,10 +41,10 @@ MUTATIONS = [
     (
         "T0 accepts a residual it should have left to T1",
         "src/recon/engine/tiers.py",
-        """        if tier is MatchTier.T0_EXACT:
+        """        elif tier is MatchTier.T0_EXACT:
             if residual != ZERO:
                 return False""",
-        """        if tier is MatchTier.T0_EXACT:
+        """        elif tier is MatchTier.T0_EXACT:
             if False:
                 return False""",
     ),
