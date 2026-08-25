@@ -105,10 +105,24 @@ def test_a_rule_that_breaks_a_match_is_named_in_the_record(
 
     blocked = [e for e in _events(outcome.journal_path) if e["kind"] == "CloseBlocked"]
     assert blocked, "a rule broke a match and the decision log said nothing"
-    reasons = " ".join(r for e in blocked for r in e["payload"]["reasons"])
-    assert "rule_broke_match" in reasons
+    reasons = [r for e in blocked for r in e["payload"]["reasons"]]
+    joined = " ".join(reasons)
+    assert "rule_broke_match" in joined
     for anchor in outcome.matches_broken_by_rules:
-        assert anchor in reasons, f"{anchor} was broken and is not named in the record"
+        assert anchor in joined, f"{anchor} was broken and is not named in the record"
+
+    # The close is stuck for *two* separate reasons now — the rule broke a match
+    # and there are items waiting on a human — and the record has to carry both.
+    # `derive` used to write `blocked_reasons or [sign-off line]`, so a hard
+    # blocker deleted the sign-off queue from the log entirely, and the p19
+    # mutation reverting that survived: every other test here runs a close with
+    # no hard blocker, where `or` and `+` are indistinguishable. This is the only
+    # state that tells them apart.
+    assert any("sign-off" in r for r in reasons), (
+        "a hard blocker erased the sign-off queue from the record — two different "
+        "problems for two different people, collapsed into one"
+    )
+    assert blocked[0]["payload"]["blocking_exceptions"]
 
 
 def test_the_surface_shows_a_broken_match_rather_than_a_clean_close(
@@ -135,8 +149,10 @@ def test_a_rule_refused_as_inadmissible_is_named_in_the_record(tmp_path: Path):
     refusal nobody records reads exactly like a rule that worked.
     """
     shipped = rulestore.load(LOOP)
-    if not shipped:
-        pytest.skip("no promoted rule to re-approve under the wrong policy")
+    assert shipped, (
+        "no promoted rule to re-approve under the wrong policy — R-DUP-06 ships, "
+        "so an empty store means the rule store stopped loading"
+    )
     stale = promoted(shipped[0], actor="someone", policy_ref="some-other-policy@v99")
 
     outcome = run_close(_request(tmp_path / "stale", [stale]))

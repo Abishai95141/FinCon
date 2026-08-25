@@ -226,7 +226,14 @@ def _proof_of(staged: dict, tier: str = "T0") -> Proof:
     for match in staged["matches"]:
         if match["tier"] == tier:
             return Proof.model_validate(match["proof"])
-    pytest.skip(f"no {tier} match in this batch to forge")
+    # Not a skip. A mutation that broke `T4` matching outright would make every
+    # T4 forgery test skip itself and survive — a green tick over a deleted
+    # control. Batch A produces 17 `T0`, 2 `T1` and 1 `T4`; if it stops, that is
+    # a failure to look at, not a test to quietly drop.
+    raise AssertionError(
+        f"no {tier} match in this batch to forge — the corpus changed, or the "
+        f"tier stopped being produced"
+    )
 
 
 def _records_of(staged: dict) -> list[Record]:
@@ -267,8 +274,10 @@ def test_a_proof_with_a_record_removed_from_a_leg_is_refused(staged: dict):
     proof = _proof_of(staged)
     legs = list(proof.legs)
     fat = max(range(len(legs)), key=lambda i: len(legs[i].record_ids))
-    if len(legs[fat].record_ids) < 2:
-        pytest.skip("no multi-record leg in this batch")
+    assert len(legs[fat].record_ids) >= 2, (
+        "no multi-record leg to delete a row from — this batch's payouts are "
+        "1:1 and the forgery this test exists for is unreachable"
+    )
     legs[fat] = legs[fat].model_copy(update={"record_ids": legs[fat].record_ids[:-1]})
     verdict = _verify(proof.model_copy(update={"legs": legs}), _records_of(staged))
     assert not verdict["proven"], "a row was deleted from the evidence and it still verified"
@@ -418,8 +427,17 @@ def test_a_proposal_cannot_overwrite_a_derived_label(closed: dict):
     surface, not only in the triage module.
     """
     derived = [e for e in closed["exceptions"] if e["exception"]["code_provenance"] == "P0"]
-    if not derived:
-        pytest.skip("this batch raised no derived exception to protect")
+    # Asserted, not skipped. This guard was `pytest.skip` and the p19 mutation
+    # set caught it: deleting the line that records how an exception came by its
+    # label leaves no derived exceptions at all, so the test skipped itself and
+    # the mutant survived. A skip is a green tick over a control that has been
+    # removed — the exact shape this project keeps rediscovering. Batch A raises
+    # `E09` from an enumeration and `E02`/`E04` from arithmetic; if that stops
+    # being true, this must fail rather than shrug.
+    assert derived, (
+        "the record names no derived exception — either the batch stopped raising "
+        "one, or the provenance is no longer being written down"
+    )
     subject = derived[0]["exception"]
     verdict = _call(
         "propose_reclassification",
