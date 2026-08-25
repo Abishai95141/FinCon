@@ -19,7 +19,7 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.2.0"
+CONTRACT_VERSION = "7.3.0"
 # 6.1.0 — RuleAction.value (normalize_key could say which key to rewrite and
 #         never what to, which is why it was unusable), PromotionEvent
 #         .postings_moved, AdapterAuthoredPayload, AdapterSpec.natural_key.
@@ -92,6 +92,10 @@ CONTRACT_VERSION = "7.2.0"
 #         and NORMALIZE_KEY. The advisory action reached no close before this,
 #         so no valid consumer could depend on a target-less one; a model wrote
 #         exactly that and produced a rule with nothing to advise.
+# 7.3.0 — `ReconException.fingerprint`, content-derived, and
+#         `Proof.declared_amount` / `MatchTier.T4_DECLARED` for a residual a
+#         match states instead of absorbing. Exception identity was positional:
+#         `EXC-00001` named a different break in every batch.
 # 7.2.0 — `AuthorityVerified` event and payload. Policy, the taxonomy and
 #         the rule store are signed bundles now (Ed25519, key out of band);
 #         a digest proved what ran, never who approved it.

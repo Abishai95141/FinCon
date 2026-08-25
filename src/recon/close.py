@@ -45,6 +45,7 @@ from .contracts import (
     TaxonomyRegistry,
 )
 from .contracts.rule import Rule
+from .engine import fingerprint
 from .engine.blocking import BlockingPolicy, CandidateSet
 from .engine.blocking import build as build_candidates
 from .engine.completeness import CompletenessReport
@@ -283,7 +284,7 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         matches=kept,
         rejected=rejected,
         refuted=refuted,
-        exceptions=list(outcome.exceptions),
+        exceptions=fingerprint.stamp(outcome.exceptions, records),
         scope=outcome.scope,
         records=records,
         external_of=external_of,

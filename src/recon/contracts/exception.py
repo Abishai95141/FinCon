@@ -84,6 +84,22 @@ class ReconException(BaseModel):
 
     as_of: date
 
+    fingerprint: str = ""
+    """Content-derived identity for the *break*, stable across closes.
+
+    `exception_id` is positional — `EXC-00001` names a different finding in
+    every batch — which is the defect P12 fixed for records
+    (`source:natural-key-hash:occurrence`) and never fixed one layer up. So the
+    same unresolved break appearing in two consecutive closes had no linkage, no
+    first-seen, and no occurrence count, and the worklist's "age" was the age of
+    the *transaction* rather than of the break.
+
+    Borrowed from Open Policy Agent-adjacent practice by way of Formance's
+    reconciliation service, which dedups alerts on `(rule_id, fingerprint,
+    period_id)` and carries `first_seen_at` / `occurrence_count` — a break that
+    persists is one case that keeps recurring, not N unrelated findings.
+    """
+
     code_provenance: ProofTier = ProofTier.P3_DECLARED
     """How this exception came by its code — not how confident we are in it.
 

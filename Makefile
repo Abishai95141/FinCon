@@ -29,7 +29,7 @@ help:
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
-	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p17]"
+	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p18]"
 	@echo "            (rewrites src/ in place - do not run anything else meanwhile)"
 	@echo "  mutate-preflight  check every mutation anchor, offline and free"
 	@echo "  status-table  regenerate the known-broken table from its reproducers"
