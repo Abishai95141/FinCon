@@ -132,3 +132,40 @@ def test_an_overpayment_is_not_a_partial_payment():
 
     source = inspect.getsource(strategies._partial_payment)
     assert "residual >= 0" in source and "E05" in source
+
+
+def test_the_driver_refuses_a_strategy_that_declares_a_number_of_its_own(monkeypatch):
+    """The guard that cannot fire while every shipped strategy is honest.
+
+    `_partial_payment` derives its declared amount from the same residual the
+    driver recomputes, so the two always agree and deleting the check changes
+    nothing — it survived its own mutant. The check exists for a strategy that
+    is *wrong*, and a strategy that is wrong is what has to be constructed.
+    """
+    from dataclasses import replace as _replace
+    from decimal import Decimal as D
+
+    from bench.run import SETTLEMENT_3WAY, load_sides
+
+    from recon.contracts import MatchTier
+    from recon.engine import strategies, tiers
+
+    def _liar(offer):
+        ref = offer.anchor.source_row_id or ""
+        if ref not in offer.available:
+            return None
+        return strategies.Proposal(ref, MatchTier.T4_DECLARED, declared=D("1.00"), code="E04")
+
+    monkeypatch.setitem(strategies.STRATEGIES, "liar", _liar)
+    sides = load_sides("A")
+    run = tiers.run(
+        [r for _, r in sides.anchors],
+        [r for _, r in sides.settlement],
+        _replace(SETTLEMENT_3WAY, strategies=("liar",)),
+        out_of_scope=sides.scope,
+    )
+
+    assert not run.matches, (
+        "a strategy declared ₹1.00 against residuals that are nothing of the sort "
+        "and the driver took its word for it"
+    )
