@@ -44,6 +44,7 @@ class EventKind(StrEnum):
     CLOSE_BLOCKED = "CloseBlocked"
     CLOSE_COMPLETED = "CloseCompleted"
     RULE_PROMOTED = "RulePromoted"
+    RULE_APPLIED = "RuleApplied"
     PROPOSAL_REFUSED = "ProposalRefused"
     CLASSIFICATION_PROPOSED = "ClassificationProposed"
     CODE_PROPOSED = "CodeProposed"
@@ -67,6 +68,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CLOSE_BLOCKED: "engine",
     EventKind.CLOSE_COMPLETED: "engine",
     EventKind.RULE_PROMOTED: "recon.engine.promotion.promote",
+    EventKind.RULE_APPLIED: "recon.close.run_close",
     EventKind.PROPOSAL_REFUSED: "recon.engine.promotion.promote",
     EventKind.CLASSIFICATION_PROPOSED: "recon.triage.classify.classify",
     EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
@@ -239,6 +241,27 @@ class CloseCompletedPayload(_Payload):
     complete: bool
 
 
+class RuleAppliedPayload(_Payload):
+    """What one promoted rule did to one close.
+
+    A rule acting is a decision, so it is an event. Four action kinds could be
+    promoted and do nothing, and the close said nothing about it — the log
+    recorded that a rule *existed*, never that it *moved* anything. `observable`
+    false means the rule fired and changed nothing a human can point at, which
+    is a finding rather than a quiet success.
+    """
+
+    rule_ref: str
+    fired: int
+    suppressed: int = 0
+    advisories_applied: int = 0
+    keys_normalized: int = 0
+    postings_redirected: int = 0
+    tolerance_widened: bool = False
+    unapplied: list[str] = Field(default_factory=list)
+    observable: bool = True
+
+
 class RulePromotedPayload(_Payload):
     rule_ref: str
     evidence_hash: str
@@ -343,6 +366,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CLOSE_BLOCKED: CloseBlockedPayload,
     EventKind.CLOSE_COMPLETED: CloseCompletedPayload,
     EventKind.RULE_PROMOTED: RulePromotedPayload,
+    EventKind.RULE_APPLIED: RuleAppliedPayload,
     EventKind.PROPOSAL_REFUSED: ProposalRefusedPayload,
     EventKind.CLASSIFICATION_PROPOSED: ClassificationProposedPayload,
     EventKind.CODE_PROPOSED: CodeProposedPayload,

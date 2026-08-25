@@ -19,7 +19,7 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.0.0"
+CONTRACT_VERSION = "7.1.0"
 # 6.1.0 — RuleAction.value (normalize_key could say which key to rewrite and
 #         never what to, which is why it was unusable), PromotionEvent
 #         .postings_moved, AdapterAuthoredPayload, AdapterSpec.natural_key.
@@ -92,6 +92,9 @@ CONTRACT_VERSION = "7.0.0"
 #         and NORMALIZE_KEY. The advisory action reached no close before this,
 #         so no valid consumer could depend on a target-less one; a model wrote
 #         exactly that and produced a rule with nothing to advise.
+# 7.1.0 — `RuleApplied` event and payload. A rule acting is a decision, and the
+#         log recorded only that a rule *existed*. `observable=False` means it
+#         fired and moved nothing — the shape four action kinds shipped in.
 # 7.0.0 — BREAKING, and the reason A1 was worth doing. `CloseCompletedPayload`
 #         gains a required `outcome_digest` and `scorecard_digest` becomes
 #         optional. The terminator used to commit to a digest of the benchmark
@@ -189,6 +192,7 @@ from .event import (  # noqa: E402
     OutOfScopePayload,
     PostingWrittenPayload,
     ProposalRefusedPayload,
+    RuleAppliedPayload,
     RuleInducedPayload,
     RulePromotedPayload,
     SourceIngestedPayload,
@@ -268,6 +272,7 @@ __all__ = [
     "Resolution",
     "Rule",
     "RuleAction",
+    "RuleAppliedPayload",
     "RuleInducedPayload",
     "RulePromotedPayload",
     "RuleStatus",

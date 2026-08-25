@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
 from ..contracts import (
@@ -114,6 +114,10 @@ class MatchRun:
     """Actions a promoted rule carries that a close does not perform. Absent,
     not zero: a rule half-applied must not read as a rule applied."""
 
+    rule_effects: dict[str, object] = field(default_factory=dict)
+    """`rulestore.RuleEffect` per rule — what each one actually moved in this
+    run. A rule with no observable effect is a finding, not a silent pass."""
+
     candidates: CandidateSet | None = None
     """The candidate set the tiers were restricted to, when one was supplied.
     Carried so a scorecard can print its recall beside the match rate."""
@@ -184,7 +188,7 @@ def _build_proof(
 
 def _advise(
     exceptions: list[ReconException], advisories: list[rulestore.Advisory]
-) -> list[ReconException]:
+) -> tuple[list[ReconException], dict[str, int]]:
     """Let a promoted rule say what an exception *is*.
 
     `E14` is the absence of an explanation — `P3 DECLARED`, nobody vouched for
@@ -197,8 +201,9 @@ def _advise(
     proved. That is `outranks`, and it is the same check triage runs on a model
     proposal, for the same reason.
     """
+    applied: dict[str, int] = {}
     if not advisories:
-        return exceptions
+        return exceptions, applied
     out: list[ReconException] = []
     for exception in exceptions:
         touching = [
@@ -207,7 +212,14 @@ def _advise(
         if not touching or exception.code_provenance.outranks(ProofTier.P1_RULE):
             out.append(exception)
             continue
-        advisory = touching[0]
+        # Deterministic, and not by the order the caller happened to pass the
+        # rules in. Two advisories can touch one exception — found the first time
+        # a close ran two of them — and `touching[0]` meant the answer depended
+        # on list order, which is a worse property than arbitrary. The loser is
+        # visible either way: its `RuleEffect` records no observable effect,
+        # which is exactly the signal A3 exists to produce.
+        advisory = min(touching, key=lambda a: a.rule_id)
+        applied[advisory.rule_id] = applied.get(advisory.rule_id, 0) + 1
         out.append(
             exception.model_copy(
                 update={
@@ -220,7 +232,7 @@ def _advise(
                 }
             )
         )
-    return out
+    return out, applied
 
 
 def _provenance_for(
@@ -361,7 +373,14 @@ def run(
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
-    exceptions = _advise(exceptions, applied.advisories)
+    exceptions, advised = _advise(exceptions, applied.advisories)
+    # The effect a rule had on *this* close, recorded where it happened. A
+    # rule that fires and changes nothing is the failure this project keeps
+    # rediscovering, and it is invisible unless someone counts.
+    effects = {
+        rid: replace(eff, advisories_applied=advised.get(rid, 0))
+        for rid, eff in applied.effects.items()
+    }
 
     return MatchRun(
         profile=profile.name,
@@ -373,6 +392,7 @@ def run(
         exceptions=exceptions,
         scope=scope,
         rules_unapplied=applied.unapplied,
+        rule_effects=effects,
         completeness=audit(
             anchors=anchors,
             group_records=group_records,

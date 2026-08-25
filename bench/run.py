@@ -147,6 +147,8 @@ class CloseResult:
     decisions: Decisions | None = None
     unproduced_kinds: dict[str, str] = field(default_factory=dict)
     outcome_digest: str = ""
+    rule_effects: list = field(default_factory=list)
+    inert_rules: list[str] = field(default_factory=list)
     ok: bool = True
 
 
@@ -346,6 +348,8 @@ def close(
         decisions=outcome.decisions,
         unproduced_kinds={k.value: v for k, v in PRODUCERS.items() if v.startswith("P")},
         outcome_digest=outcome.outcome_digest,
+        rule_effects=outcome.rule_effects,
+        inert_rules=outcome.inert_rules,
         ok=not blocking.dropped and outcome.ok,
     )
 

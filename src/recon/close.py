@@ -24,6 +24,7 @@ computed from the close's own decisions, which needs no labels. A caller that
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
@@ -38,6 +39,7 @@ from .contracts import (
     ProofTier,
     ReconException,
     Record,
+    RuleAppliedPayload,
     TaxonomyRegistry,
 )
 from .contracts.rule import Rule
@@ -114,6 +116,12 @@ class CloseOutcome:
     journal_path: Path | None = None
     outcome_digest: str = ""
     rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
+    rule_effects: list = field(default_factory=list)
+    """`rulestore.RuleEffect` per promoted rule. A rule whose `observable` is
+    false fired and moved nothing — recorded, because that is the shape four
+    action kinds shipped in and nobody could see it."""
+
+    inert_rules: list[str] = field(default_factory=list)
     ok: bool = True
 
 
@@ -172,6 +180,7 @@ class MatchOutcome:
     candidates: CandidateSet | None = None
     completeness: CompletenessReport | None = None
     rules_unapplied: dict[str, list[str]] = field(default_factory=dict)
+    rule_effects: dict = field(default_factory=dict)
     tiers: dict[str, int] = field(default_factory=dict)
     run: object | None = None
     """The raw `engine.tiers.MatchRun`, for callers that need what the
@@ -239,6 +248,7 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         candidates=candidates,
         completeness=outcome.completeness,
         rules_unapplied=outcome.rules_unapplied,
+        rule_effects=outcome.rule_effects,
         tiers=tiers,
         run=outcome,
     )
@@ -269,6 +279,20 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         taxonomy=request.taxonomy,
         overrides=rulestore.booking_overrides(rules, exceptions, records),
     )
+    # The last effect a rule can have, and the only one the matching stage
+    # cannot see: a `book_to` that reached an actual posting.
+    redirected: dict[str, int] = {}
+    for exception_id, _role in rulestore.booking_overrides(rules, exceptions, records).items():
+        for rule in rules:
+            if any(a.kind.value == "book_to" for a in rule.then):
+                redirected[rule.rule_id] = redirected.get(rule.rule_id, 0) + 1
+                break
+    effects = [
+        dataclasses.replace(eff, postings_redirected=redirected.get(rid, 0))
+        for rid, eff in sorted(staged.rule_effects.items())
+    ]
+    inert = [e.rule_id for e in effects if not e.observable]
+
     ledger = post_and_assert(
         entries,
         request.chart,
@@ -316,6 +340,25 @@ def run_close(request: CloseRequest) -> CloseOutcome:
 
     journal = Journal(request.journal_path, fresh=True)
     journal.extend(derive(decisions))
+    for eff in effects:
+        journal.append(
+            EventKind.RULE_APPLIED,
+            actor="engine",
+            outcome="observable" if eff.observable else "inert",
+            input_hash=eff.rule_id,
+            policy_ref=request.policy.ref,
+            payload=RuleAppliedPayload(
+                rule_ref=f"{eff.rule_id}@v{eff.rule_version}",
+                fired=eff.fired,
+                suppressed=eff.suppressed,
+                advisories_applied=eff.advisories_applied,
+                keys_normalized=eff.keys_normalized,
+                postings_redirected=eff.postings_redirected,
+                tolerance_widened=eff.tolerance_widened,
+                unapplied=list(eff.unapplied),
+                observable=eff.observable,
+            ),
+        )
     complete = completeness.complete
     journal.append(
         EventKind.CLOSE_COMPLETED,
@@ -354,5 +397,7 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         journal_path=journal.path,
         outcome_digest=digest,
         rules_unapplied=staged.rules_unapplied,
+        rule_effects=effects,
+        inert_rules=inert,
         ok=complete and not ledger.blocked,
     )

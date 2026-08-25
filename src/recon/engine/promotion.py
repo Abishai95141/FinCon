@@ -381,7 +381,7 @@ def regress(
     # `raise_advisory` was declared modelled and simulated nowhere, so a rule
     # using it came back 0 broken / 0 added / nothing suppressed and promoted
     # without an objection while doing nothing whatsoever.
-    advised = _advise(
+    advised, _applied = _advise(
         after.exceptions,
         rulestore.apply(
             [rule], history.group_records, profile=profile.name, simulate=True

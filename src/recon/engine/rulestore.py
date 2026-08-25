@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -59,6 +60,62 @@ APPLIED_ACTIONS = frozenset(
 
 
 @dataclass(frozen=True)
+class RuleEffect:
+    """What one promoted rule actually did to one close.
+
+    Recorded as it happens rather than derived by differencing two closes: a
+    close cannot run itself twice, and a fact the run observes about itself is
+    cheaper and harder to fake than one reconstructed afterwards.
+
+    `observable` is the whole point. Four action kinds could be promoted and do
+    nothing, and `raise_advisory` was declared modelled while implemented
+    nowhere — a rule using it outscored every real rule by being inert on every
+    dimension. A permission granted for an effect nobody measures is the shape
+    this project keeps rediscovering, so the close now measures it.
+    """
+
+    rule_id: str
+    rule_version: int
+    fired: int
+    suppressed: int = 0
+    advisories_applied: int = 0
+    keys_normalized: int = 0
+    postings_redirected: int = 0
+    tolerance_widened: bool = False
+    unapplied: tuple[str, ...] = ()
+
+    @property
+    def observable(self) -> bool:
+        """Whether this rule changed anything a human could point at."""
+        return bool(
+            self.suppressed
+            or self.advisories_applied
+            or self.keys_normalized
+            or self.postings_redirected
+            or self.tolerance_widened
+        )
+
+    def summary(self) -> str:
+        if not self.fired:
+            return f"{self.rule_id}: fired on nothing"
+        moved = [
+            f"{n} {name}"
+            for n, name in (
+                (self.suppressed, "suppressed"),
+                (self.advisories_applied, "re-coded"),
+                (self.keys_normalized, "normalised"),
+                (self.postings_redirected, "re-booked"),
+            )
+            if n
+        ]
+        if self.tolerance_widened:
+            moved.append("tolerance widened")
+        tail = ", ".join(moved) if moved else "NO OBSERVABLE EFFECT"
+        note = f" ({'/'.join(self.unapplied)} not applied)" if self.unapplied else ""
+        return f"{self.rule_id}: fired on {self.fired} row(s) -> {tail}{note}"
+
+
+@dataclass(frozen=True)
 class Advisory:
     """A rule's claim about what an exception *is*.
 
@@ -86,6 +143,7 @@ class Applied:
     ruled_groups: dict[str, Rule]
     unapplied: dict[str, list[str]]
     advisories: list[Advisory] = field(default_factory=list)
+    effects: dict[str, RuleEffect] = field(default_factory=dict)
 
     @property
     def summary(self) -> str:
@@ -142,6 +200,7 @@ def apply(
     ruled: dict[str, Rule] = {}
     unapplied: dict[str, list[str]] = {}
     advisories: list[Advisory] = []
+    effects: dict[str, RuleEffect] = {}
 
     for rule in rules:
         if rule.profile != profile:
@@ -152,12 +211,28 @@ def apply(
             # straight to `close()` — and the whole point of the gate is that
             # nothing acts on an unapproved one, whatever route it arrived by.
             unapplied.setdefault(rule.rule_id, []).append(f"status={rule.status.value}")
+            effects[rule.rule_id] = RuleEffect(
+                rule_id=rule.rule_id,
+                rule_version=rule.version,
+                fired=0,
+                unapplied=tuple(unapplied[rule.rule_id]),
+            )
             continue
         kinds = {action.kind for action in rule.then}
         missing = sorted(k.value for k in kinds - APPLIED_ACTIONS)
         if missing:
             unapplied[rule.rule_id] = missing
         fired = frozenset(r.record_id for r in records if fires_on(rule, r))
+        effects[rule.rule_id] = RuleEffect(
+            rule_id=rule.rule_id,
+            rule_version=rule.version,
+            fired=len(fired),
+            keys_normalized=len(fired) if ActionKind.NORMALIZE_KEY in kinds else 0,
+            tolerance_widened=any(
+                a.kind is ActionKind.SET_TOLERANCE and a.amount is not None for a in rule.then
+            ),
+            unapplied=tuple(missing),
+        )
 
         for action in rule.then:
             if action.kind is ActionKind.RAISE_ADVISORY and fired:
@@ -181,7 +256,17 @@ def apply(
                 scope[record.record_id] = f"suppressed by {rule.rule_id}: {reason}"[:300]
                 if record.group_ref:
                     ruled[record.group_ref] = rule
-    return Applied(scope=scope, ruled_groups=ruled, unapplied=unapplied, advisories=advisories)
+        effects[rule.rule_id] = replace(
+            effects[rule.rule_id],
+            suppressed=sum(1 for r in records if r.record_id in fired),
+        )
+    return Applied(
+        scope=scope,
+        ruled_groups=ruled,
+        unapplied=unapplied,
+        advisories=advisories,
+        effects=effects,
+    )
 
 
 def tolerance_for(rules: list[Rule], profile):
@@ -251,3 +336,27 @@ def booking_overrides(
             if any(records.get(rid) is not None and fires_on(rule, records[rid]) for rid in named):
                 overrides[exception.exception_id] = destination
     return overrides
+
+
+def inert_across(closes: Iterable[Iterable[RuleEffect]]) -> dict[str, int]:
+    """Rules that moved nothing in *every* close they were offered.
+
+    The per-close finding is deliberately not a refusal: a rule can be honestly
+    inert on one batch, the way a duplicate-suppression rule is on a batch with
+    no duplicates. What is never honest is a rule that has been promoted, has
+    run, and has never once moved anything — that is a permission granted for an
+    effect that does not exist, which is the failure this project keeps
+    rediscovering.
+
+    Returns rule id -> how many closes it was inert in. A rule absent from the
+    result moved something at least once. Judging *how many* is policy's, not
+    this function's: the arithmetic is here and the bar is elsewhere.
+    """
+    seen: dict[str, int] = {}
+    moved: set[str] = set()
+    for effects in closes:
+        for effect in effects:
+            seen[effect.rule_id] = seen.get(effect.rule_id, 0) + 1
+            if effect.observable:
+                moved.add(effect.rule_id)
+    return {rid: n for rid, n in sorted(seen.items()) if rid not in moved}
