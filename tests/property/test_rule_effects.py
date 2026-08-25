@@ -149,3 +149,25 @@ def test_which_advisory_wins_does_not_depend_on_the_order_rules_were_passed():
 
     assert forward.outcome_digest == backward.outcome_digest
     assert forward.inert_rules == backward.inert_rules == ["R-BBB"]
+
+
+def test_the_applier_still_refuses_an_unpromoted_rule_that_reaches_it_directly():
+    """Defence in depth, and no longer reachable through a close.
+
+    `admissible` refuses an unapproved rule before it gets near the applier, so
+    `rulestore.apply`'s own status check is now only on the path of a caller
+    that goes straight to `run_tiers`. That is still a real path — the
+    regression takes it — and a branch nothing exercises is a branch that rots,
+    so it is covered here rather than assumed.
+    """
+    from bench.run import SETTLEMENT_3WAY, load_sides
+
+    draft = _rule("R-DIRECT", SUPPRESS).model_copy(update={"status": RuleStatus.DRAFT})
+    rows = [rec for _, rec in load_sides("A").settlement]
+    applied = rulestore.apply([draft], rows, profile=SETTLEMENT_3WAY.name)
+
+    assert applied.scope == {}, "an unpromoted rule suppressed rows"
+    assert "R-DIRECT" in applied.unapplied
+    effect = applied.effects["R-DIRECT"]
+    assert effect.fired == 0 and not effect.observable
+    assert "status=draft" in effect.unapplied, "refused, and the refusal left no trace"
