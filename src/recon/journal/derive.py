@@ -237,6 +237,7 @@ def derive(decisions: Decisions) -> list[Event]:
                 EventKind.EXCEPTION_RAISED,
                 ExceptionRaisedPayload(
                     exception_id=exc.exception_id,
+                    fingerprint=exc.fingerprint,
                     code=exc.code,
                     amount=exc.amount,
                     leg=exc.leg,

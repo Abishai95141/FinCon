@@ -44,7 +44,7 @@ class WorkItem:
         note = f"  [{self.authority_note}]" if self.authority_note else ""
         return (
             f"{self.rank:>3}. {self.code.code:<14} ₹{self.exception.amount:>12}  "
-            f"{self.age_days:>3}d  → {self.owner}{note}"
+            f"{self.age_days:>3}d  {self.exception.fingerprint[:8]}  → {self.owner}{note}"
         )
 
 

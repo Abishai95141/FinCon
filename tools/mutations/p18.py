@@ -23,17 +23,13 @@ MUTATIONS = [
     (
         "the fingerprint includes the amount, so a growing break looks new",
         "src/recon/engine/fingerprint.py",
-        """    keys = sorted(
-        records[rid].natural_key or rid for rid in exception.record_ids if rid in records
-    )""",
-        """    keys = [str(exception.amount), *sorted(
-        records[rid].natural_key or rid for rid in exception.record_ids if rid in records
-    )]""",
+        """    keys = sorted(records[rid].natural_key or rid for rid in exception.record_ids if rid in records)""",
+        """    keys = [str(exception.amount), *sorted(records[rid].natural_key or rid for rid in exception.record_ids if rid in records)]""",
     ),
     (
-        "identity is built from record ids, which carry source and occurrence",
+        "identity collapses to the first component of each natural key",
         "src/recon/engine/fingerprint.py",
-        """        records[rid].natural_key or rid for rid in exception.record_ids if rid in records""",
-        """        rid for rid in exception.record_ids if rid in records""",
+        """    body = "|".join([exception.code, *keys])""",
+        """    body = "|".join([exception.code, *[k.split("|")[0] for k in keys]])""",
     ),
 ]

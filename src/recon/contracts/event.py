@@ -182,6 +182,11 @@ class MatchRejectedPayload(_Payload):
 
 class ExceptionRaisedPayload(_Payload):
     exception_id: str
+    fingerprint: str = ""
+    """Which break this is, as opposed to where it sat in a list. Two closes
+    logging `EXC-00001` were logging different findings; two logging the same
+    fingerprint are logging the same unresolved problem."""
+
     code: str
     amount: Money
     leg: str
