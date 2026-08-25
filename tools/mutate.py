@@ -157,6 +157,14 @@ def main(argv: list[str] | None = None) -> int:
     dirty = subprocess.run(
         ["git", "status", "--porcelain", "src", "bench"], capture_output=True, text=True
     ).stdout.strip()
+    print(
+        "NOTE — this rewrites files under src/ and bench/ in place, one at a "
+        "time, and restores them after each. Do not run tests, a close, or a "
+        "second mutation run concurrently: a reader will see a half-mutated "
+        "tree and fail somewhere unrelated. (Two concurrent jobs on 2026-08-25 "
+        "produced a SyntaxError in triage/induce.py and four unrelated "
+        "failures.)"
+    )
     if dirty:
         print(
             "REFUSING — src/ or bench/ has uncommitted changes. A mutation run "

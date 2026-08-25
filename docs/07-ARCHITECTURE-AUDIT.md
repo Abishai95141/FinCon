@@ -123,7 +123,7 @@ Move orchestration out of `bench/run.py` into the library. The benchmark, the AP
 server become driving adapters that call it. This is what makes "in-band" mean anything, and it
 is a precondition for A2 and A3.
 
-### A2 · Complete the match witness, and check it — **validated**
+### A2 · Complete the match witness, and check it — **LANDED 2026-08-25**
 Add `rule_bundle_digest` to `Proof`; extend `verify()` with three clauses:
 
 1. a witness whose group has records missing from its legs may not claim `P0 ARITHMETIC`;
@@ -147,6 +147,11 @@ Measured, v2:
 | bundle rule swapped underneath same id | **refuted** |
 | 20 honest P0 proofs, unruled close | 20/20 proven |
 | 20 proofs, shipped close | 20/20 proven |
+
+Shipped as `tests/property/test_witness.py` (12 tests) and the `p13` mutation set (10/10 caught).
+It caught something immediately: `regress()` simulated suppression by hand-filtering rows and
+labelling the result `P0` — manufacturing the laundered shape the verifier had just learned to
+refuse. The regression now hands the rule to the engine, so it and a close are one path there too.
 
 ### A3 · In-band effect checking for the rule bundle — **validated**
 At close time recompute each promoted rule's observable effect on real output and record it. Zero

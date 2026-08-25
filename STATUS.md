@@ -63,6 +63,90 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### A1 · one entry point, and A2 · the completed witness · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green    $ make test    428 passed, 46 deselected, 1 xfailed
+$ make lint    clean                     $ make mutate  p13 10/10 · p9 20/20 · p10 15/15
+$ make replay  90.9% · coverage 4/5 · classification 2/5   p11 24/24 · p12d 12/12
+```
+
+**A1 — `src/recon/close.py` is the pipeline; `bench/run.py` calls it.**
+
+`bench/run.py:close()` used to *be* the product: it was the only code assembling
+intake → tiers → ledger → journal → worklist, while `src/recon/api/` and
+`src/recon/mcp/` were 0-byte files. It is now a driving adapter. So is the
+deterministic arm, which had its own copy of matching-and-verification beside the
+one a close used — both now call `recon.close.match_and_verify`, asserted by AST
+so the second implementation cannot quietly return.
+
+Two things the extraction surfaced that the entanglement had hidden:
+
+1. **The terminal event could not be written outside the benchmark.** It committed
+   to `scorecard_digest` — a digest of the benchmark scorecard, computed against
+   truth labels. "Replay a close from its log" quietly meant "replay a close that
+   has labels". `CloseCompletedPayload` now carries `outcome_digest`, computed
+   from the close's own decisions, and `scorecard_digest` became an optional
+   *benchmark* annotation that production leaves empty.
+2. **The product's own configuration lived in the benchmark.** The profile, the
+   policy, the taxonomy, the chart and the period were all defined in
+   `bench/run.py`. They are now `src/recon/profiles/settlement.py` — the "loop
+   definitions as data" the file map has always described. A test closes batch A
+   touching nothing under `bench/`, and asserts no `recon.*` module resolves to a
+   file under it.
+
+**A1 did not change what executes.** A traced close went 53% → 54% of
+`src/recon`; `engine/promotion.py` is still 20/20 never run in a close. A1 builds
+the band — A3 is what puts anything in it. Saying otherwise would be the same
+mistake as the controls it exists to fix.
+
+**A2 — a `P1 RULE` proof is now checkable.**
+
+`verify()` gained `bundle` and `declared_scope` and one clause set. The exclusion
+is **derived** — population from `records`, effect from re-running the cited rule
+— so there is no claimed-exclusion field for a producer to under-report. The
+first prototype rebuilt the population from the witness and was fooled by exactly
+that, which is audit finding `F1` reintroduced while fixing it.
+
+| forgery | before | now |
+|---|---|---|
+| genuine P1 witness | proven | proven |
+| `rule_id` → nonexistent | **proven** | refuted |
+| tier relabelled P1 → P0 | **proven** | refuted |
+| `rule_id` dropped, tier kept | **proven** | refuted |
+| bundle not supplied | **proven** | refuted |
+| rule swapped under its own id | **proven** | refuted |
+| 20 honest P0 proofs | proven | proven |
+
+`Proof` also gained `rule_bundle_digest`, so a decision names the bundle that
+produced it (the OPA decision-log shape).
+
+**What A2 caught immediately.** `regress()` simulated suppression by
+hand-filtering rows and then labelling the result `P0` — manufacturing the exact
+laundered shape the verifier had just learned to refuse. It now hands the rule to
+the engine and judges the proofs a close would actually have produced, so the
+regression and the close are one path there too. A property test in
+`test_identity.py` had the same bug and asserted on it.
+
+**Contract 7.0.0**, breaking: `outcome_digest` required, `scorecard_digest`
+optional, `Proof.rule_bundle_digest` added.
+
+**One live gate needed its claim restated.**
+`test_the_lift_holds_on_the_held_out_batch` asserted the model strictly improves
+classification on B over the shipped baseline. That baseline is no longer P10's
+engine — `R-DUP-06` re-codes one exception there too, so the model's *incremental*
+headroom shrank the day the rule promoted, and a strict `>` is also a
+single-sample assertion on a quantity measured at 40%–80% (n=5). It now asserts
+the model does not make it worse, and that the governed system still beats the
+**unruled** engine. Model lift and system lift are two numbers and the gate now
+says which it means.
+
+**A process failure worth recording.** Two of my own background jobs overlapped —
+a mutation run rewrites `src/` in place, and a live-gate run read a half-mutated
+tree, producing a `SyntaxError` in `triage/induce.py` and four unrelated
+failures. Nothing was wrong with the code. `make mutate` now says so before it
+starts.
+
 ### A model-induced rule is promoted and running · 2026-08-25
 
 ```
