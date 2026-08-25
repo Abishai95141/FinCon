@@ -683,12 +683,16 @@ def test_p10_numbers_are_unchanged(tmp_path):
     from bench.run import close
 
     card = {c.arm: c for c in close("A", journal_dir=tmp_path, rules=[]).cards}["deterministic"]
-    assert card.produced == 20
+    # 20 -> 19 with the `E04` plant: a short-paid payout does not match.
+    # Zero false matches is the line that must never move.
+    assert card.produced == 19
     assert card.false_matches == 0
     # 4 -> 5 when the consistency pass landed: `E02` was the planted defect
     # the engine could not see, and matching is structurally blind to it —
     # a payout billed on the wrong terms still sums to what the bank paid.
-    assert card.exceptions.surfaced == 5
+    # 5 -> 6 surfaced when `E04` was planted; it is surfaced as `E14` and not
+    # yet classified, which is the red state ADV-11 predicts.
+    assert card.exceptions.surfaced == 6
     assert card.exceptions.classified == 2
 
 

@@ -37,6 +37,7 @@ DEFAULT_DEFECTS = {
     "E06": 1,  # a charge duplicated in the settlement export
     "E07": 1,  # chargeback reversing a prior-period order
     "E08": 1,  # bank credit with no settlement behind it
+    "E04": 1,  # bank credit short of the payout — the rest was never paid
     "E09": 1,  # two disjoint subsets sum to the same payout
     "T1": 2,  # truncated bank reference — recoverable at T1, not an exception
 }
@@ -219,6 +220,28 @@ def build(
                 p.payout_id,
                 "two disjoint subsets sum to the bank credit; no unique answer exists",
                 ambiguous_subsets=subsets,
+            )
+        )
+
+    # E04 — the counterparty paid part of what the payout says it owed. The
+    # reference is correct and the money is short; nothing about the export is
+    # wrong. Authored 2026-08-25 alongside ADV-11/ADV-12, and committed red.
+    #
+    # The shortfall is deliberately close to what this gateway's fee would be on
+    # a payout this size (ADV-12's trap): a system that reaches for the most
+    # plausible explanation of missing money books it as an unbilled fee and the
+    # payout ties exactly. It is not a fee. The fee rows are in the export.
+    for _ in range(defects.get("E04", 0)):
+        p = pick_payout()
+        gw = next(g for g in GATEWAYS if g.name == p.gateway)
+        shortfall = money(p.actual_net() * gw.contract_pct + gw.contract_fixed)
+        batch.credit_adjust[p.payout_id] = shortfall
+        batch.planted.append(
+            PlantedException(
+                "E04",
+                shortfall,
+                p.payout_id,
+                "bank credit short of the payout net — the remainder was never paid",
             )
         )
 

@@ -323,5 +323,8 @@ def test_p3_numbers_are_unchanged_by_p6(batch):
         [r for _, r in bank], [r for _, r in settlement], SETTLEMENT_3WAY, provenance
     )
     tiers = outcome.by_tier()
-    assert tiers.get("T0", 0) + tiers.get("T1", 0) == 20
+    # 20 -> 19 when `E04` was planted (2026-08-25): a bank credit short of its
+    # payout does not match, correctly. Returns to 20 when the partial-payment
+    # strategy lands — the labels count that pair as findable.
+    assert tiers.get("T0", 0) + tiers.get("T1", 0) == 19
     assert all(m.proof.residual == D("0.00") for m in outcome.matches)

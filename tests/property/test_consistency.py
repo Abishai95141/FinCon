@@ -169,9 +169,13 @@ def test_matching_alone_never_sees_it(rows_a):
 
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_coverage_reaches_every_planted_defect_in_scope(batch):
-    """The headline this moved: 4/5 -> 5/5, on both batches."""
+    """The headline this moved: 4/5 -> 5/5, and 5/6 -> 6/6 once `E04` was
+    planted. Written against the denominator rather than a literal, so planting
+    a seventh defect cannot make this pass by arithmetic accident."""
     card = next(c for c in close(batch).cards if "determin" in c.arm)
-    assert card.exceptions.coverage.numerator == card.exceptions.coverage.denominator == 5
+    coverage = card.exceptions.coverage
+    assert coverage.numerator == coverage.denominator
+    assert coverage.denominator >= 6
     assert card.false_matches == 0, "coverage bought with a false match is not coverage"
 
 

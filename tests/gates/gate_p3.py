@@ -65,7 +65,11 @@ def test_deterministic_arm_scores_with_zero_false_matches(sides, batch):
     # The assertions are unchanged; only the type they are read from moved.
     assert card.false_match_rate.value == 0.0
     assert card.precision.value == 1.0
-    assert card.auto_match_rate.value >= 0.90
+    # 0.90 -> 0.86 when `E04` was planted: a short-paid payout does not match,
+    # correctly. The threshold moved because the corpus got harder, not because
+    # the engine got worse — false matches are still zero, which is the line
+    # that must never move.
+    assert card.auto_match_rate.value >= 0.86
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])
@@ -81,7 +85,10 @@ def test_baseline_arms_are_scored_on_the_same_ground_truth(sides, batch):
     assert raw.notes, "an arm that scores zero must carry its caveat beside the number"
 
     # Handed the grouping, the same rule works. This is the fair comparison.
-    assert grouped.correct >= 20
+    # 20 -> 19 with the E04 plant: the baseline is short-paid too. It ties us
+    # here and scores 0 on every exception metric, which is the comparison
+    # this gate exists to put on the page.
+    assert grouped.correct >= 19
     assert grouped.false_matches == 0
 
 
@@ -103,9 +110,14 @@ def test_our_matching_rule_does_not_beat_the_fair_baseline(sides, batch):
 
 @pytest.mark.parametrize("batch", ["A", "B"])
 def test_what_we_miss_is_what_should_be_missed(sides, batch):
-    """The unmatched payouts are exactly the two planted defects that must block
-    a match: a duplicated row in the export, and a genuinely ambiguous payout.
-    Missing them is correct, so 90.9% is the ceiling at T0/T1, not a shortfall."""
+    """The unmatched payouts are exactly the planted defects that must block a
+    match: a duplicated row in the export, a genuinely ambiguous payout, and —
+    since 2026-08-25 — a short-paid one. Missing them is correct, so 86.4% is the
+    ceiling at T0/T1, not a shortfall.
+
+    The short-paid payout leaves this set when the partial-payment strategy
+    lands: the labels count it as a findable pair, and `ADV-11` says the money
+    that arrived is reconciled while the remainder stays open."""
     bank, settlement, provenance, truth = _run(sides, batch)
     result = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     labels = json.loads((BATCHES / batch / "labels.json").read_text())
@@ -120,8 +132,9 @@ def test_what_we_miss_is_what_should_be_missed(sides, batch):
     )
     ambiguous = set(labels["ungrouped_payouts"])
 
-    assert missed == {dup_payout} | ambiguous, (
-        f"missed {missed}, expected exactly the E06 payout and the ambiguous one"
+    short_paid = {e["subject"] for e in labels["expected_exceptions"] if e["code"] == "E04"}
+    assert missed == {dup_payout} | ambiguous | short_paid, (
+        f"missed {missed}, expected the E06 payout, the ambiguous one, and the short-paid one"
     )
 
 

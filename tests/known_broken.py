@@ -103,3 +103,26 @@ def test_policy_carries_a_signature():
     verdict = trust.verify(Path("data/policy"), key)
     assert verdict.trusted, str(verdict)
     assert verdict.signed_by, "signed by nobody in particular is not an attestation"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="E04 partial payment is surfaced as `E14 unexplained` rather than "
+    "classified. Authored 2026-08-25 as ADV-11/ADV-12 and planted in the "
+    "generator, then committed red before any implementation. The engine has the "
+    "facts — the reference identifies the payout and the shortfall is known to "
+    "the paisa — and discards them. The labels count the pair as findable, so "
+    "the fix is a match plus an open item, not a refusal.",
+)
+def test_a_partial_payment_is_classified_rather_than_unexplained():
+    import json
+    from pathlib import Path as _P
+
+    from bench.run import close
+
+    labels = json.loads((_P("data/batches/A") / "labels.json").read_text())
+    planted = next(e for e in labels["expected_exceptions"] if e["code"] == "E04")
+    result = close("A")
+
+    codes = {e.code for e in result.exceptions}
+    assert "E04" in codes, f"raised {sorted(codes)}; the shortfall is {planted['unreconciled']}"

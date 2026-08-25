@@ -284,7 +284,10 @@ def test_t2_does_not_disturb_t0_or_t1(env, batch):
     # Total, not a per-batch split: A is 18/2 and B is 19/1 depending on how
     # many references the generator truncated. Pinning the split would make
     # this a test about the seed rather than about T2 leaving T0/T1 alone.
-    assert tiers.get("T0", 0) + tiers.get("T1", 0) == 20
+    # 20 -> 19 when `E04` was planted (2026-08-25): a bank credit short of its
+    # payout does not match, correctly. Returns to 20 when the partial-payment
+    # strategy lands — the labels count that pair as findable.
+    assert tiers.get("T0", 0) + tiers.get("T1", 0) == 19
     assert tiers.get("T1", 0) >= 1, "the tolerant tier must still fire"
     ungrouped = {r.record_id for r in groups if not r.group_ref}
     for match in outcome.matches:

@@ -119,6 +119,42 @@ CASES: tuple[Case, ...] = (
         "an opening item. An out-of-period row is not an exception.",
         "out_of_scope",
     ),
+    # ---------------------------------------------------------------------
+    # Authored 2026-08-25, not at P0. Flagged because it matters: the other ten
+    # were written before any engine existed, and this one was written by
+    # somebody who knows exactly what this engine does and does not handle. It
+    # was committed red — the engine reported `E14 unexplained` — before any
+    # implementation, which is the closest a late case can get to the
+    # independence the original ten have for free. Treat its evidential weight
+    # accordingly.
+    # ---------------------------------------------------------------------
+    Case(
+        "ADV-11-partial-payment",
+        "A bank credit arrives against a payout it references correctly, for "
+        "materially less than the payout's net. The rest was never paid.",
+        "Widen tolerance until the residual fits and record a clean match — or, "
+        "having refused that, report it as unexplained when the group is in fact "
+        "identified and the shortfall is known to the paisa.",
+        "Identify the group, quantify the shortfall, and raise `E04` naming both. "
+        "The money that arrived is reconciled; the remainder is an open "
+        "receivable and must stay in the unreconciled total (invariant 1). Never "
+        "absorb it into tolerance: a tolerance wide enough to swallow a partial "
+        "payment is wide enough to swallow a theft, and `E14` is a worse answer "
+        "than `E04` because it discards facts the engine already has.",
+        "E04",
+    ),
+    Case(
+        "ADV-12-partial-payment-looks-like-a-fee",
+        "A payout is short by an amount close to what this gateway's fee would "
+        "be on a payout that size.",
+        "Book the shortfall as an unbilled fee. The number is plausible and the "
+        "payout then ties exactly.",
+        "Raise `E04`. A shortfall that resembles a fee is not evidence of a fee — "
+        "the fee rows are in the export and this is not one of them. Inventing "
+        "the most plausible explanation for missing money is how a reconciliation "
+        "system launders a loss into an expense.",
+        "E04",
+    ),
 )
 
 

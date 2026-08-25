@@ -186,7 +186,13 @@ def test_the_duplicate_rule_creates_a_real_proven_match(sides):
     a = sides["A"]
     ext = {r.record_id: e for e, r in a.bank + a.settlement}
     suppressed = set(select(DEDUP, [r for _, r in a.settlement]).matched)
-    assert sorted(ext[r] for r in suppressed) == ["ch_00493", "fee_00247"]
+    # Derived from the labels, not pinned. These were `ch_00493`/`fee_00247`
+    # until the `E04` plant shifted every generated id; a test that names a row
+    # by id is a test that breaks whenever the corpus legitimately changes.
+    labels = json.loads((BATCHES / "A" / "labels.json").read_text())
+    dup_charge = next(e["subject"] for e in labels["expected_exceptions"] if e["code"] == "E06")
+    assert dup_charge in {ext[r] for r in suppressed}
+    assert len(suppressed) == 2, "a duplicated charge and its fee"
 
     # Hand-filtering the suppressed rows and running the tiers over what is left
     # produced a proof claiming `P0 ARITHMETIC` over a group with rows missing.
@@ -202,7 +208,11 @@ def test_the_duplicate_rule_creates_a_real_proven_match(sides):
         rules=[DEDUP],
         simulate=True,
     )
-    match = next(m for m in after.matches if ext[m.anchor_id] == "bl_00011")
+    dup_payout = next(
+        pid for pid, v in labels["payout_membership"].items() if dup_charge in v["charges"]
+    )
+    dup_line = labels["payout_membership"][dup_payout]["bank_line"]
+    match = next(m for m in after.matches if ext[m.anchor_id] == dup_line)
     assert match.tier.value == "T0"
     assert match.proof.residual == 0
     assert match.proof.provenance is ProofTier.P1_RULE, (
@@ -278,7 +288,7 @@ def test_the_label_for_the_duplicated_payout_does_not_balance(sides):
 
     `payout_membership` records which rows *belong to* a payout, and for the
     planted `E06` that includes the duplicated row. So the labelled answer for
-    `bl_00011` sums to ₹90,259.47 against a credit of ₹84,769.72 — a linkage
+    the duplicated payout sums to more than its bank credit — a linkage
     that is true and an equation that does not balance.
 
     `auto-match` scores against that label. An arm naming the linkage scores
@@ -295,14 +305,22 @@ def test_the_label_for_the_duplicated_payout_does_not_balance(sides):
 
     from bench.metrics import truth_pairs
 
+    labels = json.loads((BATCHES / "A" / "labels.json").read_text())
+    dup_charge = next(e["subject"] for e in labels["expected_exceptions"] if e["code"] == "E06")
+    dup_payout = next(
+        pid for pid, v in labels["payout_membership"].items() if dup_charge in v["charges"]
+    )
+    line = labels["payout_membership"][dup_payout]["bank_line"]
+
     truth = truth_pairs(BATCHES / "A" / "labels.json")
     by_ext = {e: r for e, r in sides["A"].bank + sides["A"].settlement}
-    claimed = truth["bl_00011"]
+    claimed = truth[line]
     total = sum((by_ext[e].amount for e in claimed if e in by_ext), Decimal("0.00"))
-    anchor = by_ext["bl_00011"].amount
+    anchor = by_ext[line].amount
 
-    assert anchor == Decimal("84769.72")
-    assert total == Decimal("90259.47")
+    # Figures derived, not pinned: the shape of the finding is what matters and
+    # the amounts move whenever the generator does.
+    assert total > anchor, "the labelled membership no longer exceeds the credit"
     assert abs(anchor - total) > SETTLEMENT_3WAY.tolerance.absolute, (
         "the labelled pairing now balances — if the generator changed, this "
         "finding needs rewriting rather than deleting"

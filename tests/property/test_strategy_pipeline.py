@@ -22,8 +22,12 @@ from bench.run import SETTLEMENT_3WAY, close
 
 from recon.engine import strategies, tiers
 
-#: Captured before the pipeline landed, from the literal-tuple implementation.
-BASELINE = {"A": "f48ba14f0e025d52ca615173", "B": "9df5b18a60577a7a88f0b81e"}
+#: Captured before the pipeline landed, from the literal-tuple implementation,
+#: then re-captured when the `E04` plant changed the corpus. Re-pinning is only
+#: honest because the refactor itself was proven digest-identical *first*, on the
+#: corpus it was made against; a digest re-pinned to whatever the code now emits
+#: asserts nothing.
+BASELINE = {"A": "44a74546ba9efad9b9e0e449", "B": "b528b72ecaa72cf2f82900f0"}
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])
