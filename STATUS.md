@@ -4,11 +4,13 @@
 
 | | |
 |---|---|
-| **Current phase** | `P12` — the model edge ◆ the lift number. **Rule induction closed 2026-08-25: `R-DUP-06` is promoted and shipping, classification 1/5 → 2/5 on A and held-out B. Gate still RED overall — three exceptions resolved, one rule, and the lift table is not yet written.** |
-| **Last green gate** | **P11** — 57/57. `make verify` runs P0–P11. **346 offline + 63 live tests.** Contract **6.0.0**. |
-| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, posted, recorded, **ranked and routed**. `make replay` rebuilds the scorecard from the decision log alone. |
-| **Last verified numbers** | A/B **90.9% auto-match, 0.00% false-match, 0 unprovable**. `llm_only` scores **95.5%** and **1 unprovable** — its whole advantage. Coverage **80% vs 0%**. Classification with triage: **40%–80%, n=5** (a range, not a point) |
-| **Updated** | 2026-08-24 |
+| **Current phase** | `P15` — generality. **P15a landed**: the strategy pipeline is declarative and `partial_payment` was added to a shipped profile as configuration. **P15b/c blocked on evidence** — GSTR-2B does not exist anywhere (no profile, generator, adapters or data); that is a second P0, not an afternoon. |
+| **Last green gate** | **P11** — `make verify` runs P0–P11, 12 gate files. `P12` is **RED on the count**: `R-DUP-06` is promoted, shipping and attributed on held-out B, but the gate says three rules and there is one, and no rule-by-rule lift table exists. |
+| **Tests** | **514 offline** (`make test`) + **73 live** (need `DEEPSEEK_API_KEY`). **0 known-broken rows.** Contract **7.3.0**. |
+| **Mutation** | 8 sets, **~120 mutants, all caught**: p9 20 · p10 15 · p11 24 · p12d 12 · p13 10 · p14 14 · p15 8 · p16 8 · p17 15 · p18 4. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
+| **Build runs?** | `make eval` closes A and B from a clean checkout — matched, verified, posted, recorded, ranked, routed. `make replay` rebuilds the scorecard from the decision log alone. `make sign SIGNER='name'` re-signs the authority bundles after any change to `data/policy`, `data/taxonomy` or `data/rules`. |
+| **Last verified numbers** | Ours vs `securo_grouped`, both batches: auto-match **90.9% / 86.4%**, false-match **0.00% / 0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. Tiers `T0=17 T1=2 T4=1`. 1 unprovable, **all declared**. With the model edge on top, classification reaches **4/5→80%** on A (single sample; the measured range is 40–80%, n=5). |
+| **Updated** | 2026-08-25 |
 
 ---
 
@@ -2388,37 +2390,57 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 ## Next action
 
-**P12 — the model edge. ◆ THE LIFT NUMBER.** The last gate that carries the
-claim, and the first that needs an API key.
+Priorities, with the reasons — because the reasons are what stop this being
+re-litigated every session.
 
-1. **Adapter-spec synthesis** — declarative spec only, no codegen (ADR-001),
-   first-use approval.
-2. **Exception triage** — classify into the registry, hypothesis, cited
-   evidence, rank by cash impact × age. May propose a new code.
-3. **Rule induction** — proposal + regression report through the P8 gate.
+**1. `first_seen_at` and `occurrence_count` on a break.** `fingerprint` landed on
+2026-08-25 and is the precondition; the history is not there. The worklist ranks
+by cash impact × the age of the *transaction*, so a break open three months and
+one raised this morning sort the same when the rows share a date. Needs state
+that survives a close — the first thing in this system that has to remember
+anything.
 
-**Gate:** resolve three exceptions on batch A, approve three induced rules,
-re-run on held-out batch B, and the scorecard attributes the improvement rule by
-rule. Plus: drop a source in a format never seen and watch it author, verify and
-ingest without configuration.
+**2. Decide P12's count rather than letting it drift.** The gate says "resolve
+three exceptions, approve three rules". One rule is promoted, shipping and
+attributed on held-out B. Either produce two more or record the gate as met in
+substance with the count stated. An unmet gate nobody revisits is how a phase
+stays open forever.
 
-**Everything it needs is now measured, governed and recorded.** The numbers it
-has to move are already on the page and are not flattering:
+**3. `E05` overpayment.** `_partial_payment` declines a positive residual and
+says `E05` is a different conversation. That branch has never executed — neither
+batch contains an overpayment — so it is asserted *structurally*, which is the
+weakest assertion in this codebase. Plant it or delete the branch.
 
-| | today | what P12 must do |
-|---|---|---|
-| exception classification | **20% (1/5)** | name what the engine can only notice |
-| routing dispersion | **1 owner** | send different causes to different desks |
-| LLM-only arm | **absent** | the silent-error comparison, from real calls |
+**4. P13 substrate, then P14 surface.** Deferred on 2026-08-25 because an MCP
+server and a UI over a system whose coverage had not moved since P10 would have
+been more surface on the same capability. Coverage has since moved 80% → 100%,
+so that argument is weaker than it was.
 
-Three things to get right. **The key is required and the gate must not skip
-silently** — a skipped P12 that reads as green is the pytest-collection trap from
-P1 in a new costume, so `make verify` must report skipped gates and STATUS must
-record "unmeasured, no key" rather than the last measured figure. **P0–P11 must
-stay runnable offline** — a fresh clone reaches P11 green with no key. And
-**metrics come from real calls or they are not reported** (CLAUDE.md rule 1): a
-recorded replay tape is for the demo, recorded *from* the real path, never a
-substitute for it.
+**5. P15c — the second loop.** GSTR-2B exists nowhere: no profile, no generator,
+no adapters, no data. Plan it as a second P0, not a P15 afternoon.
+
+### Two things a reader should not have to rediscover
+
+- **`E04`'s adversarial cases were authored 2026-08-25**, not at P0, by someone
+  who knew what this engine handled — committed red before implementation, which
+  is the closest a late case gets to the independence the original ten have for
+  free. It is not the same thing, and `bench/adversarial/cases.py` says so.
+- **`data/trust/dev-signing-key.hex` is committed and labelled not-a-secret.**
+  While it sits in the repository, "who approved this" is answered by "anyone
+  with a checkout". A deployment replaces it.
+
+### Standing hazards
+
+- `make mutate` rewrites files under `src/` in place. Two background jobs
+  overlapping on 2026-08-25 produced a `SyntaxError` in `triage/induce.py` and
+  four unrelated failures; nothing was wrong with the code. Run nothing else
+  alongside it.
+- Editing anything under `data/policy`, `data/taxonomy` or `data/rules` breaks
+  the bundle signature. Re-run `make sign SIGNER='name'`.
+- **Three controls this session were untestable on the batches we have** and
+  only mutation found them — a duplicated check, a blocking filter, and a
+  majority-vs-first-seen choice. Assume more exist; a green suite is not
+  evidence that a control bites.
 
 ---
 

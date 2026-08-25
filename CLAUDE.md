@@ -170,6 +170,10 @@ src/recon/
   profiles/      loop definitions as data (settlement_3way only — gstr2b is P15 and
                  does not exist: no profile, no generator, no adapters, no data)
   engine/strategies.py  the closed registry a profile names its match order from
+  engine/consistency.py rows that disagree with their own population — E02, with
+                 no contract to compare against
+  engine/fingerprint.py content-derived identity for a *break*, so the same one
+                 is recognisable in the next close (Formance's alert model)
   ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
   journal/       append-only decision log — hash chain, derivation, replay
   close.py       the pipeline: intake -> tiers -> verify -> post -> journal -> worklist
