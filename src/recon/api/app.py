@@ -44,6 +44,14 @@ trust argument; everything else is convenience.
 Nothing on this API can promote a rule, attest a decision, widen a tolerance or
 write to the ledger by request. Those need a named human and there is no
 parameter through which to name one.
+
+**There is no authentication.** Anyone who can reach the port can run a close and
+read every audit export. That is unbuilt rather than overlooked: the boundary
+this API does enforce is about *authority* — no route can carry a policy, a
+tolerance or a rule set — and it holds whoever is calling. Identity is a separate
+problem, and half of it would be worse than none because a login box implies the
+rest. Do not expose this beyond a laptop without putting something in front of
+it.
 """
 
 app = FastAPI(

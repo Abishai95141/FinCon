@@ -2531,7 +2531,15 @@ says `E05` is a different conversation. That branch has never executed — neith
 batch contains an overpayment — so it is asserted *structurally*, which is the
 weakest assertion in this codebase. Plant it or delete the branch.
 
-**5. What the surface exposed and did not fix.** Named so they are not
+**5. The API has no authentication and no authorisation.** Anyone who can reach
+the port can run a close and read every audit export. This is deliberate and
+deliberately unbuilt: the boundary that *does* exist is about authority — no
+route or tool schema can carry a policy, a tolerance or a rule — and that
+boundary holds regardless of who is calling. Identity is a different problem and
+half of it would be worse than none, because a login box implies the rest. Say
+this before anyone deploys it anywhere but a laptop.
+
+**6. What the surface exposed and did not fix.** Named so they are not
 rediscovered as findings: the **ledger is still never written to a file** — the
 close computes entries and asserts the balance in memory, and the API serves a
 count of postings rather than the postings themselves; `data/runs/` is local
