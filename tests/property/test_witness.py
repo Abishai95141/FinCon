@@ -143,23 +143,80 @@ def test_every_proof_names_the_bundle_that_was_active():
 def test_a_declared_out_of_scope_row_is_not_mistaken_for_a_rule_exclusion():
     """The false positive this clause could easily have. A row the *caller* put
     out of scope is a disposition the close made openly; it is part of the input
-    a checker is given, not evidence that a rule quietly acted."""
+    a checker is given, not evidence that a rule quietly acted.
+
+    The construction matters. The first version of this test scoped an ordinary
+    row of a matched group — which made the group stop summing, so it stopped
+    matching, so the loop ran over 19 matches with no scoped row among them and
+    asserted nothing. A memo line carrying no movement is the case that leaves
+    the group matchable *and* short a row, which is the only shape that reaches
+    the clause.
+    """
+    from decimal import Decimal
+
     sides = load_sides("A")
     groups = [r for _, r in sides.settlement]
-    victim = next(r for r in groups if r.group_ref)
-    scope = {**sides.scope, victim.record_id: "declared out of scope by the caller"}
+    sibling = next(r for r in groups if r.group_ref)
+    memo = sibling.model_copy(
+        update={
+            "record_id": f"{sibling.record_id}:memo",
+            "amount": Decimal("0.00"),
+            "natural_key": "memo",
+            "key_occurrence": 0,
+        }
+    )
+    scope = {**sides.scope, memo.record_id: "memo line, carries no movement"}
     run = run_tiers(
         [r for _, r in sides.anchors],
-        groups,
+        [*groups, memo],
         SETTLEMENT_3WAY,
         ProofTier.P0_ARITHMETIC,
         policy=SETTLEMENT_POLICY,
         out_of_scope=scope,
     )
     records = {r.record_id: r for _, r in sides.bank + sides.settlement}
-    for match in run.matches:
+    records[memo.record_id] = memo
+
+    touched = [
+        m
+        for m in run.matches
+        if any(records[r].group_ref == memo.group_ref for r in m.group_ids if r in records)
+    ]
+    assert touched, "the memo row's group did not match, so the clause is untested"
+    for match in touched:
+        assert match.proof.provenance is ProofTier.P0_ARITHMETIC
         verdict = verify(match.proof, records, SETTLEMENT_POLICY, declared_scope=scope)
         assert verdict.proven, (match.match_id, verdict.reasons)
+        # ...and the same proof, checked without being told what the close
+        # declared, is refused — the clause is doing the work, not passing.
+        assert not verify(match.proof, records, SETTLEMENT_POLICY).proven
+
+
+def test_the_outcome_digest_is_sensitive_to_provenance():
+    """A digest over decisions has to include *how* each one was reached. Two
+    closes that matched the same rows for different reasons are not the same
+    close, and a digest that cannot tell them apart commits to less than it
+    appears to."""
+    from recon.close import outcome_digest
+
+    shipped = close("A")
+    matches = shipped.matches
+    assert matches
+
+    import dataclasses
+
+    relabelled = [
+        dataclasses.replace(
+            m,
+            proof=m.proof.model_copy(
+                update={"provenance": ProofTier.P1_RULE, "rule_id": "R-WHATEVER"}
+            ),
+        )
+        for m in matches
+    ]
+    base = outcome_digest(matches, shipped.exceptions, shipped.entries, shipped.scope)
+    moved = outcome_digest(relabelled, shipped.exceptions, shipped.entries, shipped.scope)
+    assert base != moved
 
 
 def test_a_promoted_rule_that_is_not_in_the_store_cannot_launder_a_close():
