@@ -159,8 +159,12 @@ def test_the_match_rate_never_appears_without_its_decomposition(
     body = client.get(f"/periods/{run_id}").text
     view = service.view(run_id, runs_root)
 
-    assert view.tiers.rate in body
-    assert re.search(r"\d+/\d+", view.tiers.rate), view.tiers.rate
+    # The card shows the parts and the percentage separately now, so assert the
+    # property rather than one string: a reader must be able to see the
+    # numerator, the denominator and the tier split without leaving the card.
+    assert str(view.tiers.matched) in body
+    assert str(view.tiers.anchors_in_scope) in body
+    assert re.search(r"\d+\.\d%", body), "no percentage on the page at all"
     assert "by tier" in body
     assert "resting on a declared gap" in body
 
@@ -171,8 +175,8 @@ def test_blocking_recall_is_rendered_absent_and_never_zero(closed: tuple[TestCli
     zero says we ran it and got nothing, which is a claim that flatters us."""
     client, run_id, runs_root = closed
     body = client.get(f"/periods/{run_id}").text
-    block = body[body.index("Blocking recall") : body.index("Blocking recall") + 400]
-    assert "absent" in block
+    block = body[body.index("Blocking recall") : body.index("Blocking recall") + 500]
+    assert "Absent" in block
     assert "0.0%" not in block and "0%" not in block
     assert "labelled" in block, "the page does not say what would measure it"
 
@@ -266,9 +270,15 @@ def test_re_derivation_is_reachable_from_the_page(closed: tuple[TestClient, str,
 
     wrong = client.post(f"/periods/{run_id}/reverify", data=_form(client, source_set="B"))
     assert "different file" in wrong.text
-    assert "not the bytes this close ran on" in wrong.text, (
-        "pointed at the wrong period it reports a finding about the close rather "
-        "than about the request"
+    # The page must lead with the navigation error rather than the twenty
+    # refutations that follow from it. Content-derived record ids mean a
+    # different period cites rows that do not exist, so those refutations are a
+    # fact about the files — presenting them as findings about the close reads
+    # as an accusation and is the wrong answer to the wrong question.
+    assert "not the files this close ran on" in wrong.text
+    lead = wrong.text.index("not the files this close ran on")
+    assert lead < wrong.text.index("referenced record(s) not found"), (
+        "the refutations come before the explanation for them"
     )
 
 

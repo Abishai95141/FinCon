@@ -24,6 +24,7 @@ dependencies = [
   "python-calamine>=0.2",
   "anthropic>=0.40",
   "fastmcp>=2.0",
+  "boto3>=1.43.79",
 ]
 
 # The product's two surfaces, as commands. `src/recon/api/` and

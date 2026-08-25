@@ -76,6 +76,16 @@ class User:
         return (parts[0][:2] if parts else head[:2] or "?").upper()
 
 
+class NeedsConfirmation(AuthError):
+    """The account exists and its email has not been confirmed yet.
+
+    A subclass rather than a message, because the surface has to *do* something
+    different: show the code form instead of the password form. Distinguishing
+    it is safe where the plain `AuthError` is not — it only ever follows a
+    correct password, so it reveals nothing an attacker did not already have.
+    """
+
+
 class Identity(Protocol):
     name: str
     managed: bool
@@ -83,6 +93,8 @@ class Identity(Protocol):
     def sign_up(self, email: str, password: str) -> User: ...
     def sign_in(self, email: str, password: str) -> User: ...
     def exists(self, email: str) -> bool: ...
+    def confirm(self, email: str, code: str) -> None: ...
+    def resend(self, email: str) -> None: ...
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +138,15 @@ class LocalIdentity:
         self._save(records)
         return User(user_id=records[email]["user_id"], email=email)
 
+    def confirm(self, email: str, code: str) -> None:
+        """Nothing to confirm — a local account has no email behind it. Present
+        so the two backends satisfy one protocol rather than the surface asking
+        which one it is talking to."""
+        raise AuthError("This development account needs no confirmation.")
+
+    def resend(self, email: str) -> None:
+        raise AuthError("This development account needs no confirmation.")
+
     def sign_in(self, email: str, password: str) -> User:
         email = _norm(email)
         record = self._load().get(email)
@@ -156,16 +177,44 @@ class CognitoIdentity:
     name = "cognito"
     managed = True
 
-    def __init__(self, pool_id: str | None = None, client_id: str | None = None, region=None):
+    def __init__(
+        self,
+        pool_id: str | None = None,
+        client_id: str | None = None,
+        region: str | None = None,
+        client_secret: str | None = None,
+    ):
         self.pool_id = pool_id or os.environ.get("RECON_COGNITO_POOL_ID", "")
         self.client_id = client_id or os.environ.get("RECON_COGNITO_CLIENT_ID", "")
         self.region = region or os.environ.get("AWS_REGION", "ap-south-1")
+        # A confidential client: this server is the only caller and it holds a
+        # secret, so every auth call carries a SECRET_HASH. A public client would
+        # be simpler and would mean anyone who learns the client id can drive the
+        # pool's sign-up endpoint.
+        self._secret = client_secret or os.environ.get("RECON_COGNITO_CLIENT_SECRET", "")
         if not (self.pool_id and self.client_id):
             raise ConfigError(
                 "RECON_AUTH=cognito needs RECON_COGNITO_POOL_ID and "
                 "RECON_COGNITO_CLIENT_ID. Refusing to start rather than falling "
                 "back to a development credential store."
             )
+
+    def _hash(self, username: str) -> str:
+        """Cognito's HMAC over `username + client_id`, keyed by the client secret."""
+        digest = hmac.new(
+            self._secret.encode(), (username + self.client_id).encode(), hashlib.sha256
+        ).digest()
+        return base64.b64encode(digest).decode()
+
+    def _signup_secret(self, username: str) -> dict:
+        """`SignUp` spells it `SecretHash`; `InitiateAuth` spells the same value
+        `SECRET_HASH` inside `AuthParameters`. Two spellings, one hash, and a
+        clever comprehension that tried to derive one from the other is how a
+        typo becomes an auth outage."""
+        return {"SecretHash": self._hash(username)} if self._secret else {}
+
+    def _auth_secret(self, username: str) -> dict:
+        return {"SECRET_HASH": self._hash(username)} if self._secret else {}
 
     def _client(self):
         import boto3  # imported here so the package is optional off AWS
@@ -196,9 +245,10 @@ class CognitoIdentity:
                 Username=email,
                 Password=password,
                 UserAttributes=[{"Name": "email", "Value": email}],
+                **self._signup_secret(email),
             )
         except ClientError as exc:
-            raise AuthError(_cognito_message(exc)) from exc
+            raise _cognito_error(exc) from exc
         return User(user_id=reply["UserSub"], email=email)
 
     def sign_in(self, email: str, password: str) -> User:
@@ -209,27 +259,69 @@ class CognitoIdentity:
             reply = self._client().initiate_auth(
                 ClientId=self.client_id,
                 AuthFlow="USER_PASSWORD_AUTH",
-                AuthParameters={"USERNAME": email, "PASSWORD": password},
+                AuthParameters={
+                    "USERNAME": email,
+                    "PASSWORD": password,
+                    **self._auth_secret(email),
+                },
             )
         except ClientError as exc:
-            raise AuthError(_cognito_message(exc)) from exc
+            raise _cognito_error(exc) from exc
         # The id token is read once, for the subject, and then dropped. Nothing
         # downstream takes a JWT, so nothing downstream can be fooled by one.
         claims = _unverified_claims(reply["AuthenticationResult"]["IdToken"])
         return User(user_id=claims["sub"], email=claims.get("email", email))
 
+    def confirm(self, email: str, code: str) -> None:
+        from botocore.exceptions import ClientError
 
-def _cognito_message(exc) -> str:
+        email = _norm(email)
+        try:
+            self._client().confirm_sign_up(
+                ClientId=self.client_id,
+                Username=email,
+                ConfirmationCode=code.strip(),
+                **self._signup_secret(email),
+            )
+        except ClientError as exc:
+            raise _cognito_error(exc) from exc
+
+    def resend(self, email: str) -> None:
+        from botocore.exceptions import ClientError
+
+        email = _norm(email)
+        try:
+            self._client().resend_confirmation_code(
+                ClientId=self.client_id, Username=email, **self._signup_secret(email)
+            )
+        except ClientError as exc:
+            raise _cognito_error(exc) from exc
+
+
+def _cognito_error(exc) -> AuthError:
+    """Cognito's error code, as the exception this surface should raise.
+
+    Returns rather than raises, and returns an *instance* rather than a string:
+    an earlier draft had a `_message()` helper that raised for one code and
+    returned for the rest, which is the kind of control flow that reads fine
+    once and wrongly forever after.
+    """
     code = exc.response["Error"]["Code"]
-    if code in {"NotAuthorizedException", "UserNotFoundException"}:
-        return "Email or password is incorrect."
-    if code == "UsernameExistsException":
-        return "An account with that email already exists. Sign in instead."
-    if code == "InvalidPasswordException":
-        return "That password does not meet the policy for this account."
     if code == "UserNotConfirmedException":
-        return "Check your email for a confirmation link, then sign in."
-    return exc.response["Error"].get("Message", "Sign-in failed.")
+        return NeedsConfirmation("Confirm your email to finish signing in.")
+    if code in {"NotAuthorizedException", "UserNotFoundException"}:
+        return AuthError("Email or password is incorrect.")
+    if code == "UsernameExistsException":
+        return AuthError("An account with that email already exists. Sign in instead.")
+    if code == "InvalidPasswordException":
+        return AuthError("That password does not meet the policy for this account.")
+    if code == "CodeMismatchException":
+        return AuthError("That code is not right. Check the email and try again.")
+    if code == "ExpiredCodeException":
+        return AuthError("That code has expired. Ask for a new one.")
+    if code == "LimitExceededException":
+        return AuthError("Too many attempts. Wait a few minutes and try again.")
+    return AuthError(exc.response["Error"].get("Message", "Sign-in failed."))
 
 
 def _unverified_claims(token: str) -> dict:

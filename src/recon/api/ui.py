@@ -22,6 +22,8 @@ edited, where the page says so rather than rendering something clean.
 
 from __future__ import annotations
 
+import json
+from decimal import Decimal
 from html import escape
 from pathlib import Path
 
@@ -38,7 +40,7 @@ router = APIRouter(include_in_schema=False)
 
 NAV = (
     ("periods", "/periods", "Periods"),
-    ("worklist", "/periods", "Worklist"),
+    ("worklist", "/worklist", "Worklist"),
     ("verify", "/verify", "Verify"),
     ("sources", "/sources", "Data sources"),
     ("settings", "/settings", "Settings"),
@@ -146,6 +148,24 @@ def _rail(user: User, active: str, worklist_count: int) -> str:
     )
 
 
+def _crumb_row(crumb: str, worklist: int) -> str:
+    """Breadcrumb on the left, the two things a controller reaches for on the
+    right. The bell carries the open count rather than being decorative — a
+    notification icon with nothing behind it is furniture."""
+    bell = (
+        f"<a class='iconbtn' href='/worklist' aria-label='{worklist} items need review'>"
+        f"{icon('bell', 16)}<span class='dot'>{worklist}</span></a>"
+        if worklist
+        else f"<a class='iconbtn' href='/worklist' aria-label='Worklist'>{icon('bell', 16)}</a>"
+    )
+    return (
+        f"<div class='crumb-row'><div class='crumb'>{crumb}</div>"
+        f"<div class='crumb-tools'>{bell}"
+        f"<a class='iconbtn' href='/verify' aria-label='How verification works'>"
+        f"{icon('help', 16)}</a></div></div>"
+    )
+
+
 def shell(user: User, *, active: str, crumb: str, body: str, worklist: int = 0) -> HTMLResponse:
     banner = ""
     if not auth.is_dev():
@@ -157,7 +177,7 @@ def shell(user: User, *, active: str, crumb: str, body: str, worklist: int = 0) 
         )
     inner = (
         f"{banner}<div class='shell'>{_rail(user, active, worklist)}"
-        f"<main class='stage'><div class='crumb'>{crumb}</div>{body}</main></div>"
+        f"<main class='stage'>{_crumb_row(crumb, worklist)}{body}</main></div>"
     )
     return HTMLResponse(document("FinCon", inner))
 
@@ -489,15 +509,58 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
     by_match = " ".join(f"{k}={v}" for k, v in sorted(tiers.by_match_tier.items())) or "&mdash;"
     by_proof = " ".join(f"{k}={v}" for k, v in sorted(tiers.by_proof_tier.items())) or "&mdash;"
 
+    matched, offered = tiers.matched, tiers.anchors_in_scope
+    pct = f"{(matched * 100 / offered):.1f}%" if offered else "&mdash;"
     metrics = (
-        f"<div class='metrics'>"
-        f"{_metric('Auto-matched', escape(tiers.rate), f'by tier {by_match}')}"
-        f"{_metric('Proof tiers', by_proof, f'{tiers.declared} resting on a declared gap')}"
-        f"{_metric('Every input disposed', 'yes' if view.complete else 'NO', 'matched, excepted, or out of scope with a reason', ok=view.complete)}"
-        f"{_metric('Blocking recall', '<span style="color:var(--warning)">absent</span>', 'measured against labelled pairs; production has none')}"
-        f"{_metric('Books', 'balanced' if not view.blocked else 'BLOCKED', '; '.join(view.blocked) or 'balance assertion held', ok=not view.blocked)}"
-        f"{_metric('Awaiting sign-off', str(len(view.blocking_exceptions)), 'exceptions a human must clear')}"
-        f"</div>"
+        "<div class='metrics'>"
+        + _metric(
+            "Auto-matched",
+            f"{matched}<small> / {offered}</small>",
+            f"by tier {by_match}",
+            ico="trend",
+            bar=round(matched * 100 / offered) if offered else 0,
+            sub=f"<span style='color:var(--primary);font-weight:600;font-size:15px'>{pct}</span>",
+        )
+        + _metric(
+            "Proof tiers",
+            by_proof,
+            f"{tiers.declared} resting on a declared gap",
+            ico="layers",
+            tone="calm",
+        )
+        + _metric(
+            "Every input disposed",
+            "<span style='color:var(--success)'>Yes</span>"
+            if view.complete
+            else "<span style='color:var(--error)'>No</span>",
+            "matched, excepted, or out of scope with a reason",
+            ico="verify",
+            tone="ok" if view.complete else "bad",
+        )
+        + _metric(
+            "Blocking recall",
+            "<span style='color:var(--warning)'>Absent</span>",
+            "measured against labelled pairs; production has none",
+            ico="alert",
+            tone="warn",
+        )
+        + _metric(
+            "Books",
+            "<span style='color:var(--success)'>Balanced</span>"
+            if not view.blocked
+            else "<span style='color:var(--error)'>Blocked</span>",
+            "; ".join(view.blocked) or "balance assertion held",
+            ico="scale",
+            tone="ok" if not view.blocked else "bad",
+        )
+        + _metric(
+            "Awaiting sign-off",
+            f"<span style='color:#5B4BD6'>{len(view.blocking_exceptions)}</span>",
+            "exceptions a human must clear",
+            ico="user",
+            tone="calm",
+        )
+        + "</div>"
     )
 
     problems = ""
@@ -565,21 +628,55 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         for a in view.authority
     )
 
-    reverify = "".join(
-        f"<form method='post' action='/periods/{escape(run_id)}/reverify' "
-        f"style='display:inline'>{csrf}"
-        f"<input type='hidden' name='source_set' value='{escape(s.name)}'>"
-        f"<button class='btn btn-secondary' type='submit'>{icon('verify', 14)}"
-        f"Re-derive against {escape(s.name)}</button></form> "
-        for s in service.source_sets(view.loop)
-        if s.complete
-    )
+    # The record pins a sha256 per source, so the page knows which files this
+    # close ran on. Offering the others as equals invited the mistake that
+    # produced twenty meaningless refutations — they are still reachable, behind
+    # a disclosure that says what they are for.
+    ran_on = service.source_set_of(run_id, tenant_runs(user, request))
+    others = [s.name for s in service.source_sets(view.loop) if s.complete and s.name != ran_on]
 
+    def _rebutton(name: str, primary: bool) -> str:
+        cls = "btn-secondary" if primary else "btn-ghost"
+        label = "Re-derive this close" if primary else f"against {escape(name)}"
+        return (
+            f"<form method='post' action='/periods/{escape(run_id)}/reverify' style='display:inline'>"
+            f"{csrf}<input type='hidden' name='source_set' value='{escape(name)}'>"
+            f"<button class='btn {cls}' type='submit'>{icon('verify', 14) if primary else ''}"
+            f"{label}</button></form> "
+        )
+
+    reverify = _rebutton(ran_on, True) if ran_on else ""
+    if others:
+        reverify += (
+            "<details style='display:inline-block;margin-left:.4rem'>"
+            "<summary>check against other files</summary>"
+            "<div style='margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap'>"
+            + "".join(_rebutton(name, False) for name in others)
+            + "<p class='cap' style='margin:.4rem 0 0;max-width:38ch'>These are different bytes. "
+            "Record ids are content-derived, so every proof will cite rows that are not there &mdash; "
+            "that is a fact about the files, not a finding about this close.</p></div></details>"
+        )
+    if not ran_on:
+        reverify = (
+            "<span class='badge badge-declared'>The files this close ran on are not on disk</span> "
+            + "".join(_rebutton(n, False) for n in others)
+        )
+
+    # Escape the dates, then join with the entity — `escape()` over the whole
+    # string turns `&ndash;` into visible `&amp;ndash;`, which is how an entity
+    # ends up printed on a page.
+    period = " &ndash; ".join(escape(d) for d in view.period) if view.period else "&mdash;"
     body = (
+        f"<div class='pagehead'><div class='lhs'>"
         f"<h1>{escape(view.run_id)}</h1>"
-        f"<p class='cap' style='margin:0 0 1.3rem'>{escape(view.loop)} &middot; policy "
+        f"<p class='sub'>{escape(view.loop)} &middot; policy "
         f"<span class='num'>{escape(view.policy_ref or '—')}</span> &middot; {view.events} events "
-        f"&middot; rebuilt from the decision log</p>"
+        f"&middot; rebuilt from the decision log</p></div>"
+        f"<div class='rhs'><span class='chip-select'>{icon('calendar', 16)}"
+        f"<span><span class='k'>Period</span><br><span class='v num'>{period}</span></span>"
+        f"</span>"
+        f"<a class='btn btn-primary' href='/periods/{escape(run_id)}/log'>"
+        f"Decision log {icon('arrow', 14)}</a></div></div>"
         f"<div class='stages'>{stages}</div>{problems}{metrics}"
         f"<p class='sec'>Check this close</p>"
         f"<div class='panel' style='padding:1.2rem 1.3rem;margin-bottom:1.6rem'>"
@@ -589,7 +686,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         f"<div style='display:flex;gap:.5rem;flex-wrap:wrap;align-items:center'>{reverify}"
         f"<a class='btn btn-ghost' href='/v1/runs/{escape(run_id)}/export'>{icon('download', 14)}"
         f"Audit export</a>"
-        f"<a class='btn btn-ghost' href='/v1/runs/{escape(run_id)}/events'>{icon('log', 14)}"
+        f"<a class='btn btn-ghost' href='/periods/{escape(run_id)}/log'>{icon('log', 14)}"
         f"Decision log</a></div></div>"
         f"<p class='sec'>Worklist &mdash; {len(view.exceptions)} items, ranked by cash impact "
         f"&times; age</p>{worklist}"
@@ -623,15 +720,32 @@ def _stage_labels(view: service.CloseView) -> list[str]:
     ]
 
 
-def _metric(key: str, value: str, note: str, *, ok: bool | None = None) -> str:
-    colour = ""
-    if ok is True:
-        colour = "color:var(--success)"
-    elif ok is False:
-        colour = "color:var(--error)"
+def _metric(
+    key: str,
+    value: str,
+    note: str,
+    *,
+    ico: str = "layers",
+    tone: str = "",
+    bar: int | None = None,
+    sub: str = "",
+) -> str:
+    """One figure, its icon, its note — and never a rate without its parts.
+
+    `sub` is where the decomposition goes, so a card physically cannot show a
+    percentage on its own: the caller has to supply both or neither.
+    """
+    progress = (
+        f"<div class='bar'><i style='width:{max(0, min(bar, 100))}%'></i></div>"
+        if bar is not None
+        else ""
+    )
     return (
-        f"<div class='panel solid metric'><div class='k'>{escape(key)}</div>"
-        f"<div class='v' style='{colour}'>{value}</div>"
+        f"<div class='panel solid metric'><div class='head'><div>"
+        f"<div class='k'>{escape(key)}</div><div class='v'>{value}</div></div>"
+        f"<span class='metric-ico {tone}'>{icon(ico, 17)}</span></div>"
+        f"{progress}"
+        f"{f"<div class='d'>{sub}</div>" if sub else ''}"
         f"<div class='d'>{escape(note)}</div></div>"
     )
 
@@ -663,20 +777,36 @@ def do_reverify(
         f"{escape('; '.join(r['reasons']))}</li>"
         for r in report.refuted
     )
-    verdict = "holds" if report.holds else "DOES NOT HOLD"
+    # When the files are not the ones this close ran on, the refutations mean
+    # nothing — record ids are content-derived, so different bytes cite rows that
+    # are not there. Leading with twenty walls of red was the page telling a
+    # reader they had found a problem with the close when they had pointed it at
+    # the wrong period. That reads as an accusation and it is a navigation error.
     trailer = ""
-    if refuted:
-        trailer += f"<p class='sec' style='margin-top:1.6rem'>Refuted</p><div class='alert'><ul style='margin:0'>{refuted}</ul></div>"
-    if report.missing_proofs:
-        trailer += (
-            f"<div class='alert alert-info'>{len(report.missing_proofs)} match(es) have no "
-            f"proof in the record, so there was nothing to re-derive. This does not pass.</div>"
-        )
     if not report.sources_match:
         trailer += (
-            "<div class='alert alert-info'>The files on disk are not the bytes this close ran "
-            "on, so a refutation here says nothing about the close. Point it at the right "
-            "period.</div>"
+            "<div class='alert alert-info'><b>These are not the files this close ran on.</b><br>"
+            "Record ids are derived from content, so a different period's files cite rows that "
+            "do not exist here. Every refutation below follows from that and says nothing about "
+            "the close &mdash; re-derive against the period whose hashes match.</div>"
+        )
+    if refuted:
+        label = (
+            "Refuted &mdash; expected, given the files above"
+            if not report.sources_match
+            else "Refuted"
+        )
+        trailer += (
+            f"<details style='margin-top:1.4rem'>"
+            f"<summary>{label} ({len(report.refuted)})</summary>"
+            f"<div class='alert' style='margin-top:.6rem'><ul style='margin:0'>{refuted}</ul></div>"
+            f"</details>"
+        )
+    if report.missing_proofs:
+        trailer += (
+            f"<div class='alert alert-info' style='margin-top:1rem'>{len(report.missing_proofs)} "
+            f"match(es) have no proof in the record, so there was nothing to re-derive. "
+            f"This does not pass.</div>"
         )
 
     body = (
@@ -684,12 +814,31 @@ def do_reverify(
         f"<p class='cap' style='margin:0 0 1.3rem'>Against the files in "
         f"<span class='num'>{escape(source_set)}</span>, under "
         f"{escape(report.policy_ref)}. Nothing was read from the process that ran the close.</p>"
-        f"<div class='metrics'>"
-        f"{_metric('Verdict', verdict, 'sources, arithmetic and evidence must all pass', ok=report.holds)}"
-        f"{_metric('Proofs re-derived', f'{report.proven}/{report.proofs_checked}', 'recomputed from freshly ingested records')}"
-        f"{_metric('Records ingested', str(report.records_ingested), report.records_digest)}"
-        f"</div>"
-        f"<p class='sec'>Source documents</p>"
+        "<div class='metrics'>"
+        + _metric(
+            "Verdict",
+            "<span style='color:var(--success)'>holds</span>"
+            if report.holds
+            else "<span style='color:var(--error)'>does not hold</span>",
+            "sources, arithmetic and evidence must all pass",
+            ico="verify",
+            tone="ok" if report.holds else "bad",
+        )
+        + _metric(
+            "Proofs re-derived",
+            f"{report.proven}/{report.proofs_checked}",
+            "recomputed from freshly ingested records",
+            ico="layers",
+            tone="calm",
+        )
+        + _metric(
+            "Records ingested",
+            str(report.records_ingested),
+            report.records_digest,
+            ico="sources",
+        )
+        + "</div>"
+        + f"<p class='sec'>Source documents</p>"
         f"<div class='tbl'><table><tr><th>Source</th><th>Spec</th>"
         f"<th>Hash in the record</th><th>Hash on disk</th><th></th></tr>{sources}</table></div>"
         f"{trailer}"
@@ -755,24 +904,310 @@ def verify_page(request: Request) -> Response:
     return HTMLResponse(document("Verify a proof · FinCon", body))
 
 
-@router.get("/sources", response_class=HTMLResponse)
-@router.get("/settings", response_class=HTMLResponse)
-def not_built(request: Request, user: User = CURRENT_USER) -> Response:
-    """Two rail destinations that lead nowhere yet, and say so.
-
-    A nav item that silently does nothing is worse than one that explains what
-    it is waiting for. Uploads need the S3 storage step; settings needs
-    something to configure that is not authority — and authority is deliberately
-    not configurable from here.
-    """
-    body = (
-        "<h1>Not built yet</h1>"
-        "<p class='body-lg' style='color:var(--n600);max-width:46rem'>This destination is "
-        "in the plan and is not implemented. Source uploads arrive with tenant-scoped S3 "
-        "storage; settings arrives when there is something to configure that is not "
-        "authority &mdash; policy, tolerances and rules come from signed bundles and are "
-        "deliberately not editable from a screen.</p>"
-        "<p style='margin-top:1.4rem'><a class='btn btn-primary' href='/periods'>"
-        "Back to periods</a></p>"
+def _empty(ico: str, title: str, body: str, action: str = "") -> str:
+    return (
+        f"<div class='empty'><div class='ring'>{icon(ico, 22)}</div>"
+        f"<h3>{escape(title)}</h3><p>{escape(body)}</p>"
+        f"{f"<p style='margin-top:1.1rem'>{action}</p>" if action else ''}</div>"
     )
-    return shell(user, active="sources", crumb="<b>Not built</b>", body=body)
+
+
+@router.get("/worklist", response_class=HTMLResponse)
+def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) -> Response:
+    """Every open item across every close, ranked and routed.
+
+    The per-close worklist answers "what is wrong with October". This answers
+    "what is on my desk", which is the question a controller actually starts the
+    day with — and it is the reason the tail is the product rather than the match
+    rate.
+    """
+    runs_dir = tenant_runs(user, request)
+    rows, owners, total_paise = [], {}, 0
+    for run_id in service.stored_runs(runs_dir):
+        try:
+            view = service.view(run_id, runs_dir)
+        except Exception:
+            continue
+        for item in view.exceptions:
+            owners[item.owner] = owners.get(item.owner, 0) + 1
+            if owner and item.owner != owner:
+                continue
+            total_paise += item.cash_impact_paise
+            exc = item.exception
+            note = (
+                f" <span class='badge badge-declared'>{escape(item.authority_note)}</span>"
+                if item.authority_note
+                else ""
+            )
+            rows.append(
+                (
+                    item.cash_impact_paise * max(item.age_days, 1),
+                    f"<tr><td><a href='/periods/{escape(run_id)}'>{escape(run_id)}</a></td>"
+                    f"<td><b>{escape(exc.code)}</b> {escape(item.code_title)}{note}"
+                    f"<span class='sub'>{escape(exc.hypothesis or 'the engine has facts, not an explanation')}</span></td>"
+                    f"<td class='right num'>{money(exc.amount)}</td>"
+                    f"<td class='right num'>{item.age_days}d</td>"
+                    f"<td class='num'>{escape(exc.fingerprint[:8] or '&mdash;')}</td>"
+                    f"<td>{escape(item.owner)}</td></tr>",
+                )
+            )
+    rows.sort(key=lambda pair: -pair[0])
+
+    filters = "".join(
+        f"<a href='/worklist{'' if not name else '?owner=' + name}' "
+        f"aria-current='{str(owner == name).lower()}'>{escape(label)} "
+        f"<span class='num'>{count}</span></a>"
+        for name, label, count in [("", "All desks", sum(owners.values()))]
+        + [(o, o, n) for o, n in sorted(owners.items())]
+    )
+
+    table = (
+        f"<div class='tbl'><table><tr><th>Run</th><th>Exception</th>"
+        f"<th class='right'>Amount</th><th class='right'>Age</th><th>Break</th>"
+        f"<th>Owner</th></tr>{''.join(html for _, html in rows)}</table></div>"
+        if rows
+        else _empty(
+            "inbox",
+            "Nothing on this desk",
+            "Either no close has been run yet, or every item has been cleared. "
+            "The worklist only ever shows what a close actually raised.",
+            "<a class='btn btn-primary' href='/periods'>Go to periods</a>",
+        )
+    )
+    body = (
+        f"<div class='pagehead'><div class='lhs'><h1>Worklist</h1>"
+        f"<p class='sub'>Ranked by cash impact &times; age, routed by the taxonomy. "
+        f"{len(rows)} item(s), {money(Decimal(total_paise) / 100)} at stake.</p></div></div>"
+        f"<div class='toolbar'><div class='pillnav'>{filters}</div></div>{table}"
+    )
+    return shell(
+        user,
+        active="worklist",
+        crumb="<b>Worklist</b>",
+        body=body,
+        worklist=sum(owners.values()),
+    )
+
+
+@router.get("/periods/{run_id}/log", response_class=HTMLResponse)
+def log_page(request: Request, run_id: str, offset: int = 0, user: User = CURRENT_USER) -> Response:
+    """The decision log as a timeline rather than a wall of JSON.
+
+    This is the artifact an auditor is handed, so it is worth rendering as
+    something a person can read: one row per decision, in order, with the
+    payload behind a disclosure. The counts at the top are the shape of the
+    close — 20 matches, 7 exceptions, 23 postings — which is the first thing
+    anyone wants and the last thing raw JSON gives them.
+    """
+    runs_dir = tenant_runs(user, request)
+    try:
+        page = service.event_page(run_id, offset=offset, runs_dir=runs_dir)
+        chain = service.check_chain(service.events(run_id, runs_dir))
+    except service.ServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    tone = {
+        "MatchProven": "k-ok",
+        "PostingWritten": "k-ok",
+        "SourceIngested": "k-ok",
+        "CloseCompleted": "k-ok",
+        "AuthorityVerified": "k-info",
+        "RuleApplied": "k-info",
+        "CloseStarted": "k-info",
+        "OutOfScope": "k-info",
+        "ExceptionRaised": "k-warn",
+        "IntakeUnverified": "k-warn",
+        "MatchRejected": "k-bad",
+        "CloseBlocked": "k-bad",
+        "ProposalRefused": "k-bad",
+    }
+    glyph = {"k-ok": "check", "k-bad": "x", "k-warn": "alert", "k-info": "layers"}
+
+    events_html = []
+    for event in page.items:
+        klass = tone.get(event["kind"], "k-info")
+        payload = json.dumps(event["payload"], indent=2, sort_keys=True)
+        events_html.append(
+            f"<div class='ev {klass}'><span class='node'>{icon(glyph[klass], 11, 3)}</span>"
+            f"<div class='line'><span class='kind'>{escape(event['kind'])}</span>"
+            f"<span class='badge badge-mute'>{escape(event['outcome'])}</span>"
+            f"<span class='meta'>#{event['seq']} &middot; {escape(event['actor'])} &middot; "
+            f"{escape(event['at'][11:19])}Z</span></div>"
+            f"<details><summary>payload &amp; hash</summary>"
+            f"<pre>{escape(payload)}</pre>"
+            f"<p class='cap num' style='margin:.4rem 0 0'>hash {escape(event['event_hash'][:32])}&hellip;<br>"
+            f"prev {escape(event['prev_hash'][:32])}&hellip;</p></details></div>"
+        )
+
+    kinds: dict[str, int] = {}
+    for event in service.events(run_id, runs_dir):
+        kinds[event.kind.value] = kinds.get(event.kind.value, 0) + 1
+    summary = "".join(
+        f"<span class='badge {'badge-ok' if tone.get(k) == 'k-ok' else 'badge-bad' if tone.get(k) == 'k-bad' else 'badge-declared' if tone.get(k) == 'k-warn' else 'badge-info'}'>"
+        f"{escape(k)} <span class='num'>{n}</span></span> "
+        for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])
+    )
+
+    nav = ""
+    if page.next_offset is not None:
+        nav = (
+            f"<p style='margin-top:1.2rem'><a class='btn btn-secondary' "
+            f"href='/periods/{escape(run_id)}/log?offset={page.next_offset}'>"
+            f"Next {page.total - page.next_offset} events {icon('arrow', 14)}</a></p>"
+        )
+    if offset:
+        nav += (
+            f"<p style='margin-top:.6rem'><a href='/periods/{escape(run_id)}/log'>"
+            f"&larr; back to the start</a></p>"
+        )
+
+    verdict = (
+        "<span class='badge badge-ok'>chain holds</span>"
+        if chain.holds
+        else "<span class='badge badge-bad'>chain does not hold</span>"
+    )
+    problems = (
+        ""
+        if chain.holds
+        else "<div class='alert'><b>The log does not vouch for itself.</b><ul style='margin:.4rem 0 0'>"
+        + "".join(f"<li>{escape(p)}</li>" for p in chain.problems)
+        + "</ul></div>"
+    )
+
+    body = (
+        f"<div class='pagehead'><div class='lhs'><h1>Decision log</h1>"
+        f"<p class='sub'>Every decision this close made, in order, hash-chained. "
+        f"Showing {page.returned} of {page.total}.</p></div>"
+        f"<div class='rhs'>{verdict}"
+        f"<a class='btn btn-secondary' href='/v1/runs/{escape(run_id)}/events'>"
+        f"{icon('download', 14)}Raw JSON</a></div></div>"
+        f"{problems}"
+        f"<div class='panel' style='padding:1rem 1.2rem;margin-bottom:1.4rem'>{summary}"
+        f"<p class='cap' style='margin:.7rem 0 0'>A hash chain proves internal consistency, "
+        f"not custody &mdash; an actor able to rewrite the whole file can recompute it over "
+        f"anything. What it closes is the partial edit and the truncated tail.</p></div>"
+        f"<div class='panel' style='padding:1.2rem 1.4rem'><div class='log'>"
+        f"{''.join(events_html)}</div>{nav}</div>"
+    )
+    crumb = (
+        f"<a href='/periods'>Periods</a><span>/</span>"
+        f"<a href='/periods/{escape(run_id)}'>{escape(run_id)}</a><span>/</span><b>Decision log</b>"
+    )
+    return shell(user, active="periods", crumb=crumb, body=body)
+
+
+@router.get("/sources", response_class=HTMLResponse)
+def sources_page(request: Request, user: User = CURRENT_USER) -> Response:
+    """What this controller reads, and what has arrived.
+
+    Adapters are declarative specs interpreted by a closed vocabulary of parse
+    verbs — no generated code is executed (ADR-001) — so listing them is listing
+    data, and a reader can check what a source is allowed to become.
+    """
+    cards = []
+    for lp in service.loops():
+        rows = "".join(
+            f"<tr><td><b>{escape(src.filename)}</b><span class='sub'>side "
+            f"{escape(src.side)} &middot; {escape(src.role)}</span></td>"
+            f"<td class='num'>{escape(src.spec_id)}</td>"
+            f"<td><a href='/v1/contracts'>spec</a></td></tr>"
+            for src in lp.sources
+        )
+        sets = "".join(
+            f"<tr><td><b>{escape(s.name)}</b></td>"
+            f"<td>{"<span class='badge badge-ok'>complete</span>" if s.complete else f"<span class='badge badge-declared'>missing {escape(', '.join(s.missing))}</span>"}</td>"
+            f"<td class='cap'>{escape(', '.join(s.present))}</td></tr>"
+            for s in service.source_sets(lp.name)
+        )
+        cards.append(
+            f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
+            f"<h3 style='margin:0 0 .2rem'>{escape(lp.name)}</h3>"
+            f"<p class='cap' style='margin:0 0 1rem'>{escape(lp.description)}</p>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Adapters</p>"
+            f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>File</th>"
+            f"<th>Spec</th><th></th></tr>{rows}</table></div>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Periods on disk</p>"
+            f"<div class='tbl'><table><tr><th>Period</th><th>State</th>"
+            f"<th>Files</th></tr>{sets}</table></div></div>"
+        )
+    body = (
+        f"<div class='pagehead'><div class='lhs'><h1>Data sources</h1>"
+        f"<p class='sub'>Which adapter reads which file, and which periods have arrived. "
+        f"Specs are data, not code &mdash; an unknown parse verb is a spec error, never an "
+        f"execution.</p></div></div>{''.join(cards)}"
+        f"<div class='note note-warn'><b>Upload is not built.</b> Files arrive on disk from a "
+        f"feed; a browser upload lands with tenant-scoped S3 storage, which is the next step "
+        f"in <code>docs/09-PRODUCT-DIRECTION.md</code>.</div>"
+    )
+    return shell(user, active="sources", crumb="<b>Data sources</b>", body=body)
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
+    """The account, and the authority in force — which is not editable here.
+
+    Deliberately: policy, tolerances, the taxonomy and the rule store come from
+    signed bundles, and a screen that could change them would be the caller
+    supplying its own permission. So this page *shows* the authority and names
+    who signed it, and offers no way to alter it.
+    """
+    identity = auth.build_identity()
+    authority = service.authority("settlement_3way")
+    codes = "".join(
+        f"<tr><td><b>{escape(c['code'])}</b> {escape(c['title'])}</td>"
+        f"<td><span class='badge {'badge-ok' if c['status'] == 'promoted' else 'badge-declared'}'>"
+        f"{escape(c['status'])}</span></td><td>{escape(c['owner'])}</td>"
+        f"<td>{'yes' if c['may_direct_a_posting'] else 'no'}</td></tr>"
+        for c in authority.codes
+    )
+    bundles = "".join(
+        f"<tr><td class='num'>{escape(b['bundle'])}</td><td>{escape(b['signed_by'] or '&mdash;')}</td>"
+        f"<td class='num'>{escape((b['digest'] or '')[:16])}</td>"
+        f"<td>{"<span class='badge badge-ok'>trusted</span>" if b['trusted'] else "<span class='badge badge-mute'>unverified</span>"}</td></tr>"
+        for b in authority.bundles
+    )
+    rules = (
+        "".join(
+            f"<tr><td class='num'>{escape(r['ref'])}</td><td>{escape(', '.join(r['then']))}</td>"
+            f"<td>{escape(r['approved_by'] or '&mdash;')}</td>"
+            f"<td class='num'>{escape(r['policy_ref'] or '&mdash;')}</td></tr>"
+            for r in authority.rules
+        )
+        or "<tr><td colspan='4' class='cap'>No promoted rules.</td></tr>"
+    )
+
+    body = (
+        f"<div class='pagehead'><div class='lhs'><h1>Settings</h1>"
+        f"<p class='sub'>Your account, and the authority every close runs under.</p></div></div>"
+        f"<div class='grid' style='display:grid;gap:1.2rem;grid-template-columns:1fr'>"
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>Account</p><div class='kv'>"
+        f"<div class='row'><span class='k'>Email</span><span class='v'>{escape(user.email)}</span></div>"
+        f"<div class='row'><span class='k'>Account id</span><span class='v'>{escape(user.user_id)}</span></div>"
+        f"<div class='row'><span class='k'>Credential store</span><span class='v'>"
+        f"{escape(identity.name)}{' (managed)' if identity.managed else ' — development only'}</span></div>"
+        f"<div class='row'><span class='k'>Records</span><span class='v num'>"
+        f"{len(service.stored_runs(tenant_runs(user, request)))} close(s), visible only to this account</span></div>"
+        f"</div></div>"
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>Authority &mdash; read only</p>"
+        f"<p class='cap' style='margin:0 0 1rem'>Policy, the taxonomy and the promoted rules come "
+        f"from signed bundles supplied out of band. There is no control here that could widen a "
+        f"tolerance or add a rule, and that is the point.</p>"
+        f"<div class='kv' style='margin-bottom:1.2rem'>"
+        f"<div class='row'><span class='k'>Policy</span><span class='v num'>{escape(authority.policy.ref)}</span></div>"
+        f"<div class='row'><span class='k'>Approved by</span><span class='v'>{escape(authority.policy.approved_by)}</span></div>"
+        f"<div class='row'><span class='k'>Tolerance ceiling</span><span class='v num'>{money(authority.policy.tolerance_ceiling)}</span></div>"
+        f"<div class='row'><span class='k'>Taxonomy</span><span class='v num'>{escape(authority.taxonomy_ref)}</span></div>"
+        f"</div>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Signed bundles</p>"
+        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Bundle</th><th>Signed by</th>"
+        f"<th>Digest</th><th>State</th></tr>{bundles}</table></div>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Promoted rules</p>"
+        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Rule</th><th>Actions</th>"
+        f"<th>Approved by</th><th>Under policy</th></tr>{rules}</table></div>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Exception vocabulary</p>"
+        f"<div class='tbl'><table><tr><th>Code</th><th>Status</th><th>Owner</th>"
+        f"<th>May direct a posting</th></tr>{codes}</table></div></div></div>"
+    )
+    return shell(user, active="settings", crumb="<b>Settings</b>", body=body)

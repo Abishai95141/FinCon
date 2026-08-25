@@ -994,6 +994,36 @@ class Reverification(BaseModel):
     holds: bool
 
 
+def source_set_of(run_id: str, runs_dir: Path | None = None, *, root: Path | None = None) -> str:
+    """Which period's files this close actually ran on, by digest.
+
+    The record pins a sha256 per source, so this is a fact rather than a guess
+    from the run id's label. It exists because the surface was offering
+    "re-derive against B" for a close that ran on A, and getting back twenty
+    refutations that mean nothing: record ids are content-derived, so B's files
+    produce different ids and every proof cites rows that are not there. The
+    engine was right and the page was misleading, which is the worse of the two.
+
+    Empty string when no available set matches — including when the files have
+    been replaced since, which is itself worth showing.
+    """
+    replayed = replay(events(run_id, runs_dir))
+    lp = looplib.get(replayed.profile)
+    base = root or BATCH_ROOT
+    if not base.exists():
+        return ""
+    for directory in sorted(d for d in base.iterdir() if d.is_dir()):
+        if lp.missing(directory):
+            continue
+        try:
+            digests = lp.load(directory).digests
+        except Exception:  # an unreadable set is not the one we are looking for
+            continue
+        if digests == replayed.source_digests:
+            return directory.name
+    return ""
+
+
 def reverify(
     run_id: str, source_set: str, *, root: Path | None = None, runs_dir: Path | None = None
 ) -> Reverification:

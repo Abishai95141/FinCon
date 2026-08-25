@@ -119,7 +119,8 @@ lint:
 # The product's two surfaces. `src/recon/api/` and `src/recon/mcp/` were 0-byte
 # files until P13, so everything the engine did was real and none of it was
 # reachable by anyone not running Python in this repo.
-# Sign-in is at /login. With no configuration this runs RECON_AUTH=local — a real
+# Sign-in is at /login. `source .env.aws` first for real Cognito; with no
+# configuration this runs RECON_AUTH=local — a real
 # scrypt credential store in a JSON file that the app REFUSES to use unless
 # RECON_ENV=dev, so a development account cannot follow the image to production.
 serve:
