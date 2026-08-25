@@ -21,7 +21,7 @@
       "accepted_by": "meera",
       "books_to": "fee_variance",
       "code": "E02",
-      "definition": "The gateway charged a rate the commercial agreement does not support. The bank and settlement legs still tie, so this is invisible to a two-way match; it needs the contract. Books to fee variance so it never disappears into the ordinary fee line.",
+      "definition": "The gateway charged a rate the commercial agreement does not support. The bank and settlement legs still tie, so this is invisible to a two-way match. It does NOT need the contract: a gateway bills its book on one set of terms, so rows on different terms disagree with their own peers, and the size of the disagreement is the finding. Which side of that disagreement is wrong needs a human \u2014 the majority is not automatically right. Books to fee variance so it never disappears into the ordinary fee line.",
       "owner": "gateway-ops",
       "promoted_at": "2026-08-01T00:00:00Z",
       "promoted_by": "meera",

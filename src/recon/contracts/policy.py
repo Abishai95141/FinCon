@@ -62,6 +62,15 @@ class Policy(BaseModel):
     """Which reconciliation loop this governs. A settlement policy must not
     silently authorise a GST run."""
 
+    consistency_tolerance: Money = Decimal("1.00")
+    """Total variance a peer group may show before it is a finding.
+
+    Here rather than in the profile because a threshold that travels with the
+    thing being examined is audit finding `F1`. Rounding scatters a population by
+    a few paisa; a different billing tier moves it by hundreds — measured at 0.26
+    against 290.07 on batch A — so this is not doing delicate work, which is the
+    only kind of threshold worth having."""
+
     side_signs: dict[str, int]
     """The arithmetic convention, owned here rather than by the profile. Must be
     ±1: a zero sign makes every residual zero and every match verify, which is

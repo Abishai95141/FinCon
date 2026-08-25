@@ -18,6 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ..contracts import Policy, TaxonomyRegistry
+from ..engine.consistency import RelationSpec
 from ..engine.tiers import MatchProfile
 from ..engine.tolerance import TolerancePolicy
 from ..ledger.accounts import ChartOfAccounts
@@ -42,6 +43,17 @@ PROFILE = MatchProfile(
     # A fee shares its charge's payment_id; without this the solver reports
     # subsets that mix a charge from one group with a fee from another.
     cohesion_key="payment_id",
+    # A fee is levied on the charge sharing its payment_id, and a gateway bills
+    # its whole book on one set of terms. Rows that do not follow the relation
+    # their own peers follow are a finding — which is how `E02` is visible at
+    # all, given that no contract or rate appears anywhere in the export.
+    consistency=RelationSpec(
+        peer_key="gateway",
+        link_key="payment_id",
+        row_type_key="row_type",
+        subject="fee",
+        base="charge",
+    ),
 )
 
 

@@ -28,9 +28,10 @@ from ..contracts import (
     Record,
 )
 from ..contracts.rule import Rule
-from . import rulestore
+from . import consistency, rulestore
 from .blocking import CandidateSet
 from .completeness import CompletenessReport, audit
+from .consistency import RelationSpec
 from .subsetsum import Outcome, SolverBounds, solve
 from .tolerance import ToleranceBudget, TolerancePolicy
 
@@ -58,6 +59,12 @@ class MatchProfile:
     """Key whose equal values must move together in a subset — a fee and the
     charge it was levied on. Passed through to the solver; naming it here keeps
     the engine domain-agnostic."""
+    consistency: RelationSpec | None = None
+    """A relation this loop's rows are expected to follow, if it has one — a fee
+    against the charge it was levied on, per counterparty. Declared here because
+    the engine must not know what a fee is (invariant 7); `engine.consistency`
+    reads it and knows only "subject", "base" and "peer"."""
+
     solver_bounds: SolverBounds = field(default_factory=SolverBounds)
 
     def __post_init__(self) -> None:
@@ -373,6 +380,7 @@ def run(
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
+    _consistency_pass(group_records, profile, policy, exceptions)
     exceptions, advised = _advise(exceptions, applied.advisories)
     # The effect a rule had on *this* close, recorded where it happened. A
     # rule that fires and changes nothing is the failure this project keeps
@@ -402,6 +410,45 @@ def run(
             out_of_scope=scope,
         ),
     )
+
+
+def _consistency_pass(
+    records: list[Record],
+    profile: MatchProfile,
+    policy: Policy | None,
+    exceptions: list[ReconException],
+) -> None:
+    """Rows that disagree with their own population, raised as `E02`.
+
+    Matching cannot see this. A payout whose fees were billed on different terms
+    still sums to what the bank paid, so it reconciles perfectly and the variance
+    goes out the door — which is exactly the case a controller most wants raised
+    and the one the tiers are structurally blind to.
+
+    `E02` is *fee variance*, not "above contract tier". Without the contract,
+    which of the two rates was agreed is unknowable and the majority is not
+    automatically right; the finding states the disagreement and its size.
+    """
+    spec = profile.consistency
+    if spec is None or policy is None:
+        return
+    for finding in consistency.find(records, spec, tolerance=Decimal(policy.consistency_tolerance)):
+        rows = [r for r in records if r.record_id in set(finding.record_ids)]
+        exceptions.append(
+            ReconException(
+                exception_id=f"EXC-{len(exceptions) + 1:05d}",
+                code=ExceptionCode.E02_FEE_VARIANCE,
+                code_provenance=ProofTier.P0_ARITHMETIC,
+                as_of=max(r.posted_on for r in rows),
+                amount=finding.variance,
+                record_ids=sorted(finding.record_ids),
+                hypothesis=(
+                    f"{len(finding.record_ids)} row(s) do not follow the relation the "
+                    f"other {finding.relation.agreeing} rows of {finding.peer!r} follow"
+                ),
+                evidence=finding.evidence(),
+            )
+        )
 
 
 def _disposition_pass(

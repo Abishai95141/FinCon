@@ -685,8 +685,11 @@ def test_p10_numbers_are_unchanged(tmp_path):
     card = {c.arm: c for c in close("A", journal_dir=tmp_path, rules=[]).cards}["deterministic"]
     assert card.produced == 20
     assert card.false_matches == 0
-    assert card.exceptions.surfaced == 4
-    assert card.exceptions.classified == 1
+    # 4 -> 5 when the consistency pass landed: `E02` was the planted defect
+    # the engine could not see, and matching is structurally blind to it —
+    # a payout billed on the wrong terms still sums to what the bank paid.
+    assert card.exceptions.surfaced == 5
+    assert card.exceptions.classified == 2
 
 
 def test_a_promoted_rule_only_ever_improves_on_that_baseline(tmp_path):
@@ -707,24 +710,36 @@ def test_a_promoted_rule_only_ever_improves_on_that_baseline(tmp_path):
 
 
 def test_the_worklist_says_how_far_the_routing_actually_spread(tmp_path):
-    """The uncomfortable number. Routing works and has nothing to discriminate
-    on, because every exception this engine raises is an honesty code and
-    honesty codes all belong to the controller. A dispersion of 1 says
-    classification is the bottleneck in a way a green test cannot."""
+    """How far a worklist can actually be routed, which is a fact about how much
+    the engine can name rather than about the router.
+
+    This asserted "1 owner(s): controller" and "nothing to discriminate" — true
+    when every exception the engine raised was an honesty code, and honesty codes
+    all belong to the controller. Two things have moved it since: `R-DUP-06`
+    re-codes one `E14` to `E06`, and the consistency pass derives `E02` outright.
+    Both route to gateway-ops.
+
+    The uncomfortable half is still here and still worth printing: four of six
+    items are `E14`, so most of the queue is still "somebody look at this".
+    """
     from bench.run import close
 
     from recon.triage.worklist import summarise
 
-    bare = summarise(close("A", journal_dir=tmp_path / "a", rules=[]).worklist)
-    assert "1 owner(s): controller" in bare
-    assert "nothing to discriminate" in bare
+    bare = close("A", journal_dir=tmp_path / "a", rules=[]).worklist
+    line = summarise(bare)
+    assert "2 owner(s)" in line and "gateway-ops" in line, line
 
-    # And what breaking the bottleneck looks like. `R-DUP-06` re-codes one E14
-    # to E06, which the registry routes to gateway-ops rather than the
-    # controller — so the dispersion this test was written to complain about
-    # rises for the first time. One rule, one desk, and the number moves.
-    ruled = summarise(close("A", journal_dir=tmp_path / "b").worklist)
-    assert "2 owner(s)" in ruled and "gateway-ops" in ruled
+    codes = [item.code.code for item in bare]
+    assert codes.count("E14") >= len(codes) // 2, (
+        "most of the queue used to be unexplained; if that stops being true the "
+        "honest framing above needs rewriting rather than the assertion relaxing"
+    )
+
+    # With the rule as well, a second E14 becomes E06 — same desk, one more item
+    # that arrives already named.
+    ruled = close("A", journal_dir=tmp_path / "b").worklist
+    assert [i.code.code for i in ruled].count("E14") < codes.count("E14")
 
 
 def test_dispersion_rises_when_the_codes_actually_differ(registry):
