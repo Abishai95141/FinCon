@@ -61,6 +61,21 @@ class Verdict:
     reasons: list[str] = field(default_factory=list)
 
     @property
+    def name(self) -> str:
+        """What to call this bundle in a record someone else will read.
+
+        Relative to the working directory where it can be. The rule store
+        resolves to an absolute path so it works from any cwd, which meant a
+        decision log — the artifact we hand a regulator — carried the home
+        directory of whoever ran the close, next to two relative paths for the
+        same kind of thing.
+        """
+        try:
+            return str(self.bundle.relative_to(Path.cwd()))
+        except ValueError:
+            return str(self.bundle)
+
+    @property
     def trusted(self) -> bool:
         return self.signed and not self.reasons
 

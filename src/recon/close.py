@@ -429,7 +429,7 @@ def run_close(request: CloseRequest) -> CloseOutcome:
             input_hash=verdict.digest,
             policy_ref=request.policy.ref,
             payload=AuthorityVerifiedPayload(
-                bundle=str(verdict.bundle),
+                bundle=verdict.name,
                 digest=verdict.digest,
                 trusted=verdict.trusted,
                 signed_by=verdict.signed_by,

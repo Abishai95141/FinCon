@@ -115,6 +115,12 @@ def replay(events: list[Event]) -> ReplayedClose:
                         exception_id=payload.exception_id,
                         code=ExceptionCode(payload.code),
                         code_provenance=ProofTier(payload.code_provenance),
+                        # The fingerprint was written into the event at P12 and
+                        # dropped here, so every break read back from a record
+                        # had a blank identity — and the worklist column meant to
+                        # show "this is the same break as last month" rendered a
+                        # dash for every row. Found by looking at the screen.
+                        fingerprint=payload.fingerprint,
                         as_of=date.fromisoformat(payload.as_of),
                         amount=payload.amount,
                         leg=payload.leg,

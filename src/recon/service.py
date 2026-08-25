@@ -1125,7 +1125,7 @@ def _specs_by_source(lp: looplib.Loop) -> dict[str, str]:
 def _bundle(path: Path) -> dict:
     verdict = trust.verify(path)
     return {
-        "bundle": str(path),
+        "bundle": verdict.name,
         "digest": verdict.digest,
         "signed": verdict.signed,
         "trusted": verdict.trusted,

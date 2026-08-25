@@ -164,6 +164,12 @@ def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, st
         assert exc.code in body
         assert str(exc.amount) in body
         assert item.owner in body
+        # `assert exc.fingerprint[:8] in body` was the first version and it was
+        # vacuous: the fingerprint came back empty from the record, so the check
+        # was `"" in body`. Every row on the screen showed a dash in the column
+        # meant to say "this is the same break as last month", and the test was
+        # green. Caught by looking at the page rather than at the assertion.
+        assert exc.fingerprint, f"{exc.exception_id} came back from the record with no identity"
         assert exc.fingerprint[:8] in body, "the break has no stable identity on the page"
     assert body.count("<details>") >= len(view.exceptions)
 

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "recon",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "recon-api", "--port", "8137"],
+      "port": 8137,
+      "url": "http://localhost:8137"
+    }
+  ]
+}

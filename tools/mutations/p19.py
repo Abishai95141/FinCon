@@ -122,6 +122,18 @@ MUTATIONS = [
         """    return f"({pct}%)\"""",
     ),
     (
+        "the break's identity is dropped on the way out of the record",
+        "src/recon/journal/replay.py",
+        """                        fingerprint=payload.fingerprint,""",
+        """                        fingerprint="",""",
+    ),
+    (
+        "the record names a bundle by an absolute path from someone's laptop",
+        "src/recon/close.py",
+        """                bundle=verdict.name,""",
+        """                bundle=str(verdict.bundle),""",
+    ),
+    (
         "the surface serves the run instead of the record",
         "src/recon/service.py",
         """    blocked=[r for r in replayed.blocked if r not in _signoff_lines(replayed)],""",

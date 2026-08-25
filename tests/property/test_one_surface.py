@@ -173,3 +173,34 @@ def test_the_view_comes_from_the_record_not_from_the_run(run_id: str, tmp_path):
     assert after.tiers.matched == 0, "the matches survived their removal from the record"
     assert after.chain_problems, "a log with events removed still claimed to hold"
     assert looplib.RUNS  # the real runs dir was untouched by this test
+
+
+def test_a_record_names_bundles_the_way_a_stranger_would_read_them(run_id: str):
+    """An audit artifact must not carry the home directory of whoever ran it.
+
+    `rulestore.STORE` resolves to an absolute path so it works from any cwd, and
+    the decision log recorded it verbatim — so a regulator's copy said
+    `data/policy`, `data/taxonomy` and `/Users/somebody/.../data/rules`. Three
+    bundles of the same kind, one of them leaking a path nobody outside needs.
+    """
+    for entry in service.view(run_id).authority:
+        assert not entry["bundle"].startswith("/"), entry["bundle"]
+        assert entry["bundle"].startswith("data/"), entry["bundle"]
+
+
+def test_the_break_identity_survives_the_record(run_id: str):
+    """`ReconException.fingerprint` reaches the log and has to come back.
+
+    Content-derived identity is the thing that makes "this is the same break as
+    last month" sayable at all, and the surface serves from the record — so a
+    fingerprint that is written and not read is a column of dashes for everyone.
+    """
+    live = service.close(LOOP, BATCH)
+    from_record = service.view(live.run_id)
+    assert [e.exception.fingerprint for e in from_record.exceptions] == [
+        e.exception.fingerprint for e in live.exceptions
+    ]
+    assert all(e.exception.fingerprint for e in from_record.exceptions)
+    assert len({e.exception.fingerprint for e in from_record.exceptions}) == len(
+        from_record.exceptions
+    ), "two breaks share a fingerprint — the identity does not identify"

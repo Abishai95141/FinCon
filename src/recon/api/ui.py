@@ -160,15 +160,43 @@ def index() -> HTMLResponse:
     parts.append("<h2>Recorded closes</h2>")
     if runs:
         parts.append(
-            "<div class='card'>"
-            + " ".join(
-                f"<a class='mono' href='/ui/runs/{escape(r)}'>{escape(r)}</a> " for r in runs
-            )
-            + "</div>"
+            "<div class='card wrap'><table><tr><th>run</th><th>loop</th>"
+            "<th class='num'>matched</th><th class='num'>worklist</th>"
+            "<th>state</th></tr>" + "".join(_run_row(r) for r in runs) + "</table></div>"
         )
     else:
         parts.append("<div class='card note'>None yet.</div>")
     return _page("recon — close the books", "".join(parts))
+
+
+def _run_row(run_id: str) -> str:
+    """One recorded close, summarised from its own record.
+
+    A bare list of ids told a controller nothing — which close needs work, which
+    one is stuck. These four facts all come from the log, like everything else
+    on these pages.
+    """
+    try:
+        view = service.view(run_id)
+    except Exception as exc:  # a log we cannot read is still a row worth showing
+        return (
+            f"<tr><td class='mono'><a href='/ui/runs/{escape(run_id)}'>{escape(run_id)}</a></td>"
+            f"<td colspan='4' class='bad'>unreadable: {escape(str(exc)[:90])}</td></tr>"
+        )
+    state = (
+        "<span class='bad'>blocked</span>"
+        if view.blocked
+        else "<span class='warn'>awaiting sign-off</span>"
+        if view.blocking_exceptions
+        else "<span class='good'>clear</span>"
+    )
+    return (
+        f"<tr><td class='mono'><a href='/ui/runs/{escape(run_id)}'>{escape(run_id)}</a></td>"
+        f"<td>{escape(view.loop)}</td>"
+        f"<td class='num'>{escape(view.tiers.rate)}</td>"
+        f"<td class='num'>{len(view.exceptions)}</td>"
+        f"<td>{state}</td></tr>"
+    )
 
 
 @router.post("/ui/close")
