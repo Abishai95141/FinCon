@@ -153,7 +153,7 @@ It caught something immediately: `regress()` simulated suppression by hand-filte
 labelling the result `P0` — manufacturing the laundered shape the verifier had just learned to
 refuse. The regression now hands the rule to the engine, so it and a close are one path there too.
 
-### A3 · In-band effect checking for the rule bundle — **validated**
+### A3 · In-band effect checking for the rule bundle — **LANDED 2026-08-25**
 At close time recompute each promoted rule's observable effect on real output and record it. Zero
 observable effect is a finding on the close, not a silent pass.
 
@@ -169,7 +169,13 @@ observable effect is a finding on the close, not a silent pass.
 Report, don't refuse, per close: a rule legitimately inert on *one* batch is not a bug; a rule
 inert on *every* batch is. Policy sets the bar; the close records the fact either way.
 
-### A4 · Signed bundles for `data/rules/` and `data/taxonomy/` — OPA pattern
+Shipped as a `RuleEffect` per rule and a `RuleApplied` event whose outcome is `observable` or
+`inert`, measured as it happens rather than by differencing two runs. `rulestore.inert_across()`
+answers the damning question. **It found a defect on its first real run:** two advisory rules
+touching one exception resolved by `touching[0]`, so which one won depended on the caller's list
+order. Selection is deterministic now and the loser reads as `inert`.
+
+### A4 · Signed bundles for `data/rules/` and `data/taxonomy/` — **LANDED 2026-08-25**
 `.signatures.json` of file digests, key configured out-of-band, unverifiable bundle not activated.
 Closes the last `xfail` (`test_policy_carries_a_signature`) and makes the store tamper-evident.
 A2 then cites the bundle digest, so every decision names the bundle that produced it.

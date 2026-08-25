@@ -28,6 +28,7 @@ help:
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
+	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
 	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p14]"
 	@echo "            (rewrites src/ in place - do not run anything else meanwhile)"
 	@echo "  mutate-preflight  check every mutation anchor, offline and free"

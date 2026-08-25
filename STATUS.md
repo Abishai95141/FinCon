@@ -63,6 +63,65 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### A3 · in-band rule effects, and A4 · signed authority · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green   $ make test    453 passed, 46 deselected, 0 xfailed
+$ make lint    clean                    $ make mutate  p14 14/14 · p13 10/10 · p12d 12/12
+$ make replay  90.9% · 4/5 · 2/5                       p9 20/20 · p10 15/15 · p11 24/24
+```
+
+**The known-broken table is empty for the first time.**
+
+**A3 — a close measures what each rule did to it.** Four action kinds could be
+promoted and do nothing, and a close said nothing about it: the log recorded that
+a rule *existed*, never that it *moved* anything. Every close now records a
+`RuleEffect` per promoted rule — fired, suppressed, re-coded, normalised,
+re-booked, tolerance widened — and emits a `RuleApplied` event whose outcome is
+`observable` or `inert`. Measured as it happens, not by differencing two runs: a
+close cannot run itself twice, and a fact the run observes about itself is
+cheaper and harder to fake.
+
+Deliberately **reported, not refused**: a duplicate-suppression rule is honestly
+inert on a batch with no duplicates. `rulestore.inert_across()` answers the
+question that *is* damning — which rules moved nothing in every close they were
+offered — and leaves the bar to policy.
+
+**A3 found a defect on its first real run.** Two advisory rules touching one
+exception resolved by `touching[0]`, so which one won depended on the order the
+caller passed them in — worse than arbitrary. Selection is deterministic now, and
+the loser reads as `inert`, which is the signal A3 exists to produce.
+
+**A4 — the authority a close ran under is signed.** Policy, the taxonomy and the
+rule store were pinned by digest. A digest proves *what* ran; anyone who can edit
+the file can edit the digest with it, so the pin caught accident and never
+intent — and `P2 ATTESTED` is exactly the claim that a named person is
+accountable.
+
+`data/policy/`, `data/taxonomy/` and `data/rules/` are signed bundles now, on
+OPA's shape: a `.signatures.json` of per-file SHA-256, signed Ed25519, verified
+against a key supplied **out of band** (`RECON_BUNDLE_PUBKEY`, or an argument).
+Every close verifies them and records an `AuthorityVerified` event naming the
+signer. Refused: an edited file, an added file, a removed file, a wrong key, an
+anonymous signer, and a bundle that tries to supply the key it is checked
+against.
+
+Ed25519 rather than an HMAC on purpose — the signing key never leaves the
+approver, and someone holding only the public key can check a year-old close
+without us. That is the stance `verify()` already takes.
+
+**Not an in-model field.** The xfail asked for `Policy.signature`; a signature
+stored inside the artifact it signs is a decoration, because whoever can edit the
+field can edit the bytes with it. The assertion changed shape along with the fix,
+and the reason is written where the old one was.
+
+**What a signature here does not say:** that the contents are correct. A signed
+bundle of bad rules is still bad. `data/trust/dev-signing-key.hex` is committed
+and labelled as a development key and **not a secret** — it exists so `make sign`
+works in a clone and so the mechanism is exercised rather than asserted. A
+deployment replaces it; while it sits in the repository, "who approved this" is
+answered by "anyone with a checkout".
+
 ### A1 · one entry point, and A2 · the completed witness · 2026-08-25
 
 ```

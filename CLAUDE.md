@@ -57,6 +57,8 @@ A shallow proxy is anything that makes a gate *look* passed without the underlyi
 | A gate over an effect that never happens | Promotion returned a signed record with an evidence hash and nothing read it — four phases of controls granting a permission no code exercised, every test green because their *inputs* were real — found at P12 | Assert the approved thing has an effect before building the controls that approve it |
 | A control that counts only what a change *breaks* | The first model rule to act scored 0 broken, 1 added, 0 postings moved — and added a false match while destroying a planted `E06` worth the exact value it removed — found at P12 | Ask which direction of harm a gate measures. Value leaving a close is `P2 ATTESTED`, never `P1 RULE`: raw records cannot prove a row is spurious, they contain it |
 | An action that promotes and does nothing | `raise_advisory` was in the enum, the tool schema and `MODELLED_ACTIONS`, implemented nowhere — a rule using it scored better than any real rule by doing nothing on every dimension. `set_tolerance`, `book_to` and `normalize_key` were reported `unapplied` and nobody read it — found at P12 | Measurable at promotion *and* performed at close. Enumerate what a close actually does; never `frozenset(SomeEnum)`, which certifies the next member by construction |
+| A signature stored inside the artifact it signs | Whoever can edit the field can edit the bytes with it. `Policy.signature` would have satisfied the xfail and proved nothing — found at A4 | The bundle carries the signature and the verification key comes from out of band |
+| A digest standing in for an approval | A digest proves *what* ran; it catches accident and never intent, and names nobody. `P2 ATTESTED` means a person is accountable | Sign the bundle, and require a named human in `signed_by` |
 | A design commitment that lives only in prose | ADR-001, invariant 7, "codes are data" — each was contradicted within a phase or two of being written | Every architectural claim needs a test that fails when it is violated, or it is a preference |
 
 **Stubs are fine. Fake implementations are not.** An unimplemented function must `raise NotImplementedError("P5 — subset-sum solver")` naming the phase that will fill it. It must never return a plausible value.
@@ -165,6 +167,9 @@ src/recon/
   profiles/      loop definitions as data (settlement_3way, gstr2b)
   ledger/posting_rules.py  proof/exception -> journal entry; a code books only if promoted
   journal/       append-only decision log — hash chain, derivation, replay
+  close.py       the pipeline: intake -> tiers -> verify -> post -> journal -> worklist
+  trust.py       signed authority bundles (Ed25519, key out of band) — OPA's shape
+  profiles/settlement.py  the loop's own profile, policy, taxonomy, chart, period
   mcp/           FastMCP server — verify_proof is stateless and public
   api/           FastAPI + OpenAPI
 bench/
@@ -179,6 +184,8 @@ bench/
 tests/
   unit/ property/ e2e/
 data/
+  trust/         the authorized public key + a labelled dev signing key. NOT a
+                 bundle: a bundle naming its own verification key vouches for itself
   batches/       generated, gitignored
   adapters/      cached adapter specs (JSON, committed — they are assets)
 repos/           cloned baselines (gitignored)
