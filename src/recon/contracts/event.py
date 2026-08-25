@@ -45,6 +45,7 @@ class EventKind(StrEnum):
     CLOSE_COMPLETED = "CloseCompleted"
     RULE_PROMOTED = "RulePromoted"
     RULE_APPLIED = "RuleApplied"
+    AUTHORITY_VERIFIED = "AuthorityVerified"
     PROPOSAL_REFUSED = "ProposalRefused"
     CLASSIFICATION_PROPOSED = "ClassificationProposed"
     CODE_PROPOSED = "CodeProposed"
@@ -69,6 +70,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CLOSE_COMPLETED: "engine",
     EventKind.RULE_PROMOTED: "recon.engine.promotion.promote",
     EventKind.RULE_APPLIED: "recon.close.run_close",
+    EventKind.AUTHORITY_VERIFIED: "recon.close.run_close",
     EventKind.PROPOSAL_REFUSED: "recon.engine.promotion.promote",
     EventKind.CLASSIFICATION_PROPOSED: "recon.triage.classify.classify",
     EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
@@ -241,6 +243,25 @@ class CloseCompletedPayload(_Payload):
     complete: bool
 
 
+class AuthorityVerifiedPayload(_Payload):
+    """Which authority a close ran under, and who put their name to it.
+
+    Policy, the taxonomy and the promoted rule store were pinned by digest. A
+    digest proves *what* ran and not *who approved it* — anyone who can edit the
+    file can edit the digest with it, so the pin caught accident and never
+    intent. `trusted=False` is recorded rather than fatal: refusing to close the
+    books because a verification key is missing is its own kind of failure, and
+    which risk is worse is policy's call.
+    """
+
+    bundle: str
+    digest: str
+    trusted: bool
+    signed_by: str | None = None
+    key_id: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
 class RuleAppliedPayload(_Payload):
     """What one promoted rule did to one close.
 
@@ -367,6 +388,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CLOSE_COMPLETED: CloseCompletedPayload,
     EventKind.RULE_PROMOTED: RulePromotedPayload,
     EventKind.RULE_APPLIED: RuleAppliedPayload,
+    EventKind.AUTHORITY_VERIFIED: AuthorityVerifiedPayload,
     EventKind.PROPOSAL_REFUSED: ProposalRefusedPayload,
     EventKind.CLASSIFICATION_PROPOSED: ClassificationProposedPayload,
     EventKind.CODE_PROPOSED: CodeProposedPayload,

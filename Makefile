@@ -27,7 +27,8 @@ help:
 	@echo "  lint      ruff + the no-float rule"
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
-	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p13]"
+	@echo "  sign      sign the authority bundles                        SIGNER='name'"
+	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p14]"
 	@echo "            (rewrites src/ in place - do not run anything else meanwhile)"
 	@echo "  mutate-preflight  check every mutation anchor, offline and free"
 	@echo "  status-table  regenerate the known-broken table from its reproducers"
@@ -75,6 +76,9 @@ replay:
 
 # The verification that finds shallow proxies. Lived in /tmp until now, which
 # meant every "N/N caught" in STATUS was a claim nobody could check.
+sign:
+	uv run python -m tools.sign_bundles --signed-by "$(SIGNER)"
+
 mutate:
 	uv run python -m tools.mutate $(if $(SET),--set $(SET),)
 

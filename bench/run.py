@@ -149,6 +149,7 @@ class CloseResult:
     outcome_digest: str = ""
     rule_effects: list = field(default_factory=list)
     inert_rules: list[str] = field(default_factory=list)
+    authority: list = field(default_factory=list)
     ok: bool = True
 
 
@@ -314,6 +315,7 @@ def close(
             provenance=sides.provenance,
             out_of_scope=sides.scope,
             rules=active_rules,
+            bundles=[POLICY_FILE.parent, TAXONOMY_FILE.parent, rulestore.STORE],
             policy_digest=_digest(POLICY_FILE),
             taxonomy_digest=_digest(TAXONOMY_FILE),
             annotations={
@@ -350,6 +352,7 @@ def close(
         outcome_digest=outcome.outcome_digest,
         rule_effects=outcome.rule_effects,
         inert_rules=outcome.inert_rules,
+        authority=outcome.authority,
         ok=not blocking.dropped and outcome.ok,
     )
 

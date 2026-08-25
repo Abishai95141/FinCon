@@ -32,7 +32,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from . import trust
 from .contracts import (
+    AuthorityVerifiedPayload,
     CloseCompletedPayload,
     EventKind,
     Policy,
@@ -91,6 +93,19 @@ class CloseRequest:
     rules: Sequence[Rule] = ()
     policy_digest: str = ""
     taxonomy_digest: str = ""
+    bundles: Sequence[Path] = ()
+    """Directories whose signatures this close checks before trusting what it
+    loaded from them — policy, the taxonomy, the promoted rule store. The close
+    verifies them itself rather than being handed a verdict, for the same reason
+    it takes its policy separately: a caller that supplies the trust is
+    supplying its own permission."""
+
+    require_signed: bool = False
+    """Whether an untrusted bundle stops the close. Default false and reported
+    either way — refusing to close the books because a verification key is
+    missing is its own kind of failure, and which risk is worse is policy's
+    call, not this function's."""
+
     annotations: Mapping[str, str] = field(default_factory=dict)
     """Facts a caller knows and the product does not — the benchmark's label
     digest and scorecard digest. Written into the record and never read by
@@ -122,6 +137,11 @@ class CloseOutcome:
     action kinds shipped in and nobody could see it."""
 
     inert_rules: list[str] = field(default_factory=list)
+    authority: list = field(default_factory=list)
+    """`trust.Verdict` per bundle — which authority this close ran under, and
+    who put their name to it. A digest proves what ran; a signature proves who
+    approved it."""
+
     ok: bool = True
 
 
@@ -281,8 +301,18 @@ def run_close(request: CloseRequest) -> CloseOutcome:
     )
     # The last effect a rule can have, and the only one the matching stage
     # cannot see: a `book_to` that reached an actual posting.
+    # Which authority this close ran under. Verified here rather than trusted
+    # from the caller: policy, the taxonomy and the rule store were pinned by
+    # digest, and a digest proves what ran, not who approved it.
+    authority = [trust.verify(b) for b in request.bundles]
+    untrusted = [v for v in authority if not v.trusted]
+    if untrusted and request.require_signed:
+        raise trust.BundleError(
+            "close requires signed authority: " + "; ".join(str(v) for v in untrusted)
+        )
+
     redirected: dict[str, int] = {}
-    for exception_id, _role in rulestore.booking_overrides(rules, exceptions, records).items():
+    for _ in rulestore.booking_overrides(rules, exceptions, records):
         for rule in rules:
             if any(a.kind.value == "book_to" for a in rule.then):
                 redirected[rule.rule_id] = redirected.get(rule.rule_id, 0) + 1
@@ -340,6 +370,22 @@ def run_close(request: CloseRequest) -> CloseOutcome:
 
     journal = Journal(request.journal_path, fresh=True)
     journal.extend(derive(decisions))
+    for verdict in authority:
+        journal.append(
+            EventKind.AUTHORITY_VERIFIED,
+            actor="engine",
+            outcome="trusted" if verdict.trusted else "untrusted",
+            input_hash=verdict.digest,
+            policy_ref=request.policy.ref,
+            payload=AuthorityVerifiedPayload(
+                bundle=str(verdict.bundle),
+                digest=verdict.digest,
+                trusted=verdict.trusted,
+                signed_by=verdict.signed_by,
+                key_id=verdict.key_id,
+                reasons=list(verdict.reasons) or ([] if verdict.signed else ["unsigned"]),
+            ),
+        )
     for eff in effects:
         journal.append(
             EventKind.RULE_APPLIED,
@@ -399,5 +445,6 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         rules_unapplied=staged.rules_unapplied,
         rule_effects=effects,
         inert_rules=inert,
+        authority=authority,
         ok=complete and not ledger.blocked,
     )

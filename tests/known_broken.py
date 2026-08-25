@@ -73,26 +73,33 @@ def test_no_domain_constants_in_kernel_code():
 # the second named no code and re-coded nothing. The row is green because the
 # gate refused twice, not because it stopped asking.
 def test_a_model_induced_rule_has_been_promoted():
-    from pathlib import Path as _P
+    # Reads through `rulestore.load` rather than globbing the directory: since
+    # A4 the store is a signed bundle, so `data/rules/` also holds a
+    # `.signatures.json` that is not a rule and has no `promoted` key.
+    from recon.contracts.rule import RuleStatus
+    from recon.engine import rulestore
 
-    from recon.contracts.rule import Rule, RuleStatus
-
-    stored = list(_P("data/rules").glob("*.json"))
+    stored = rulestore.load("settlement_3way")
     assert stored, "no promoted rule is stored, so no close can be attributed to one"
-    for path in stored:
-        for entry in __import__("json").loads(path.read_text())["promoted"]:
-            rule = Rule(**entry)
-            assert rule.status is RuleStatus.PROMOTED
-            assert rule.promotion is not None, "a promoted rule with no promotion event"
-            assert rule.promotion.promoted_by, "promotion with no named actor"
+    for rule in stored:
+        assert rule.status is RuleStatus.PROMOTED
+        assert rule.promotion is not None, "a promoted rule with no promotion event"
+        assert rule.promotion.promoted_by, "promotion with no named actor"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Policy and taxonomy are pinned by digest but not signed. The digest "
-    "proves what ran, not who approved it.",
-)
+# Was xfail(strict) until 2026-08-25: "policy and taxonomy are pinned by digest
+# but not signed; the digest proves what ran, not who approved it." A4 signs the
+# bundles (Ed25519, key out of band) rather than adding a `signature` field to
+# `Policy` — a signature stored inside the artifact it signs is a decoration,
+# because whoever can edit the field can edit the bytes with it. So the assertion
+# changed shape along with the fix: what mattered was never that `Policy` has an
+# attribute, it was that a named human is accountable for these exact bytes.
 def test_policy_carries_a_signature():
-    from bench.run import SETTLEMENT_POLICY
+    from pathlib import Path
 
-    assert hasattr(SETTLEMENT_POLICY, "signature")
+    from recon import trust
+
+    key = trust.load_public_key(Path("data/trust/authorized-key.hex").read_text())
+    verdict = trust.verify(Path("data/policy"), key)
+    assert verdict.trusted, str(verdict)
+    assert verdict.signed_by, "signed by nobody in particular is not an attestation"

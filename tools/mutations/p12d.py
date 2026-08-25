@@ -75,8 +75,8 @@ MUTATIONS = [
     (
         "raise_advisory goes back to changing nothing at close",
         "src/recon/engine/tiers.py",
-        """    exceptions = _advise(exceptions, applied.advisories)""",
-        """    pass""",
+        """    exceptions, advised = _advise(exceptions, applied.advisories)""",
+        """    advised = {}""",
     ),
     (
         "set_tolerance and normalize_key go back to being inert at close",
