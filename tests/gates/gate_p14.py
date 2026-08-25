@@ -129,10 +129,12 @@ def test_the_ui_needs_no_javascript(closed: tuple[TestClient, str, Path]):
     """A page that needs a build step before a number appears fails the gate on
     a fresh machine. Expandable rows are `<details>`; actions are form posts."""
     client, run_id, _root = closed
-    for path in ("/periods", f"/periods/{run_id}"):
+    for path in ("/periods", f"/periods/{run_id}", "/worklist", f"/periods/{run_id}/log"):
         body = client.get(path).text
         assert "<script" not in body.lower(), f"{path} ships JavaScript"
-        assert "<details>" in body or path == "/periods"
+        assert "onclick" not in body.lower(), f"{path} carries an inline handler"
+    # Expandables are `<details>`, not a toggle somebody has to script.
+    assert "<details" in client.get(f"/periods/{run_id}/log").text
 
 
 # ------------------------------------------------------------- the scorecard
@@ -188,7 +190,10 @@ def test_blocking_recall_is_rendered_absent_and_never_zero(closed: tuple[TestCli
 # ---------------------------------------------------------------- the worklist
 
 
-def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, str, Path]):
+def test_every_worklist_row_leads_to_its_evidence(closed: tuple[TestClient, str, Path]):
+    """The evidence moved off the close page and onto the item page, where the
+    decision is. What has to hold is that a reader can *reach* it in one click —
+    a row that shows a code and no way through is a row nobody can act on."""
     client, run_id, runs_root = closed
     body = client.get(f"/periods/{run_id}").text
     view = service.view(run_id, runs_root)
@@ -204,12 +209,16 @@ def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, st
         assert item.owner in body
         # `assert exc.fingerprint[:8] in body` was the first version and it was
         # vacuous: the fingerprint came back empty from the record, so the check
-        # was `"" in body`. Every row on the screen showed a dash in the column
-        # meant to say "this is the same break as last month", and the test was
-        # green. Caught by looking at the page rather than at the assertion.
+        # was `"" in body`.
         assert exc.fingerprint, f"{exc.exception_id} came back from the record with no identity"
         assert exc.fingerprint[:8] in body, "the break has no stable identity on the page"
-    assert body.count("<details>") >= len(view.exceptions)
+
+        href = f"/periods/{run_id}/items/{exc.exception_id}"
+        assert href in body, f"{exc.exception_id} has no link to its evidence"
+        detail = client.get(href)
+        assert detail.status_code == 200, href
+        for line in exc.evidence:
+            assert line in detail.text
 
 
 def test_an_unratified_code_is_marked_as_one(closed: tuple[TestClient, str, Path]):
@@ -309,10 +318,16 @@ def test_a_period_missing_a_source_cannot_be_closed(
     """A close over a half-arrived period would report a clean month over rows
     that never came. The period is still listed, with the missing file named —
     hiding it would answer "where is October?" with silence."""
-    root = tmp_path / "sources"
-    (root / "OCT").mkdir(parents=True)
-    (root / "OCT" / "settlement.csv").write_text("row_id\n")
-    monkeypatch.setattr(service, "BATCH_ROOT", root)
+    # Written into this account's own source directory, because that is where
+    # the product reads from now — a fixture that wrote to a shared root would be
+    # testing a path no signed-in user has.
+    from recon.api import auth as auth_mod
+    from recon.api.ui import tenant_sources
+
+    user = auth_mod.read(client.cookies[auth_mod.SESSION_COOKIE], auth_mod.session_secret())
+    partial = tenant_sources(user) / "OCT"
+    partial.mkdir(parents=True)
+    (partial / "settlement.csv").write_text("row_id\n")
 
     page = client.get("/periods").text
     assert "OCT" in page

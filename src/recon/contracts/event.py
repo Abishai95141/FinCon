@@ -52,6 +52,9 @@ class EventKind(StrEnum):
     CODE_PROPOSED = "CodeProposed"
     CODE_ACCEPTED = "CodeAccepted"
     CODE_PROMOTED = "CodePromoted"
+    EXCEPTION_ACKNOWLEDGED = "ExceptionAcknowledged"
+    CLASSIFICATION_ACCEPTED = "ClassificationAccepted"
+    CLOSE_SIGNED_OFF = "CloseSignedOff"
     RULE_INDUCED = "RuleInduced"
     ADAPTER_AUTHORED = "AdapterAuthored"
 
@@ -77,6 +80,9 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CODE_PROPOSED: "recon.engine.taxonomy.propose",
     EventKind.CODE_ACCEPTED: "recon.engine.taxonomy.accept",
     EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
+    EventKind.EXCEPTION_ACKNOWLEDGED: "recon.review.acknowledge",
+    EventKind.CLASSIFICATION_ACCEPTED: "recon.review.accept_classification",
+    EventKind.CLOSE_SIGNED_OFF: "recon.review.sign_off",
     EventKind.RULE_INDUCED: "recon.triage.induce.induce",
     EventKind.ADAPTER_AUTHORED: "recon.triage.normalize.author_spec",
 }
@@ -359,6 +365,55 @@ class ClassificationProposedPayload(_Payload):
         return set(self.evidence)
 
 
+class ExceptionAcknowledgedPayload(_Payload):
+    """A named human has looked at an item and taken it.
+
+    Not a resolution. Nothing about the close changes, no posting moves, and the
+    money is still unreconciled — what changes is that somebody is accountable
+    for it, which is the whole content of `P2 ATTESTED`. Sign-off refuses while
+    any blocking item is unacknowledged, so this is the step that makes the
+    difference between a close a person approved and one that merely finished.
+    """
+
+    exception_id: str
+    fingerprint: str = ""
+    code: str = ""
+    acknowledged_by: str
+    note: str = ""
+
+    def record_ids(self) -> set[str]:
+        return set()
+
+
+class ClassificationAcceptedPayload(_Payload):
+    """A human took a proposed code. The proposal is `P2` at best and this is
+    what makes it so — an unaccepted proposal moves nothing, ever."""
+
+    exception_id: str
+    from_code: str
+    to_code: str
+    accepted_by: str
+    hypothesis: str = ""
+    model: str = ""
+
+
+class CloseSignedOffPayload(_Payload):
+    """A named human accepts the close.
+
+    The terminal human decision, and deliberately separate from
+    `CloseCompleted`: the engine finishing is not a person agreeing, and a
+    product that showed one as the other would be claiming an approval nobody
+    gave.
+    """
+
+    run_id: str
+    outcome_digest: str
+    signed_off_by: str
+    acknowledged: int
+    exceptions_open: int
+    note: str = ""
+
+
 class CodeProposedPayload(_Payload):
     code: str
     title: str
@@ -436,6 +491,9 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.AUTHORITY_VERIFIED: AuthorityVerifiedPayload,
     EventKind.PROPOSAL_REFUSED: ProposalRefusedPayload,
     EventKind.CLASSIFICATION_PROPOSED: ClassificationProposedPayload,
+    EventKind.EXCEPTION_ACKNOWLEDGED: ExceptionAcknowledgedPayload,
+    EventKind.CLASSIFICATION_ACCEPTED: ClassificationAcceptedPayload,
+    EventKind.CLOSE_SIGNED_OFF: CloseSignedOffPayload,
     EventKind.CODE_PROPOSED: CodeProposedPayload,
     EventKind.CODE_ACCEPTED: CodeAcceptedPayload,
     EventKind.CODE_PROMOTED: CodePromotedPayload,

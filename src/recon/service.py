@@ -78,6 +78,13 @@ API_VERSION = "v1"
 #: accept.
 BATCH_ROOT = Path(os.environ.get("RECON_SOURCE_ROOT", "data/batches"))
 
+#: Where an *account's own* files land — uploads, and copies of the shipped
+#: examples. Separate from BATCH_ROOT on purpose: those are read-only samples
+#: that ship with the build, these are a tenant's data, and conflating the two
+#: would mean a test writing into the repository or an upload landing where the
+#: benchmark reads.
+TENANT_SOURCES = Path(os.environ.get("RECON_TENANT_SOURCES", "data/sources"))
+
 #: The most one paged collection may weigh. An MCP tool result goes straight
 #: into a model's context window, and this surface shipped with `run_match`
 #: returning 397 KB — roughly 100k tokens, most of a context, for 543 rows of a

@@ -130,8 +130,13 @@ def test_data_sources_lists_the_adapters_and_what_has_arrived(session):
     assert "bank_icici_camt053.xml" in body
     assert "settlement.csv" in body
     assert "icici-camt" in body
-    assert "complete" in body
-    assert "Upload is not built" in body, "an unbuilt capability is implied rather than stated"
+    assert "ready to close" in body, "no period is shown as closeable"
+    # The two ways in, both on the page: bring your own, or load the shipped
+    # examples. A product whose first screen offers neither is a product nobody
+    # can start.
+    assert "Load sample data" in body
+    assert "Upload a period" in body
+    assert "enctype='multipart/form-data'" in body, "the upload form cannot carry a file"
 
 
 def test_the_close_page_leads_with_the_period_it_ran_on(closed):
@@ -142,7 +147,11 @@ def test_the_close_page_leads_with_the_period_it_ran_on(closed):
     body = client.get(f"/periods/{run_id}").text
     assert "Re-derive this close" in body
     assert "check against other files" in body
-    assert service.source_set_of(run_id, runs_root) == BATCH
+    from recon.api import auth as auth_mod
+    from recon.api.ui import tenant_sources
+
+    user = auth_mod.read(client.cookies[auth_mod.SESSION_COOKIE], auth_mod.session_secret())
+    assert service.source_set_of(run_id, runs_root, root=tenant_sources(user)) == BATCH
 
 
 def _runs(client: TestClient) -> Path:

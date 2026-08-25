@@ -33,6 +33,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 #: question: does anything *outside* the contract ever read this? 57 was the
 #: honest answer to it, and the smaller number was the flattering one.
 #:
+#: 52 -> 51 when the human-decision payloads landed. Three of their fields were
+#: unread on arrival and the ratchet caught all three; the fix was to *read*
+#: them — who reclassified an item, what the code was before, and how much was
+#: still open at signature — not to widen the budget. A field nobody reads in a
+#: signature is a field that will be wrong and unnoticed.
+#:
 #: 57 -> 52 at P13/P14, and the *cause* is worth more than the number. Nothing
 #: was written to close these five; a surface was built, and it turned out that
 #: an API and an MCP server read fields nobody had had a reason to read before —
@@ -40,7 +46,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 #: definition's owner. "Unread" was never a property of the contract. It was a
 #: property of having no consumer, and the honest way to fall further is to
 #: build things that need them rather than to wire readers on purpose.
-UNREAD_FIELD_BUDGET = 52
+UNREAD_FIELD_BUDGET = 49
 
 _SKIP = {"contract_version", "model_config"}
 

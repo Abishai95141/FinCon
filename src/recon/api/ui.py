@@ -23,15 +23,19 @@ edited, where the page says so rather than rendering something clean.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from decimal import Decimal
 from html import escape
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import loop as looplib
-from .. import service
+from .. import review, service
+from ..triage import classify as classify_mod
 from . import auth
 from .auth import AuthError, User
 from .theme import document, icon, money, wordmark
@@ -74,6 +78,22 @@ def signed_in(request: Request) -> User:
 #: `Depends` in a default is FastAPI's idiom and ruff's B008; a module-level
 #: singleton is the same wiring, written the way the linter can read.
 CURRENT_USER = Depends(signed_in)
+
+
+#: The most one uploaded source may weigh. A statement is a text file; anything
+#: past this is a mistake or an attack, and both deserve the same answer.
+MAX_UPLOAD = 25 * 1024 * 1024
+
+#: Where the shipped example periods live. Copied into an account rather than
+#: read in place, so a new user's first close is over *their* files and behaves
+#: exactly like one over their own bank statement.
+SAMPLE_ROOT = Path("data/batches")
+
+
+def tenant_sources(user: User) -> Path:
+    """This account's source files. Same rule as its records: derived from the
+    session, never from the request."""
+    return service.TENANT_SOURCES / user.user_id
 
 
 def tenant_runs(user: User, request: Request) -> Path:
@@ -331,7 +351,9 @@ def root(request: Request) -> Response:
 # --------------------------------------------------------------------------
 
 
-def _state_badge(view: service.CloseView) -> str:
+def _state_badge(view: service.CloseView, signed: str = "") -> str:
+    if signed:
+        return f"<span class='badge badge-ok'>Signed off by {escape(signed)}</span>"
     if view.blocked:
         return "<span class='badge badge-bad'>Blocked</span>"
     if view.blocking_exceptions:
@@ -356,7 +378,7 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
     cards = []
     for lp in service.loops():
         rows = []
-        for source_set in service.source_sets(lp.name):
+        for source_set in service.source_sets(lp.name, tenant_sources(user)):
             if source_set.complete:
                 action = (
                     f"<form method='post' action='/periods/close'>{csrf}"
@@ -447,7 +469,9 @@ def do_close(
     """
     _check_csrf(request, csrf)
     try:
-        view = service.close(loop, source_set, runs_dir=tenant_runs(user, request))
+        view = service.close(
+            loop, source_set, root=tenant_sources(user), runs_dir=tenant_runs(user, request)
+        )
     except (service.ServiceError, looplib.LoopError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return RedirectResponse(f"/periods/{view.run_id}", status_code=303)
@@ -526,39 +550,32 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
             by_proof,
             f"{tiers.declared} resting on a declared gap",
             ico="layers",
-            tone="calm",
         )
         + _metric(
             "Every input disposed",
-            "<span style='color:var(--success)'>Yes</span>"
-            if view.complete
-            else "<span style='color:var(--error)'>No</span>",
+            "Yes" if view.complete else "<span class='v bad'>No</span>",
             "matched, excepted, or out of scope with a reason",
             ico="verify",
-            tone="ok" if view.complete else "bad",
+            tone="" if view.complete else "bad",
         )
         + _metric(
             "Blocking recall",
-            "<span style='color:var(--warning)'>Absent</span>",
+            "Absent",
             "measured against labelled pairs; production has none",
             ico="alert",
-            tone="warn",
         )
         + _metric(
             "Books",
-            "<span style='color:var(--success)'>Balanced</span>"
-            if not view.blocked
-            else "<span style='color:var(--error)'>Blocked</span>",
+            "Balanced" if not view.blocked else "<span class='v bad'>Blocked</span>",
             "; ".join(view.blocked) or "balance assertion held",
             ico="scale",
-            tone="ok" if not view.blocked else "bad",
+            tone="" if not view.blocked else "bad",
         )
         + _metric(
             "Awaiting sign-off",
-            f"<span style='color:#5B4BD6'>{len(view.blocking_exceptions)}</span>",
+            str(len(view.blocking_exceptions)),
             "exceptions a human must clear",
             ico="user",
-            tone="calm",
         )
         + "</div>"
     )
@@ -581,6 +598,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         for label in _stage_labels(view)
     )
 
+    state = review.state(run_id, runs_dir)
     rows = []
     for item in view.exceptions:
         exc = item.exception
@@ -590,29 +608,81 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
             else ""
         )
         why = exc.hypothesis or "no hypothesis — the engine has facts, not an explanation"
-        evidence = "".join(f"<li>{escape(line)}</li>" for line in exc.evidence) or (
-            "<li class='cap'>no evidence lines</li>"
+        taken = state.acknowledged.get(exc.exception_id)
+        status = (
+            f"<span class='badge badge-ok'>{escape(taken.split('@')[0])}</span>"
+            if taken
+            else f"<span class='badge {'badge-declared' if exc.blocks_close else 'badge-mute'}'>"
+            f"{'blocks sign-off' if exc.blocks_close else 'open'}</span>"
         )
         rows.append(
             f"<tr><td class='right num'>{item.rank}</td>"
-            f"<td><b>{escape(exc.code)}</b> {escape(item.code_title)}{note}"
+            f"<td><a href='/periods/{escape(run_id)}/items/{escape(exc.exception_id)}'>"
+            f"<b>{escape(exc.code)}</b></a> {escape(item.code_title)}{note}"
             f"<span class='sub'>{escape(why)}</span></td>"
             f"<td class='right num'>{money(exc.amount)}</td>"
             f"<td class='right num'>{item.age_days}d</td>"
             f"<td class='num'>{escape(exc.fingerprint[:8] or '—')}</td>"
             f"<td>{escape(item.owner)}</td>"
-            f"<td><details><summary>evidence</summary>"
-            f"<ul class='cap' style='margin:.2rem 0'>{evidence}</ul>"
-            f"<p class='cap num'>{escape(', '.join(exc.record_ids[:6]))}</p></details></td></tr>"
+            f"<td>{status}</td></tr>"
         )
     worklist = (
         f"<div class='tbl'><table><tr><th class='right'>#</th><th>Exception</th>"
         f"<th class='right'>Amount</th><th class='right'>Age</th><th>Break</th>"
-        f"<th>Owner</th><th>Detail</th></tr>{''.join(rows)}</table></div>"
+        f"<th>Owner</th><th>Status</th></tr>{''.join(rows)}</table></div>"
         if rows
         else "<div class='panel' style='padding:1.2rem'><p class='cap' style='margin:0'>"
         "No exceptions. Every input was matched or declared out of scope.</p></div>"
     )
+
+    # --- sign-off: the terminal human decision -----------------------------
+    open_blockers = review.blockers([e.exception for e in view.exceptions], state)
+    if state.signed_off:
+        signoff = (
+            f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Signed off</p>"
+            f"<p style='margin:0'><b>{escape(state.signed_off_by)}</b> accepted this close"
+            + (f" &mdash; &ldquo;{escape(state.note)}&rdquo;" if state.note else "")
+            + ".</p><p class='cap' style='margin:.6rem 0 0'>Recorded in "
+            "<code>review.jsonl</code>, chained separately from the decision log. The "
+            "close record itself is sealed and unchanged &mdash; what the engine decided "
+            "and what a person decided are two records.</p></div>"
+        )
+    elif view.blocked:
+        signoff = (
+            "<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"
+            "<p class='sec' style='margin-bottom:.5rem'>Sign-off</p>"
+            "<p class='note note-bad' style='margin:0'>The books do not balance, so this "
+            "close cannot be signed off. Putting a name to a number the system itself says "
+            "is wrong is the one thing a sign-off must never allow.</p></div>"
+        )
+    elif open_blockers:
+        signoff = (
+            f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Sign-off</p>"
+            f"<p style='margin:0 0 .6rem'><b>{len(open_blockers)} item(s) still need a human.</b> "
+            f"Open each one and take it &mdash; signing off on items nobody has looked at is "
+            f"exactly what this control exists to stop.</p>"
+            f"<p class='cap' style='margin:0'>"
+            + " ".join(
+                f"<a href='/periods/{escape(run_id)}/items/{escape(i)}'>{escape(i)}</a>"
+                for i in open_blockers
+            )
+            + "</p><p style='margin-top:.9rem'><button class='btn btn-primary' disabled>"
+            "Sign off</button></p></div>"
+        )
+    else:
+        signoff = (
+            f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Sign-off</p>"
+            f"<p style='margin:0 0 .9rem'>Every blocking item has been taken and the books "
+            f"balance. Signing off records <b>your name</b> against this close.</p>"
+            f"<form method='post' action='/periods/{escape(run_id)}/signoff'>{csrf}"
+            f"<div class='field'><label for='note'>Note (optional)</label>"
+            f"<input class='input' id='note' name='note' placeholder='October reconciled'></div>"
+            f"<button class='btn btn-primary' type='submit'>{icon('check', 15)}"
+            f"Sign off as {escape(user.email)}</button></form></div>"
+        )
 
     matches = "".join(
         f"<details style='padding:.35rem 0;border-bottom:1px solid var(--n200)'>"
@@ -632,8 +702,12 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
     # close ran on. Offering the others as equals invited the mistake that
     # produced twenty meaningless refutations — they are still reachable, behind
     # a disclosure that says what they are for.
-    ran_on = service.source_set_of(run_id, tenant_runs(user, request))
-    others = [s.name for s in service.source_sets(view.loop) if s.complete and s.name != ran_on]
+    ran_on = service.source_set_of(run_id, tenant_runs(user, request), root=tenant_sources(user))
+    others = [
+        s.name
+        for s in service.source_sets(view.loop, tenant_sources(user))
+        if s.complete and s.name != ran_on
+    ]
 
     def _rebutton(name: str, primary: bool) -> str:
         cls = "btn-secondary" if primary else "btn-ghost"
@@ -688,6 +762,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         f"Audit export</a>"
         f"<a class='btn btn-ghost' href='/periods/{escape(run_id)}/log'>{icon('log', 14)}"
         f"Decision log</a></div></div>"
+        f"{signoff}"
         f"<p class='sec'>Worklist &mdash; {len(view.exceptions)} items, ranked by cash impact "
         f"&times; age</p>{worklist}"
         f"<p class='sec' style='margin-top:2rem'>Matches &mdash; {len(view.matches)}</p>"
@@ -761,7 +836,9 @@ def do_reverify(
     """Re-derive, and print what came back &mdash; including when it disagrees."""
     _check_csrf(request, csrf)
     try:
-        report = service.reverify(run_id, source_set, runs_dir=tenant_runs(user, request))
+        report = service.reverify(
+            run_id, source_set, root=tenant_sources(user), runs_dir=tenant_runs(user, request)
+        )
     except service.ServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -822,14 +899,13 @@ def do_reverify(
             else "<span style='color:var(--error)'>does not hold</span>",
             "sources, arithmetic and evidence must all pass",
             ico="verify",
-            tone="ok" if report.holds else "bad",
+            tone="" if report.holds else "bad",
         )
         + _metric(
             "Proofs re-derived",
             f"{report.proven}/{report.proofs_checked}",
             "recomputed from freshly ingested records",
             ico="layers",
-            tone="calm",
         )
         + _metric(
             "Records ingested",
@@ -1096,50 +1172,459 @@ def log_page(request: Request, run_id: str, offset: int = 0, user: User = CURREN
     return shell(user, active="periods", crumb=crumb, body=body)
 
 
+@router.post("/sources/sample")
+def load_sample(request: Request, csrf: str = Form(""), user: User = CURRENT_USER) -> Response:
+    """Copy the shipped example periods into this account.
+
+    Copied rather than read in place, so a new account's first close runs over
+    *its own* files and behaves exactly like one over a real bank statement —
+    same ingest, same hashes, same re-derivation. A demo mode that read a shared
+    directory would be a second code path, which is the thing this codebase most
+    consistently refuses.
+    """
+    _check_csrf(request, csrf)
+    destination = tenant_sources(user)
+    destination.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for period in (
+        sorted(d for d in SAMPLE_ROOT.iterdir() if d.is_dir()) if SAMPLE_ROOT.exists() else []
+    ):
+        target = destination / period.name
+        if target.exists():
+            continue
+        target.mkdir(parents=True)
+        for source in period.iterdir():
+            if source.is_file() and not source.name.startswith("labels"):
+                shutil.copy2(source, target / source.name)
+        copied.append(period.name)
+    return RedirectResponse(
+        f"/sources?loaded={','.join(copied)}" if copied else "/sources?loaded=none",
+        status_code=303,
+    )
+
+
+@router.post("/sources/upload")
+async def upload_period(
+    request: Request,
+    period: str = Form(...),
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    """Take one period's files.
+
+    Filenames come from the loop, not from the upload: a source is accepted
+    under the name the adapter expects, so a caller cannot write anywhere it
+    likes by naming a file `../../something`. The period name is checked for the
+    same reason.
+    """
+    _check_csrf(request, csrf)
+    name = period.strip()
+    if not name or not all(c.isalnum() or c in "-_ " for c in name):
+        raise HTTPException(422, "A period name may hold letters, digits, spaces, - and _.")
+
+    loop = service.loops()[0]
+    expected = {src.filename for src in loop.sources}
+    form = await request.form()
+    target = tenant_sources(user) / name
+    target.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    for field, upload in form.multi_items():
+        if field not in expected or not hasattr(upload, "filename") or not upload.filename:
+            continue
+        body = await upload.read()
+        if len(body) > MAX_UPLOAD:
+            raise HTTPException(
+                422,
+                f"{field} is {len(body) // 1024 // 1024} MB. The cap is "
+                f"{MAX_UPLOAD // 1024 // 1024} MB — a statement is a text file, and "
+                f"anything past this is a mistake or an attack.",
+            )
+        (target / field).write_bytes(body)
+        written.append(field)
+
+    if not written:
+        target.rmdir() if not any(target.iterdir()) else None
+        raise HTTPException(422, "No files were attached.")
+    return RedirectResponse(f"/sources?uploaded={name}", status_code=303)
+
+
 @router.get("/sources", response_class=HTMLResponse)
-def sources_page(request: Request, user: User = CURRENT_USER) -> Response:
-    """What this controller reads, and what has arrived.
+def sources_page(
+    request: Request, loaded: str = "", uploaded: str = "", user: User = CURRENT_USER
+) -> Response:
+    """What this account has, and the two ways to get more.
 
     Adapters are declarative specs interpreted by a closed vocabulary of parse
     verbs — no generated code is executed (ADR-001) — so listing them is listing
-    data, and a reader can check what a source is allowed to become.
+    data, and a reader can see what a file is allowed to become before uploading
+    one.
     """
+    csrf = _csrf_field(request)
+    root = tenant_sources(user)
+    banner = ""
+    if loaded == "none":
+        banner = "<div class='alert alert-info'>Those periods are already loaded.</div>"
+    elif loaded:
+        banner = (
+            f"<div class='alert alert-info'>Loaded {escape(loaded)}. Close one from Periods.</div>"
+        )
+    elif uploaded:
+        banner = f"<div class='alert alert-info'>Uploaded {escape(uploaded)}.</div>"
+
     cards = []
     for lp in service.loops():
+        sets = service.source_sets(lp.name, root)
         rows = "".join(
+            f"<tr><td><b>{escape(s.name)}</b></td>"
+            f"<td>{"<span class='badge badge-ok'>ready to close</span>" if s.complete else f"<span class='badge badge-declared'>missing {escape(chr(44).join(s.missing))}</span>"}</td>"
+            f"<td class='cap'>{escape(', '.join(s.present)) or '&mdash;'}</td>"
+            f"<td class='right'>{"<a class='btn btn-secondary' href='/periods'>Close it</a>" if s.complete else ''}</td></tr>"
+            for s in sets
+        )
+        adapters = "".join(
             f"<tr><td><b>{escape(src.filename)}</b><span class='sub'>side "
             f"{escape(src.side)} &middot; {escape(src.role)}</span></td>"
-            f"<td class='num'>{escape(src.spec_id)}</td>"
-            f"<td><a href='/v1/contracts'>spec</a></td></tr>"
+            f"<td class='num'>{escape(src.spec_id)}</td></tr>"
             for src in lp.sources
         )
-        sets = "".join(
-            f"<tr><td><b>{escape(s.name)}</b></td>"
-            f"<td>{"<span class='badge badge-ok'>complete</span>" if s.complete else f"<span class='badge badge-declared'>missing {escape(', '.join(s.missing))}</span>"}</td>"
-            f"<td class='cap'>{escape(', '.join(s.present))}</td></tr>"
-            for s in service.source_sets(lp.name)
+        inputs = "".join(
+            f"<div class='field'><label for='{escape(src.filename)}'>{escape(src.filename)}"
+            f" <span class='cap'>&mdash; {escape(src.side)}</span></label>"
+            f"<input class='input' type='file' id='{escape(src.filename)}' "
+            f"name='{escape(src.filename)}'></div>"
+            for src in lp.sources
         )
         cards.append(
-            f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
+            f"<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
             f"<h3 style='margin:0 0 .2rem'>{escape(lp.name)}</h3>"
-            f"<p class='cap' style='margin:0 0 1rem'>{escape(lp.description)}</p>"
-            f"<p class='sec' style='margin-bottom:.5rem'>Adapters</p>"
-            f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>File</th>"
-            f"<th>Spec</th><th></th></tr>{rows}</table></div>"
-            f"<p class='sec' style='margin-bottom:.5rem'>Periods on disk</p>"
-            f"<div class='tbl'><table><tr><th>Period</th><th>State</th>"
-            f"<th>Files</th></tr>{sets}</table></div></div>"
+            f"<p class='cap' style='margin:0 0 1.2rem'>{escape(lp.description)}</p>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Your periods</p>"
+            + (
+                f"<div class='tbl' style='margin-bottom:1.4rem'><table><tr><th>Period</th>"
+                f"<th>State</th><th>Files</th><th></th></tr>{rows}</table></div>"
+                if sets
+                else _empty(
+                    "inbox",
+                    "No source files yet",
+                    "Load the shipped example periods to see a close end to end, or "
+                    "upload a bank statement and a gateway settlement of your own.",
+                    f"<form method='post' action='/sources/sample' style='display:inline'>{csrf}"
+                    f"<button class='btn btn-primary' type='submit'>{icon('download', 15)}"
+                    f"Load sample data</button></form>",
+                )
+                + "<div style='height:1.4rem'></div>"
+            )
+            + f"<div class='grid' style='display:grid;gap:1.4rem;grid-template-columns:1fr'>"
+            f"<div><p class='sec' style='margin-bottom:.5rem'>Upload a period</p>"
+            f"<form method='post' action='/sources/upload' enctype='multipart/form-data'>{csrf}"
+            f"<div class='field'><label for='period'>Period name</label>"
+            f"<input class='input' id='period' name='period' placeholder='October 2026' required>"
+            f"</div>{inputs}"
+            f"<button class='btn btn-primary' type='submit'>{icon('arrow', 15)}Upload</button>"
+            f"</form>"
+            f"<p class='cap' style='margin-top:.8rem'>Files are stored under your account "
+            f"only. A period is closeable once every file the loop expects has arrived &mdash; "
+            f"a close over a half-arrived month would report a clean period over rows that "
+            f"never came.</p></div>"
+            f"<div><p class='sec' style='margin-bottom:.5rem'>Adapters</p>"
+            f"<div class='tbl'><table><tr><th>File</th><th>Spec</th></tr>{adapters}</table></div>"
+            f"<p class='cap' style='margin-top:.8rem'>Specs are data, not code. An unknown "
+            f"parse verb is a spec error before anything runs, never an execution "
+            f"(ADR-001).</p>"
+            f"<form method='post' action='/sources/sample' style='margin-top:1rem'>{csrf}"
+            f"<button class='btn btn-secondary' type='submit'>{icon('download', 15)}"
+            f"Load sample data</button></form></div></div></div>"
         )
+
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Data sources</h1>"
-        f"<p class='sub'>Which adapter reads which file, and which periods have arrived. "
-        f"Specs are data, not code &mdash; an unknown parse verb is a spec error, never an "
-        f"execution.</p></div></div>{''.join(cards)}"
-        f"<div class='note note-warn'><b>Upload is not built.</b> Files arrive on disk from a "
-        f"feed; a browser upload lands with tenant-scoped S3 storage, which is the next step "
-        f"in <code>docs/09-PRODUCT-DIRECTION.md</code>.</div>"
+        f"<p class='sub'>Two records of the same money, per period. Bring your own, or "
+        f"load the shipped examples to see a close end to end.</p></div></div>"
+        f"{banner}{''.join(cards)}"
     )
     return shell(user, active="sources", crumb="<b>Data sources</b>", body=body)
+
+
+# --------------------------------------------------------------------------
+# one item — where the model proposes, the checker checks, and a human decides
+# --------------------------------------------------------------------------
+
+
+def _item_or_404(run_id: str, exception_id: str, runs_dir: Path):
+    for item in service.view(run_id, runs_dir).exceptions:
+        if item.exception.exception_id == exception_id:
+            return item
+    raise HTTPException(404, f"no item {exception_id!r} in {run_id!r}")
+
+
+@router.get("/periods/{run_id}/items/{exception_id}", response_class=HTMLResponse)
+def item_page(
+    request: Request, run_id: str, exception_id: str, user: User = CURRENT_USER
+) -> Response:
+    """One exception, everything known about it, and the three things a human
+    can do: read the evidence, ask the model for a reading, and take the item.
+
+    This is the screen the thesis lives on. The model proposes, a deterministic
+    checker says whether the proposal is even admissible, and nothing moves
+    until a named person accepts it — so all three are on one page, in that
+    order, with the model's output visibly inert until the last step.
+    """
+    runs_dir = tenant_runs(user, request)
+    item = _item_or_404(run_id, exception_id, runs_dir)
+    exc = item.exception
+    state = review.state(run_id, runs_dir)
+    csrf = _csrf_field(request)
+
+    taken = state.acknowledged.get(exception_id)
+    accepted = state.accepted.get(exception_id)
+    derived = not classify_mod.reclassifiable(exc)
+
+    evidence = "".join(f"<li>{escape(line)}</li>" for line in exc.evidence) or (
+        "<li class='cap'>no evidence lines</li>"
+    )
+    alternatives = ""
+    if exc.alternatives:
+        alternatives = (
+            "<p class='sec' style='margin:1.4rem 0 .5rem'>Competing subsets</p>"
+            "<div class='tbl'><table><tr><th>Subset</th><th class='right'>Rows</th></tr>"
+            + "".join(
+                f"<tr><td class='num'>{escape(', '.join(sorted(sub)[:3]))}&hellip;</td>"
+                f"<td class='right num'>{len(sub)}</td></tr>"
+                for sub in exc.alternatives
+            )
+            + "</table></div><p class='cap'>Two valid answers exist. Picking either "
+            "would be a confident wrong answer, which is why the engine picked "
+            "neither.</p>"
+        )
+
+    # --- the model panel ---------------------------------------------------
+    proposal = request.query_params.get("proposal", "")
+    verdict_text = request.query_params.get("verdict", "")
+    model_name = request.query_params.get("model", "")
+    if derived:
+        ai = (
+            f"<div class='note'>The engine <b>derived</b> this label &mdash; "
+            f"<code>{escape(exc.code)}</code> at "
+            f"<code>{escape(exc.code_provenance.value)}</code>. A model proposal is "
+            f"<code>P2</code> at best and may not overwrite a higher proof tier, so "
+            f"this item is never sent to a model at all. Refusing after the call "
+            f"would still have spent it, and would invite the argument that the "
+            f"model would have been right.</div>"
+        )
+    elif proposal:
+        ai = (
+            f"<div class='panel' style='padding:1.1rem 1.2rem'>"
+            f"<div style='display:flex;justify-content:space-between;gap:1rem;align-items:baseline'>"
+            f"<b>Proposed: <code>{escape(proposal)}</code></b>"
+            f"<span class='badge badge-mute'>{escape(model_name or 'model')}</span></div>"
+            f"<p class='cap' style='margin:.5rem 0 0'>{escape(verdict_text)}</p>"
+            f"<form method='post' action='/periods/{escape(run_id)}/items/{escape(exception_id)}/accept' "
+            f"style='margin-top:.9rem'>{csrf}"
+            f"<input type='hidden' name='code' value='{escape(proposal)}'>"
+            f"<input type='hidden' name='model' value='{escape(model_name)}'>"
+            f"<input type='hidden' name='hypothesis' value='{escape(verdict_text)}'>"
+            f"<button class='btn btn-primary' type='submit'>Accept as "
+            f"{escape(proposal)}</button>"
+            f"<a class='btn btn-ghost' href='/periods/{escape(run_id)}/items/{escape(exception_id)}'>"
+            f"Discard</a></form>"
+            f"<p class='cap' style='margin:.8rem 0 0'>Nothing has changed yet. A proposal "
+            f"is inert until a named human accepts it, and accepting records who did.</p>"
+            f"</div>"
+        )
+    else:
+        configured = bool(os.environ.get("DEEPSEEK_API_KEY"))
+        ai = (
+            f"<form method='post' action='/periods/{escape(run_id)}/items/{escape(exception_id)}/classify'>"
+            f"{csrf}<button class='btn btn-secondary' type='submit'>{icon('layers', 15)}"
+            f"Ask the model for a reading</button></form>"
+            f"<p class='cap' style='margin-top:.7rem'>One call, one exception. The model sees "
+            f"the amounts, dates and keys of the records this item names and the code menu &mdash; "
+            f"nothing else, and it cannot write anything. Its answer goes through the same "
+            f"checker the live triage path uses before you are shown it.</p>"
+            if configured
+            else "<div class='note note-warn'><b>No model is configured.</b> Set "
+            "<code>DEEPSEEK_API_KEY</code> to enable classification. Reported absent "
+            "rather than as a zero &mdash; an unmeasured thing shown as a number is a "
+            "claim nobody earned.</div>"
+        )
+
+    ack = (
+        f"<div class='note'><b>Taken by {escape(taken)}.</b>"
+        + (
+            f" &ldquo;{escape(state.notes[exception_id])}&rdquo;"
+            if exception_id in state.notes
+            else ""
+        )
+        + "</div>"
+        if taken
+        else (
+            f"<form method='post' action='/periods/{escape(run_id)}/items/{escape(exception_id)}/acknowledge'>"
+            f"{csrf}<div class='field'><label for='note'>Note (optional)</label>"
+            f"<input class='input' id='note' name='note' placeholder='what you found, or what you are waiting on'></div>"
+            f"<button class='btn btn-primary' type='submit'>{icon('check', 15)}"
+            f"Take this item</button></form>"
+            f"<p class='cap' style='margin-top:.7rem'>Taking an item does not resolve it. "
+            f"No posting moves and the money is still unreconciled &mdash; what changes is that "
+            f"you are accountable for it, which is the whole content of <code>P2 ATTESTED</code> "
+            f"and the most this build can honestly offer. Sign-off refuses while any blocking "
+            f"item is untaken.</p>"
+        )
+    )
+
+    accepted_note = (
+        f"<div class='note'><b>{escape(state.accepted_by.get(exception_id, 'someone'))}</b> "
+        f"moved this from <code>{escape(state.accepted_from.get(exception_id, '?'))}</code> "
+        f"to <code>{escape(accepted)}</code>. The engine's own label is unchanged in the "
+        f"decision log &mdash; a reclassification is a second record, not an edit.</div>"
+        if accepted
+        else ""
+    )
+
+    body = (
+        f"<div class='pagehead'><div class='lhs'>"
+        f"<h1>{escape(exc.code)} &middot; {escape(item.code_title)}</h1>"
+        f"<p class='sub'>{money(exc.amount)} &middot; {item.age_days}d old &middot; "
+        f"break <span class='num'>{escape(exc.fingerprint[:12] or '&mdash;')}</span> &middot; "
+        f"owner {escape(item.owner)}</p></div>"
+        f"<div class='rhs'><span class='badge {'badge-ok' if taken else 'badge-declared'}'>"
+        f"{'taken' if taken else 'needs a human'}</span></div></div>"
+        f"{accepted_note}"
+        f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
+        f"<p class='sec' style='margin-bottom:.5rem'>What the engine says</p>"
+        f"<p style='margin:0 0 .8rem'>{escape(exc.hypothesis or 'No hypothesis. The engine has facts here, not an explanation — that is what E14 means.')}</p>"
+        f"<ul class='cap' style='margin:0'>{evidence}</ul>"
+        f"{alternatives}"
+        f"<p class='sec' style='margin:1.4rem 0 .5rem'>Records</p>"
+        f"<p class='cap num' style='margin:0'>{escape(', '.join(exc.record_ids[:10]))}"
+        f"{'&hellip;' if len(exc.record_ids) > 10 else ''}</p></div>"
+        f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Ask the model</p>{ai}</div>"
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Your decision</p>{ack}</div>"
+    )
+    crumb = (
+        f"<a href='/periods'>Periods</a><span>/</span>"
+        f"<a href='/periods/{escape(run_id)}'>{escape(run_id)}</a><span>/</span>"
+        f"<b>{escape(exception_id)}</b>"
+    )
+    return shell(user, active="worklist", crumb=crumb, body=body)
+
+
+@router.post("/periods/{run_id}/items/{exception_id}/classify")
+def classify_item(
+    request: Request,
+    run_id: str,
+    exception_id: str,
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    """One model call, then the checker, then back to the page.
+
+    The proposal is carried in the URL rather than stored: it has not been
+    accepted, so there is nothing to persist. A proposal saved somewhere would
+    start looking like a decision.
+    """
+    _check_csrf(request, csrf)
+    runs_dir = tenant_runs(user, request)
+    item = _item_or_404(run_id, exception_id, runs_dir)
+    view = service.view(run_id, runs_dir)
+    loop = looplib.get(view.loop)
+
+    try:
+        from ..triage.client import ModelEdge
+
+        edge = ModelEdge()
+    except Exception as exc:
+        raise HTTPException(422, f"No model is configured: {exc}") from exc
+
+    sources = loop.load(
+        tenant_sources(user)
+        / (service.source_set_of(run_id, runs_dir, root=tenant_sources(user)) or "")
+    )
+    records = {rec.record_id: rec for _, rec in [*sources.anchor_rows, *sources.group_rows]}
+    results = classify_mod.classify(
+        exceptions=[item.exception], taxonomy=loop.taxonomy(), records=records, edge=edge
+    )
+    result = results[0]
+    verdict = "; ".join(result.refusals) if result.refusals else (result.hypothesis or "")
+    query = urlencode({"proposal": result.code, "verdict": verdict[:400], "model": edge.model})
+    return RedirectResponse(f"/periods/{run_id}/items/{exception_id}?{query}", status_code=303)
+
+
+@router.post("/periods/{run_id}/items/{exception_id}/accept")
+def accept_item(
+    request: Request,
+    run_id: str,
+    exception_id: str,
+    code: str = Form(...),
+    hypothesis: str = Form(""),
+    model: str = Form(""),
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    _check_csrf(request, csrf)
+    runs_dir = tenant_runs(user, request)
+    item = _item_or_404(run_id, exception_id, runs_dir)
+    try:
+        review.accept_classification(
+            run_id,
+            runs_dir,
+            exception=item.exception,
+            to_code=code,
+            by=user.email,
+            hypothesis=hypothesis,
+            model=model,
+        )
+    except review.ReviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return RedirectResponse(f"/periods/{run_id}/items/{exception_id}", status_code=303)
+
+
+@router.post("/periods/{run_id}/items/{exception_id}/acknowledge")
+def acknowledge_item(
+    request: Request,
+    run_id: str,
+    exception_id: str,
+    note: str = Form(""),
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    _check_csrf(request, csrf)
+    runs_dir = tenant_runs(user, request)
+    item = _item_or_404(run_id, exception_id, runs_dir)
+    try:
+        review.acknowledge(run_id, runs_dir, exception=item.exception, by=user.email, note=note)
+    except review.ReviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return RedirectResponse(f"/periods/{run_id}", status_code=303)
+
+
+@router.post("/periods/{run_id}/signoff")
+def sign_off_close(
+    request: Request,
+    run_id: str,
+    note: str = Form(""),
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    """The terminal human decision, or a refusal with the reason."""
+    _check_csrf(request, csrf)
+    runs_dir = tenant_runs(user, request)
+    view = service.view(run_id, runs_dir)
+    try:
+        review.sign_off(
+            run_id,
+            runs_dir,
+            exceptions=[e.exception for e in view.exceptions],
+            outcome_digest=run_id,
+            by=user.email,
+            note=note,
+            books_blocked=list(view.blocked),
+        )
+    except review.ReviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return RedirectResponse(f"/periods/{run_id}", status_code=303)
 
 
 @router.get("/settings", response_class=HTMLResponse)

@@ -364,14 +364,18 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
 /* ---- metric card, reference layout ---- */
 .metric{position:relative;padding:1.15rem 1.25rem;display:flex;flex-direction:column;gap:.15rem}
 .metric .head{display:flex;align-items:flex-start;justify-content:space-between;gap:.8rem}
+/* One tint. Six cards in six colours is a dashboard shouting every number at
+   the same volume, and it leaves nothing louder to say when something is
+   actually wrong — so the badges are all `--primary-light`, the values are all
+   ink, and colour is spent only on `.bad`, which is reserved for a close that
+   is blocked or a record that does not vouch for itself. */
 .metric-ico{
   width:34px;height:34px;border-radius:var(--r12);display:grid;place-items:center;flex:none;
   background:var(--primary-light);color:var(--primary);
 }
-.metric-ico.ok{background:#E7F8EE;color:#15803D}
-.metric-ico.warn{background:#FEF4E2;color:#B45309}
 .metric-ico.bad{background:#FEECEC;color:#B91C1C}
-.metric-ico.calm{background:#EDEBFE;color:#5B4BD6}
+.metric .v{color:var(--ink-deep)}
+.metric .v.bad{color:var(--error)}
 .bar{height:5px;border-radius:999px;background:var(--n200);overflow:hidden;margin:.55rem 0 .1rem}
 .bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#5B9BFF,#2F7BFF)}
 

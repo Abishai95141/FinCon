@@ -93,7 +93,9 @@ def promoted(rule, *, actor: str = "test-approver", policy_ref: str = "settlemen
 # --------------------------------------------------------------------------
 
 
-def signed_in_client(monkeypatch, tmp_path, *, email: str = "controller@acme.in"):
+def signed_in_client(
+    monkeypatch, tmp_path, *, email: str = "controller@acme.in", sample: bool = True
+):
     """A `TestClient` with a real session, and the runs directory it will use.
 
     Real in the sense that matters: the account is created through the login
@@ -110,12 +112,17 @@ def signed_in_client(monkeypatch, tmp_path, *, email: str = "controller@acme.in"
     from fastapi.testclient import TestClient
 
     from recon import loop as looplib
+    from recon import service
     from recon.api.app import app as fastapi_app
 
     monkeypatch.setenv("RECON_ENV", "dev")
     monkeypatch.setenv("RECON_AUTH", "local")
     monkeypatch.setenv("RECON_DEV_USERS", str(tmp_path / "users.json"))
     monkeypatch.setattr(looplib, "RUNS", tmp_path / "runs")
+    # A tenant's own files go to the sandbox so a test never writes into the
+    # repository. `BATCH_ROOT` is left alone — those are the read-only shipped
+    # examples, and MCP and the benchmark both read them directly.
+    monkeypatch.setattr(service, "TENANT_SOURCES", tmp_path / "sources")
 
     client = TestClient(fastapi_app, follow_redirects=True)
     page = client.get("/login")
@@ -130,4 +137,11 @@ def signed_in_client(monkeypatch, tmp_path, *, email: str = "controller@acme.in"
 
     user = auth.read(client.cookies[auth.SESSION_COOKIE], auth.session_secret())
     assert user is not None, "the login set a cookie this server cannot read back"
+
+    if sample:
+        # The first thing a real account does. Source files are per-tenant now, so
+        # a fresh account genuinely has nothing to close — a fixture that reached
+        # into the shared batches would be testing a path no user has.
+        loaded = client.post("/sources/sample", data={"csrf": client.cookies[auth.CSRF_COOKIE]})
+        assert loaded.status_code == 200, loaded.text[:300]
     return client, user.user_id, (tmp_path / "runs" / user.user_id)

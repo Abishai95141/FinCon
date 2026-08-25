@@ -28,6 +28,7 @@ help:
 	@echo "  serve     start the HTTP API and the screens         [P14]"
 	@echo "            (http://127.0.0.1:8000/ui — no terminal needed after this)"
 	@echo "  mcp       start the MCP server on stdio               [P13]"
+	@echo "  ses       wire Cognito to SES once the sender is verified  [CHECK=1]"
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
@@ -129,6 +130,10 @@ serve:
 # stdio, for a local MCP client. `--transport http` for a remote one.
 mcp:
 	uv run recon-mcp
+
+# Finish the Cognito -> SES wiring once the sender identity is verified.
+ses:
+	uv run python -m tools.wire_ses $(if $(CHECK),--check,)
 
 graph:
 	graphify update .

@@ -19,7 +19,15 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.4.0"
+CONTRACT_VERSION = "7.5.0"
+# 7.5.0 — The human half of a close. ExceptionAcknowledged, ClassificationAccepted
+#         and CloseSignedOff, with their payloads. Until now a close ended at
+#         `CloseCompleted` and the product presented that as approval — the engine
+#         finishing is not a person agreeing, and showing one as the other claims
+#         an approval nobody gave. New kinds and payloads, so minor.
+#         They are written to a SEPARATE chained log: `decisions.jsonl` seals at
+#         its terminator, and that is correct. What the machine decided and what a
+#         human decided afterwards are two records, linked by run id.
 # 7.4.0 — MatchProvenPayload.proof. The decision log carried a proof *id*
 #         and the proof object lived only in the memory of the process that
 #         made the match, so the durable record cited evidence nobody could
@@ -199,15 +207,18 @@ from .event import (  # noqa: E402
     PRODUCERS,
     AdapterAuthoredPayload,
     AuthorityVerifiedPayload,
+    ClassificationAcceptedPayload,
     ClassificationProposedPayload,
     CloseBlockedPayload,
     CloseCompletedPayload,
+    CloseSignedOffPayload,
     CloseStartedPayload,
     CodeAcceptedPayload,
     CodePromotedPayload,
     CodeProposedPayload,
     Event,
     EventKind,
+    ExceptionAcknowledgedPayload,
     ExceptionRaisedPayload,
     IntakeUnverifiedPayload,
     MatchProvenPayload,
@@ -255,9 +266,11 @@ __all__ = [
     "Authority",
     "AuthorityVerifiedPayload",
     "CanonicalField",
+    "ClassificationAcceptedPayload",
     "ClassificationProposedPayload",
     "CloseBlockedPayload",
     "CloseCompletedPayload",
+    "CloseSignedOffPayload",
     "CloseStartedPayload",
     "CodeAcceptedPayload",
     "CodeDefinition",
@@ -267,6 +280,7 @@ __all__ = [
     "CodeStatus",
     "Event",
     "EventKind",
+    "ExceptionAcknowledgedPayload",
     "ExceptionCode",
     "ExceptionRaisedPayload",
     "FieldMap",
