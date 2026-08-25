@@ -28,6 +28,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 
 from . import CONTRACT_VERSION, Money
+from .proof import Proof
 
 GENESIS = "0" * 64
 
@@ -106,6 +107,16 @@ class _Payload(BaseModel):
 class CloseStartedPayload(_Payload):
     batch: str
     profile: str
+
+    anchors_in_scope: int = 0
+    group_records: int = 0
+    """What went in. Added in 7.4.0 because the record described only what came
+    *out* — so a match rate read off the log had a numerator and no denominator,
+    and "20 matched" could not be turned back into a rate by anyone but us. A
+    number whose denominator is not in the record is not re-derivable, which is
+    the one property this log exists to have. Defaults of 0 mean an older log,
+    and a surface should say "unrecorded" rather than divide by it."""
+
     taxonomy_ref: str = ""
     taxonomy_digest: str = ""
     """sha256 of the code registry *file*. Same reason the policy is pinned: a
@@ -158,6 +169,22 @@ class MatchProvenPayload(_Payload):
     residual: Money
     external_ids: dict[str, str]
 
+    proof: Proof | None = None
+    """The proof itself, not a pointer to one.
+
+    Until 7.4.0 this carried `proof_id` and the claimed residual, and the proof
+    object lived only in the memory of the process that made the match. So the
+    durable record named evidence nobody outside that process could fetch, and
+    P13's claim — *an external party re-derives our answer holding only the
+    record and the source files* — was unreachable from the one artifact we ask
+    people to audit. The log is the thing we hand a regulator; a log that
+    references a proof it does not contain is a citation to a missing document.
+
+    Optional so an old reader can ignore it, which is what makes this minor
+    rather than breaking. `None` means the log was written before 7.4.0, and a
+    verifier is entitled to refuse it: absent evidence is not weak evidence.
+    """
+
     def record_ids(self) -> set[str]:
         return {self.anchor_id, *self.group_ids}
 
@@ -188,6 +215,19 @@ class ExceptionRaisedPayload(_Payload):
     fingerprint are logging the same unresolved problem."""
 
     code: str
+
+    code_provenance: str = "P3"
+    """How this exception came by its code, not how confident we are in it.
+
+    Added in 7.4.0 because the record carried the label and not its derivation,
+    so a replayed close could not tell an `E09` the engine *proved* — by
+    enumerating two valid subsets — from one a model guessed. Everything read
+    back from the log defaulted to `P3`, which made every exception look freely
+    reclassifiable and left the rule that stops a proposal overwriting a proven
+    answer unenforceable on the read path. Found by a P13 gate test skipping
+    itself for want of a derived exception to protect.
+    """
+
     amount: Money
     leg: str
     as_of: str

@@ -39,6 +39,7 @@ from .contracts import (
     EventKind,
     Policy,
     ProofTier,
+    ProposalRefusedPayload,
     ReconException,
     Record,
     RuleAppliedPayload,
@@ -402,7 +403,18 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         completeness=completeness,
         records=records,
         external_of=external_of,
-        blocked_reasons=[f"{e.kind}: {e.message}" for e in ledger.errors],
+        blocked_reasons=[f"{e.kind}: {e.message}" for e in ledger.errors]
+        # Invariant 5 is not advisory, so a close that lost a match to its own
+        # rule bundle is a blocked close and says so in the record. Until P13
+        # `broken` set `ok=False` and reached the log nowhere: the one artifact
+        # an auditor is handed said nothing about the one thing that had gone
+        # wrong. A surface serving from the record could not have shown it,
+        # which is how building the surface found it.
+        + [
+            f"rule_broke_match: {anchor} matched without the rule bundle and "
+            f"does not match with it (invariant 5)"
+            for anchor in broken
+        ],
         label_digest=request.annotations.get("label_digest", digest),
         period=[request.period[0].isoformat(), request.period[1].isoformat()],
     )
@@ -423,6 +435,21 @@ def run_close(request: CloseRequest) -> CloseOutcome:
                 signed_by=verdict.signed_by,
                 key_id=verdict.key_id,
                 reasons=list(verdict.reasons) or ([] if verdict.signed else ["unsigned"]),
+            ),
+        )
+    # A rule whose approval does not hold in this close did not act. A refusal
+    # nobody records reads exactly like a rule that worked.
+    for rule_id, reasons in sorted(staged.inadmissible.items()):
+        journal.append(
+            EventKind.PROPOSAL_REFUSED,
+            actor="engine",
+            outcome="inadmissible",
+            input_hash=rule_id,
+            policy_ref=request.policy.ref,
+            payload=ProposalRefusedPayload(
+                subject=rule_id,
+                proposal_kind="promoted_rule",
+                reasons=list(reasons),
             ),
         )
     for eff in effects:

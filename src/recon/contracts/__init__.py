@@ -19,7 +19,22 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.3.0"
+CONTRACT_VERSION = "7.4.0"
+# 7.4.0 — MatchProvenPayload.proof. The decision log carried a proof *id*
+#         and the proof object lived only in the memory of the process that
+#         made the match, so the durable record cited evidence nobody could
+#         fetch and P13's claim — an external party re-derives our answer
+#         holding only the log and the source files — was unreachable from
+#         the artifact we ask people to audit.
+#         With it: ExceptionRaisedPayload.code_provenance, because the record
+#         carried a label and not its derivation, so a replayed `E09` the engine
+#         *proved* was indistinguishable from one a model guessed — which left
+#         "a proposal may not overwrite a derived answer" unenforceable on
+#         everything read back from a log. And CloseStartedPayload
+#         .anchors_in_scope / .group_records, because the record described only
+#         what came *out*: a match count with no denominator is not a rate, and
+#         a rate nobody else can compute is not re-derivable.
+#         All optional with defaults, so an old reader ignores them: minor.
 # 6.1.0 — RuleAction.value (normalize_key could say which key to rewrite and
 #         never what to, which is why it was unusable), PromotionEvent
 #         .postings_moved, AdapterAuthoredPayload, AdapterSpec.natural_key.

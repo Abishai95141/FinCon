@@ -25,14 +25,22 @@ import re
 from recon.contracts import PRODUCERS
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-#: Measured 2026-08-25 at 57. Ratchet: this may fall, never rise.
+#: Measured 2026-08-25 at 57, then 52 the same day. Ratchet: may fall, never rise.
 #:
 #: The audit quoted 40 for the same idea. The difference is not drift — that
 #: scan searched `contracts/` as well, so a validator reading its own field
 #: counted as a consumer. Excluding the package is the stricter and more useful
-#: question: does anything *outside* the contract ever read this? 57 is the
+#: question: does anything *outside* the contract ever read this? 57 was the
 #: honest answer to it, and the smaller number was the flattering one.
-UNREAD_FIELD_BUDGET = 57
+#:
+#: 57 -> 52 at P13/P14, and the *cause* is worth more than the number. Nothing
+#: was written to close these five; a surface was built, and it turned out that
+#: an API and an MCP server read fields nobody had had a reason to read before —
+#: the intake proof's row counts, the promotion event's approver, the code
+#: definition's owner. "Unread" was never a property of the contract. It was a
+#: property of having no consumer, and the honest way to fall further is to
+#: build things that need them rather than to wire readers on purpose.
+UNREAD_FIELD_BUDGET = 52
 
 _SKIP = {"contract_version", "model_config"}
 

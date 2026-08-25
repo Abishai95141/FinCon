@@ -81,12 +81,17 @@ MUTATIONS = [
     out_of_scope = [p for p in planted if p not in in_scope]""",
     ),
     (
-        "the bank side is filtered before the audit can see it (the P10 bug)",
-        "bench/run.py",
-        """    bank = [(rec.keys["entry_ref"], rec) for rec in bank_result.records]""",
-        """    bank = [
-        (rec.keys["entry_ref"], rec)
-        for rec in bank_result.records
+        # Re-anchored at P13: the loading moved from `bench/run.py` into the
+        # profile it configures, so the product could read its own files. The
+        # bug this reverts is the same one — filter the anchor side before the
+        # completeness audit can see it, and the planted `E08` leaves the
+        # pipeline with no disposition while invariant 8 still reads `complete`.
+        "the anchor side is filtered before the audit can see it (the P10 bug)",
+        "src/recon/profiles/settlement.py",
+        """    anchor_rows = named(SOURCES[0])""",
+        """    anchor_rows = [
+        (ext, rec)
+        for ext, rec in named(SOURCES[0])
         if rec.keys.get("gateway") and rec.amount > 0
     ]""",
     ),

@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11
+GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11 13 14
 
 # Gates that require a live model and cannot run offline. Excluded from
 # `make test` so a fresh clone still passes, and NAMED in the output so the
@@ -11,7 +11,7 @@ GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11
 # pytest-collection trap from P1 in a new costume.
 LIVE_GATES := 12 12b 12c
 
-.PHONY: help setup verify gate eval gen test e2e lint graph status
+.PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status
 
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
@@ -25,11 +25,14 @@ help:
 	@echo "  test      unit + property"
 	@echo "  e2e       end-to-end on a generated batch"
 	@echo "  lint      ruff + the no-float rule"
+	@echo "  serve     start the HTTP API and the screens         [P14]"
+	@echo "            (http://127.0.0.1:8000/ui — no terminal needed after this)"
+	@echo "  mcp       start the MCP server on stdio               [P13]"
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
-	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p18]"
+	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p19]"
 	@echo "            (rewrites src/ in place - do not run anything else meanwhile)"
 	@echo "  mutate-preflight  check every mutation anchor, offline and free"
 	@echo "  status-table  regenerate the known-broken table from its reproducers"
@@ -112,6 +115,16 @@ lint:
 	@# CLAUDE.md rule 4: float is banned in the engine and ledger.
 	@! grep -rnE '\bfloat\s*\(|:\s*float\b' src/recon/engine src/recon/ledger \
 	  || { echo "float found in engine/ledger — see CLAUDE.md rule 4"; exit 1; }
+
+# The product's two surfaces. `src/recon/api/` and `src/recon/mcp/` were 0-byte
+# files until P13, so everything the engine did was real and none of it was
+# reachable by anyone not running Python in this repo.
+serve:
+	uv run recon-api $(if $(PORT),--port $(PORT),)
+
+# stdio, for a local MCP client. `--transport http` for a remote one.
+mcp:
+	uv run recon-mcp
 
 graph:
 	graphify update .

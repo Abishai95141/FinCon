@@ -53,7 +53,14 @@ class Policy(BaseModel):
     """Frozen on purpose — a caller that could edit policy mid-run would be
     supplying its own permission, which is the whole failure this closes."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # `validate_default` because a default is a value like any other and was
+    # not being treated as one: `max_reference_selectivity` defaulted to the
+    # *string* "0.25", never went through the Ratio validator, and a Policy that
+    # omitted the field could not be serialised to JSON at all. Unexercised for
+    # four phases because the one policy on disk sets it — and found only when
+    # the field's default reached a published OpenAPI schema. Validating
+    # defaults closes the class, not the instance.
+    model_config = ConfigDict(frozen=True, extra="forbid", validate_default=True)
 
     contract_version: str = CONTRACT_VERSION
     policy_id: str
@@ -94,7 +101,7 @@ class Policy(BaseModel):
     how a rule quietly rewrites a close. Above this the rule escalates instead
     of promoting."""
 
-    max_reference_selectivity: Ratio = "0.25"
+    max_reference_selectivity: Ratio = Decimal("0.2500")
     """The share of a **reference population** a rule may fire on before it is
     over-broad.
 

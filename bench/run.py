@@ -28,14 +28,13 @@ import argparse
 import hashlib
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import date
 from pathlib import Path
 
 from recon.close import CloseRequest, run_close
 from recon.contracts import (
     PRODUCERS,
-    ProofTier,
     ReconException,
     Record,
     TaxonomyRegistry,
@@ -45,10 +44,10 @@ from recon.engine import rulestore
 from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
 from recon.engine.completeness import CompletenessReport
-from recon.intake import ingest, load_spec
 from recon.journal.derive import Decisions
 from recon.ledger.beancount_io import CloseResult as LedgerResult
 from recon.ledger.beancount_io import JournalEntry
+from recon.loop import LoadedSources
 from recon.profiles import settlement
 from recon.triage.worklist import WorkItem, summarise
 
@@ -94,31 +93,23 @@ IN_SCOPE_LEGS = {"bank"}
 
 
 @dataclass(frozen=True)
-class Sides:
-    bank: list[tuple[str, Record]]
-    settlement: list[tuple[str, Record]]
-    provenance: ProofTier
-    scope: dict[str, str]
-    """record id -> why this loop does not reconcile it. Never a bare drop."""
+class Sides(LoadedSources):
+    """The loop's own names for the two sides.
 
-    proofs: list = field(default_factory=list)
-    """The intake proof per source. Carried so the record can say what each
-    source was worth, rather than the close asserting it second-hand."""
-
-    digests: dict[str, str] = field(default_factory=dict)
-    strengths: dict[str, str] = field(default_factory=dict)
+    The loading itself moved into `recon.profiles.settlement` at P13 — a product
+    that could reconcile but could not read its own files had exactly one
+    executable form, the benchmark, and any surface over it would have grown a
+    second copy of intake. This subclass keeps `bank`/`settlement` readable in a
+    harness that is about *this* loop; nothing in `recon/` uses those names.
+    """
 
     @property
-    def anchors(self) -> list[tuple[str, Record]]:
-        """The bank side this loop actually reconciles. `bank` keeps everything
-        so the completeness audit sees the whole statement; this is the subset
-        the tiers are offered."""
-        return [(ext, rec) for ext, rec in self.bank if rec.record_id not in self.scope]
+    def bank(self) -> list[tuple[str, Record]]:
+        return self.anchor_rows
 
-    def in_scope(self) -> tuple[list[tuple[str, Record]], list[tuple[str, Record]], ProofTier]:
-        """Anchors, group rows, weakest provenance — the three things a caller
-        that only wants to match needs."""
-        return self.anchors, self.settlement, self.provenance
+    @property
+    def settlement(self) -> list[tuple[str, Record]]:
+        return self.group_rows
 
 
 def _digest(path: Path) -> str:
@@ -157,52 +148,15 @@ class CloseResult:
 
 
 def load_sides(batch: str) -> Sides:
-    """Bank comes from the CAMT rendering because it carries NtryRef, which is
-    the id the labels use. The CSV is the same account and ingests identically
-    (proved at P2); using the CAMT here keeps scoring traceable to ground truth
-    without a second id mapping to get wrong.
+    """One batch's sources, read by the product rather than by the harness.
 
-    Every ingested record is returned. The settlement loop reconciles money
-    coming *in*, so debits are declared out of scope with a reason and travel
-    to the completeness audit rather than being filtered away. A credit is in
-    scope whether or not it looks like a gateway payout: a receipt nobody can
-    attribute is the case a controller most wants raised, and recognising it by
-    the very key it is missing would drop it.
+    `recon.profiles.settlement.load_sources` is the same function this used to
+    be, moved to the loop it configures. Kept here as a delegate so the ~20 test
+    call sites that say "load batch A" keep saying it, and so there is one
+    implementation of intake rather than two that agree by inspection.
     """
-    root = BATCHES / batch
-    bank_result = ingest(
-        load_spec("icici-camt"), root / "bank_icici_camt053.xml", WINDOW, SETTLEMENT_POLICY
-    )
-    settle_result = ingest(
-        load_spec("gateway-settlement"), root / "settlement.csv", WINDOW, SETTLEMENT_POLICY
-    )
-
-    bank = [(rec.keys["entry_ref"], rec) for rec in bank_result.records]
-    settlement = [(rec.source_row_id, rec) for rec in settle_result.records if rec.source_row_id]
-
-    scope = {
-        rec.record_id: (
-            "debit — the settlement loop reconciles receipts; outgoing payments "
-            "belong to the AP and payroll loops"
-        )
-        for _, rec in bank
-        if rec.amount <= 0
-    }
-
-    weakest = min(
-        (bank_result.proof.provenance, settle_result.proof.provenance),
-        key=lambda t: 0 if t is ProofTier.P0_ARITHMETIC else 1,
-    )
-    proofs = [bank_result.proof, settle_result.proof]
-    return Sides(
-        bank=bank,
-        settlement=settlement,
-        provenance=weakest,
-        scope=scope,
-        proofs=proofs,
-        digests={p.source: p.doc_hash for p in proofs},
-        strengths={p.source: p.strength for p in proofs},
-    )
+    loaded = settlement.load_sources(BATCHES / batch)
+    return Sides(**{f.name: getattr(loaded, f.name) for f in fields(loaded)})
 
 
 def _model_edge():

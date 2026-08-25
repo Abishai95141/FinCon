@@ -131,6 +131,16 @@ def derive(decisions: Decisions) -> list[Event]:
             CloseStartedPayload(
                 batch=decisions.batch,
                 profile=decisions.profile,
+                anchors_in_scope=len(
+                    [a for a in decisions.completeness.anchors if a not in decisions.scope]
+                ),
+                group_records=len(
+                    [
+                        r
+                        for r in decisions.completeness.records
+                        if r not in decisions.completeness.anchors
+                    ]
+                ),
                 policy_digest=decisions.policy_digest,
                 taxonomy_ref=decisions.taxonomy.ref,
                 taxonomy_digest=decisions.taxonomy_digest,
@@ -206,6 +216,11 @@ def derive(decisions: Decisions) -> list[Event]:
                     group_ids=list(match.group_ids),
                     residual=match.proof.residual,
                     external_ids=_externals(decisions, ids),
+                    # The proof travels with the event. A record that names a
+                    # proof id and not the proof cites a document the reader
+                    # cannot fetch — and re-deriving our arithmetic from the log
+                    # plus the source files is the whole trust argument (P13).
+                    proof=match.proof,
                 ),
                 outcome="proven",
                 input_hash=match.proof.proof_id,
@@ -239,6 +254,7 @@ def derive(decisions: Decisions) -> list[Event]:
                     exception_id=exc.exception_id,
                     fingerprint=exc.fingerprint,
                     code=exc.code,
+                    code_provenance=exc.code_provenance.value,
                     amount=exc.amount,
                     leg=exc.leg,
                     as_of=exc.as_of.isoformat(),
@@ -279,8 +295,14 @@ def derive(decisions: Decisions) -> list[Event]:
             event(
                 EventKind.CLOSE_BLOCKED,
                 CloseBlockedPayload(
+                    # Both, always. The `or` that used to be here let a ledger
+                    # error hide the fact that exceptions were blocking too —
+                    # two different states collapsed into one list, so a reader
+                    # of the record could not tell "the books do not balance"
+                    # from "five items need a human before sign-off". A surface
+                    # rendering that list had no way to separate them either.
                     reasons=list(decisions.blocked_reasons)
-                    or [f"{len(blocking)} exception(s) block the close"],
+                    + ([f"{len(blocking)} exception(s) block sign-off"] if blocking else []),
                     blocking_exceptions=blocking,
                 ),
                 outcome="blocked",

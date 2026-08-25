@@ -26,6 +26,13 @@ dependencies = [
   "fastmcp>=2.0",
 ]
 
+# The product's two surfaces, as commands. `src/recon/api/` and
+# `src/recon/mcp/` were empty files until P13; a substrate nobody can start is
+# not a substrate.
+[project.scripts]
+recon-api = "recon.api.serve:main"
+recon-mcp = "recon.mcp.server:main"
+
 [dependency-groups]
 dev = [
   "pytest>=8.2",
