@@ -30,13 +30,11 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 
 from recon.close import CloseRequest, run_close
 from recon.contracts import (
     PRODUCERS,
-    Policy,
     ProofTier,
     ReconException,
     Record,
@@ -47,13 +45,11 @@ from recon.engine import rulestore
 from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
 from recon.engine.blocking import build as build_candidates
 from recon.engine.completeness import CompletenessReport
-from recon.engine.tiers import MatchProfile
-from recon.engine.tolerance import TolerancePolicy
 from recon.intake import ingest, load_spec
 from recon.journal.derive import Decisions
 from recon.ledger.beancount_io import CloseResult as LedgerResult
 from recon.ledger.beancount_io import JournalEntry
-from recon.profiles.chart import load_chart
+from recon.profiles import settlement
 from recon.triage.worklist import WorkItem, summarise
 
 from .arms import deterministic, llm_only, securo_baseline
@@ -70,19 +66,22 @@ from .metrics import (
 from .planted import load_planted, score_planted
 
 BATCHES = Path("data/batches")
-POLICY_DIR = Path("data/policy")
-POLICY_FILE = POLICY_DIR / "settlement_3way.json"
-TAXONOMY_FILE = Path("data/taxonomy/codes.json")
+#: Product configuration now lives with the loop it configures — the profile,
+#: the policy, the taxonomy, the chart and the period were all defined in this
+#: file until 2026-08-25, so a close could not be configured without importing
+#: the harness that scores it. Re-exported here because a benchmark legitimately
+#: needs them, and because every test that imports them from `bench.run` is
+#: asking the right question of the wrong module.
+POLICY_FILE = settlement.POLICY_FILE
+POLICY_DIR = POLICY_FILE.parent
+TAXONOMY_FILE = settlement.TAXONOMY_FILE
 CHART_FILE = Path("data/profiles/settlement_3way.json")
 RUNS = Path("data/runs")
-#: Authority, loaded from disk like an adapter spec so a change shows in a diff.
-SETTLEMENT_POLICY = Policy.model_validate_json(POLICY_FILE.read_text(encoding="utf-8"))
-#: The vocabulary, loaded like the policy — a separate versioned input, not
-#: something the thing being judged gets to supply.
-TAXONOMY = TaxonomyRegistry.model_validate_json(TAXONOMY_FILE.read_text(encoding="utf-8"))
-#: The chart is domain data (invariant 7) and loads from its profile.
-CHART = load_chart("settlement_3way")
-WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
+SETTLEMENT_POLICY = settlement.policy()
+TAXONOMY = settlement.taxonomy()
+CHART = settlement.chart()
+WINDOW = settlement.WINDOW
+SETTLEMENT_3WAY = settlement.PROFILE
 
 #: Which planted defects this loop is able to see. The bank<->settlement leg is
 #: what runs; the order register is a third leg that lands with the second
@@ -91,20 +90,6 @@ WINDOW = (date(2026, 7, 1), date(2026, 10, 31))
 #: as blocking's `dropped` vs `unreachable` at P4, and, like that one, not an
 #: escape hatch: what is in scope comes from the P0 label, never from the run.
 IN_SCOPE_LEGS = {"bank"}
-
-SETTLEMENT_3WAY = MatchProfile(
-    name="settlement_3way",
-    anchor_side="bank",
-    group_side="settlement",
-    # A bank credit and the settlement rows behind it are the same money seen
-    # from two sides, so the group side is negated for the residual to close.
-    side_signs={"bank": 1, "settlement": -1},
-    tolerance=TolerancePolicy(absolute=Decimal("0.50"), date_window_days=3),
-    counterparty_key="gateway",
-    # A fee shares its charge's payment_id; without this the solver reports
-    # subsets that mix a charge from one group with a fee from another.
-    cohesion_key="payment_id",
-)
 
 
 @dataclass(frozen=True)

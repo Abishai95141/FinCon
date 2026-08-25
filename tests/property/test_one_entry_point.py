@@ -54,6 +54,55 @@ def _request(batch: str, tmp: Path, **over) -> CloseRequest:
     return CloseRequest(**base)
 
 
+def test_the_product_configures_and_closes_with_no_benchmark_import(tmp_path):
+    """The strongest form of A1's claim, and the one the other tests in this
+    file do not make: they import `SETTLEMENT_3WAY`, `CHART` and `WINDOW` from
+    `bench.run`, which for months was where the product's own configuration
+    lived. This touches nothing under `bench/`.
+    """
+    import sys
+
+    from recon.close import CloseRequest, run_close
+    from recon.intake import ingest, load_spec
+    from recon.profiles import settlement
+
+    root = Path("data/batches/A")
+    pol = settlement.policy()
+    bank = ingest(load_spec("icici-camt"), root / "bank_icici_camt053.xml", settlement.WINDOW, pol)
+    gate = ingest(load_spec("gateway-settlement"), root / "settlement.csv", settlement.WINDOW, pol)
+
+    outcome = run_close(
+        CloseRequest(
+            run_id="no-bench",
+            anchors=[(r.keys["entry_ref"], r) for r in bank.records],
+            groups=[(r.source_row_id, r) for r in gate.records if r.source_row_id],
+            profile=settlement.PROFILE,
+            policy=pol,
+            taxonomy=settlement.taxonomy(),
+            chart=settlement.chart(),
+            period=settlement.WINDOW,
+            opened_on=settlement.OPENED_ON,
+            journal_path=tmp_path / "decisions.jsonl",
+            source_proofs=[bank.proof, gate.proof],
+            out_of_scope={
+                r.record_id: "debit — this loop reconciles receipts"
+                for r in bank.records
+                if r.amount <= 0
+            },
+        )
+    )
+    assert outcome.matches and outcome.entries and outcome.journal_path.exists()
+    assert outcome.outcome_digest
+
+    # And the product half never reaches for the harness, however it was called.
+    assert not [m for m in sys.modules if m.startswith("recon.") and "bench" in m]
+    for module in (
+        m for m in sys.modules.values() if getattr(m, "__name__", "").startswith("recon.")
+    ):
+        src = getattr(module, "__file__", "") or ""
+        assert "/bench/" not in src, module.__name__
+
+
 def test_a_close_runs_without_the_benchmark(tmp_path):
     """The claim A1 exists to make true. No labels, no arms, no scorecard — the
     product's own path, reaching the books and writing its own record."""
