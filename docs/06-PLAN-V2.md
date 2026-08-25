@@ -128,21 +128,31 @@ proven unable to affect a posting. Promotion requires a named human and a writte
 ### P12 — The model edge ◆ THE LIFT NUMBER
 The old P7. Not cuttable — without it there is no agent and no lift.
 
-- [ ] **Adapter-spec synthesis** — declarative spec only, no codegen (ADR-001), first-use approval.
+- [x] **Adapter-spec synthesis** — declarative spec only, no codegen (ADR-001), first-use approval.
+      *(2026-08-24: built. A source in a format never seen is read, a spec authored, verified and
+      ingested with no configuration. The spec cannot name its own author or approve itself, and a
+      verb outside the vocabulary is a validation error rather than an attempt — `gate_p12c`.)*
 - [x] **Exception triage** — classify into the registry, hypothesis, cited evidence, rank by cash
       impact × age. *(2026-08-24: built on `deepseek-v4-flash`. Classification 20% → 40% on A and
       held-out B. A proposal may not overwrite a code the engine derived by proof — found by
       measuring a net lift of zero on the first pass.)* Proposing a new code is wired in P11 and
       not yet driven from triage.
-- [x] **Rule induction** — proposal + regression report through the P8 gate. *(2026-08-24: built.
-      Four controls added that P8 structurally lacked — unmodelled actions report absent not zero,
-      identity-keyed rules refused as corrections, rules firing on nothing refused, and a
-      selectivity cap. All three induced rules refused, each by a different control.)*
+- [x] **Rule induction** — proposal + regression report through the P8 gate. *(2026-08-25:
+      `R-DUP-06` is promoted and shipping — `raise_advisory -> E06` on a repeated export row,
+      classification 1/5 → 2/5 on A **and** on held-out B, no false match, no value moved. Two
+      refusals came first, both correct: a rule that suppressed the duplicate was strictly harmful
+      (a false match, and the planted E06 destroyed for the exact value it removed), and an advisory
+      naming no code re-coded nothing. Behind them, promotion had never had an effect at all — three
+      of five actions could promote and do nothing.)*
 
 **Gate:** resolve three exceptions on batch A, approve three induced rules, re-run on held-out batch
 B, and the scorecard attributes the improvement rule by rule. Plus: drop a source in a format never
-seen and watch it author, verify and ingest without configuration. **RED at 2026-08-24** — triage
-built and measured, induction and adapter synthesis not started. Evidence in STATUS.md.
+seen and watch it author, verify and ingest without configuration. **RED at 2026-08-25** — all
+three parts are built and the unseen-format half of the gate is met. What is missing is the *count*:
+one rule is promoted, not three, so there is no rule-by-rule attribution table yet. Two things bound
+it, both named — there is no attestation path for a resolution that removes value, and predicates
+are single-record, so `E02` ("billed above contract tier", a fee compared against a rate on another
+record) is inexpressible. Evidence in STATUS.md.
 
 ### P13 — Substrate
 The old P8's other half.
