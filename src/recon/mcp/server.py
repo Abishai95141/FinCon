@@ -30,7 +30,9 @@ call is the argument.
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 
 from fastmcp import FastMCP
 
@@ -56,6 +58,23 @@ and needs nothing from a previous call.\
 """
 
 mcp: FastMCP = FastMCP(name="recon", instructions=INSTRUCTIONS)
+
+
+def _runs() -> Path | None:
+    """Which account's records this server reads.
+
+    An MCP server runs on someone's machine over stdio, so there is no session
+    to resolve a tenant from — it acts as one account, named by `RECON_TENANT`.
+    Unset means the shared workspace, which is what a single-operator laptop
+    wants. Read per call rather than cached so a test can point it somewhere
+    without reimporting the module.
+
+    Deliberately *not* a tool parameter. A caller that could name a tenant could
+    name someone else's, which is the identity version of the rule that keeps
+    policy off these schemas.
+    """
+    tenant = os.environ.get("RECON_TENANT")
+    return (service.runs_root(None) / tenant) if tenant else None
 
 
 class ToolRefusal(Exception):
@@ -105,7 +124,7 @@ def list_runs() -> list[str]:
     re-closing identical inputs under an unchanged policy reuses the id rather
     than creating a second record of one event.
     """
-    return service.stored_runs()
+    return service.stored_runs(_runs())
 
 
 # --------------------------------------------------------------------------
@@ -131,7 +150,7 @@ def run_close(loop: str, source_set: str) -> dict:
     would see.
     """
     try:
-        return service.close(loop, source_set).model_dump(mode="json")
+        return service.close(loop, source_set, runs_dir=_runs()).model_dump(mode="json")
     except (service.ServiceError, ValueError) as exc:
         raise ToolRefusal(str(exc)) from exc
 
@@ -182,7 +201,7 @@ def get_close(run_id: str, detail: str = "summary") -> dict:
     permission — it changes how much of the answer travels, never what it is.
     """
     try:
-        return service.view(run_id, detail=service.Detail(detail)).model_dump(mode="json")
+        return service.view(run_id, _runs(), detail=service.Detail(detail)).model_dump(mode="json")
     except ValueError as exc:
         raise ToolRefusal(f"detail must be 'summary' or 'full': {exc}") from exc
 
@@ -197,7 +216,7 @@ def get_proof(run_id: str, match_id: str) -> dict:
     not add up to what it says.
     """
     try:
-        return service.proof_of(run_id, match_id).model_dump(mode="json")
+        return service.proof_of(run_id, match_id, _runs()).model_dump(mode="json")
     except service.ServiceError as exc:
         raise ToolRefusal(str(exc)) from exc
 
@@ -228,7 +247,7 @@ def get_worklist(run_id: str) -> list[dict]:
     identically to a promoted one would hide the one thing you need in order to
     know how much to trust it.
     """
-    return [e.model_dump(mode="json") for e in service.view(run_id).exceptions]
+    return [e.model_dump(mode="json") for e in service.view(run_id, _runs()).exceptions]
 
 
 @mcp.tool
@@ -239,7 +258,7 @@ def explain_exception(run_id: str, exception_id: str) -> dict:
     It carries the facts it has and leaves classification open on purpose:
     "I do not know" out loud beats a plausible guess routed to the wrong desk.
     """
-    view = service.view(run_id)
+    view = service.view(run_id, _runs())
     for item in view.exceptions:
         if item.exception.exception_id == exception_id:
             return item.model_dump(mode="json")
@@ -258,7 +277,7 @@ def audit_export(run_id: str, offset: int = 0, limit: int | None = None) -> dict
     that read them. `how_to_verify` spells out the four steps; none of them
     touch our database or our network.
     """
-    return service.audit(run_id).model_dump(mode="json")
+    return service.audit(run_id, _runs(), offset=offset, limit=limit).model_dump(mode="json")
 
 
 @mcp.tool
@@ -275,7 +294,8 @@ def get_events(run_id: str, offset: int = 0, limit: int | None = None) -> dict:
     total, so "here is the log" and "here is the start of the log" stay
     distinguishable — which a bare list could not manage.
     """
-    return service.event_page(run_id, offset=offset, limit=limit).model_dump(mode="json")
+    page = service.event_page(run_id, offset=offset, limit=limit, runs_dir=_runs())
+    return page.model_dump(mode="json")
 
 
 # --------------------------------------------------------------------------
@@ -333,7 +353,7 @@ def reverify_close(run_id: str, source_set: str) -> dict:
     check, which is a gap in the evidence and deliberately does not pass.
     """
     try:
-        return service.reverify(run_id, source_set).model_dump(mode="json")
+        return service.reverify(run_id, source_set, runs_dir=_runs()).model_dump(mode="json")
     except (service.ServiceError, ValueError) as exc:
         raise ToolRefusal(str(exc)) from exc
 
@@ -347,7 +367,7 @@ def verify_journal(run_id: str) -> dict:
     chain over a truncated log is still a valid chain, which is exactly why the
     terminator has to be there.
     """
-    return service.check_chain(service.events(run_id)).model_dump(mode="json")
+    return service.check_chain(service.events(run_id, _runs())).model_dump(mode="json")
 
 
 # --------------------------------------------------------------------------
@@ -375,7 +395,7 @@ def propose_reclassification(
     tool on this server can name one.
     """
     return service.propose_reclassification(
-        run_id, exception_id, code, hypothesis, evidence
+        run_id, exception_id, code, hypothesis, evidence, runs_dir=_runs()
     ).model_dump(mode="json")
 
 

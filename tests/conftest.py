@@ -86,3 +86,48 @@ def promoted(rule, *, actor: str = "test-approver", policy_ref: str = "settlemen
             ),
         }
     )
+
+
+# --------------------------------------------------------------------------
+# an authenticated browser, and the tenant it writes into
+# --------------------------------------------------------------------------
+
+
+def signed_in_client(monkeypatch, tmp_path, *, email: str = "controller@acme.in"):
+    """A `TestClient` with a real session, and the runs directory it will use.
+
+    Real in the sense that matters: the account is created through the login
+    form, the cookie is the one the server signed, and every subsequent request
+    carries it. A test that forged a session cookie would be testing its own
+    forgery rather than the login.
+
+    Returns `(client, user_id, runs_root)`. `runs_root` is where this account's
+    closes land — `service.runs_root(None) / user_id` — which is what makes
+    tenant isolation checkable rather than asserted.
+    """
+    import re
+
+    from fastapi.testclient import TestClient
+
+    from recon import loop as looplib
+    from recon.api.app import app as fastapi_app
+
+    monkeypatch.setenv("RECON_ENV", "dev")
+    monkeypatch.setenv("RECON_AUTH", "local")
+    monkeypatch.setenv("RECON_DEV_USERS", str(tmp_path / "users.json"))
+    monkeypatch.setattr(looplib, "RUNS", tmp_path / "runs")
+
+    client = TestClient(fastapi_app, follow_redirects=True)
+    page = client.get("/login")
+    csrf = re.search(r"name='csrf' value='([^']*)'", page.text).group(1)
+    reply = client.post(
+        "/login",
+        data={"email": email, "password": "reconcile-october-2026", "csrf": csrf},
+    )
+    assert reply.status_code == 200 and "/periods" in str(reply.url), reply.text[:400]
+
+    from recon.api import auth
+
+    user = auth.read(client.cookies[auth.SESSION_COOKIE], auth.session_secret())
+    assert user is not None, "the login set a cookie this server cannot read back"
+    return client, user.user_id, (tmp_path / "runs" / user.user_id)

@@ -4,9 +4,27 @@
     {
       "name": "recon",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "recon-api", "--port", "8137"],
+      "runtimeArgs": [
+        "run",
+        "recon-api",
+        "--port",
+        "8137"
+      ],
       "port": 8137,
       "url": "http://localhost:8137"
+    },
+    {
+      "name": "design-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8311",
+        "--directory",
+        "/private/tmp/claude-501/-Users-abishaikc-Agentic-Fintech/daef3290-89b5-4209-8a99-74e49ac25628/scratchpad"
+      ],
+      "port": 8311,
+      "url": "http://localhost:8311"
     }
   ]
 }

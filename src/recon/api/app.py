@@ -22,14 +22,16 @@ shapes to be fetchable, not just stable.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from .. import service
 from ..contracts import CONTRACT_VERSION, Policy, Proof, Record
 from ..loop import LoopError
+from . import ui
 
 DESCRIPTION = """\
 A reconciliation controller. It closes a three-way match, writes double-entry
@@ -61,6 +63,32 @@ app = FastAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
+
+
+def workspace(request: Request) -> Path:
+    """Which account's records this request may read.
+
+    Resolved from the session cookie and from nothing the request can name.
+    There is no `tenant` parameter anywhere on this API, for the same reason
+    there is no `policy` parameter: a caller that can name the thing can name
+    someone else's.
+
+    401 rather than a redirect — a client here is a program, not a person — and
+    the message points at the one call that genuinely needs no account.
+    """
+    user = ui.visitor(request)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Sign in at /login. POST /v1/verify and GET /v1/contracts need no "
+                "account — verification is stateless on purpose."
+            ),
+        )
+    return service.runs_root(None) / user.user_id
+
+
+WORKSPACE = Depends(workspace)
 
 
 @app.exception_handler(service.ServiceError)
@@ -116,8 +144,8 @@ def authority(loop: str) -> service.AuthorityView:
 
 
 @app.get("/v1/runs", tags=["closes"])
-def runs() -> list[str]:
-    return service.stored_runs()
+def runs(runs_dir: Path = WORKSPACE) -> list[str]:
+    return service.stored_runs(runs_dir)
 
 
 # --------------------------------------------------------------------------
@@ -129,6 +157,7 @@ def runs() -> list[str]:
 def run_close(
     loop: Annotated[str, Query(description="Which reconciliation loop.")],
     source_set: Annotated[str, Query(description="Which period's source files.")],
+    runs_dir: Path = WORKSPACE,
 ) -> service.CloseView:
     """Close one period: match, verify, post, record.
 
@@ -136,7 +165,7 @@ def run_close(
     out of the decision log the close just wrote, so a controller and an auditor
     are looking at the same artifact.
     """
-    return service.close(loop, source_set)
+    return service.close(loop, source_set, runs_dir=runs_dir)
 
 
 @app.post("/v1/matches", tags=["closes"], response_model=service.MatchStageView)
@@ -145,6 +174,7 @@ def run_match(
     source_set: Annotated[str, Query(description="Which period's source files.")],
     offset: int = 0,
     limit: int | None = None,
+    _workspace: Path = WORKSPACE,
 ) -> service.MatchStageView:
     """Match a period and return the proofs — no posting, no ledger, no log.
 
@@ -162,6 +192,7 @@ def records(
     source_set: Annotated[str, Query(description="Which period's source files.")],
     offset: int = 0,
     limit: int | None = None,
+    _workspace: Path = WORKSPACE,
 ) -> service.Page[Record]:
     """The records a loop reads. Verifying against records we supplied proves the
     sum, not the honesty — the files and the specs are published."""
@@ -174,13 +205,17 @@ def records(
 
 
 @app.get("/v1/runs/{run_id}", tags=["closes"], response_model=service.CloseView)
-def close_view(run_id: str, detail: service.Detail = service.Detail.SUMMARY) -> service.CloseView:
+def close_view(
+    run_id: str,
+    detail: service.Detail = service.Detail.SUMMARY,
+    runs_dir: Path = WORKSPACE,
+) -> service.CloseView:
     """A recorded close, rebuilt from its decision log.
 
     `detail=summary` names each match and its `proof_id`; `detail=full` inlines
     every proof. A projection, not a permission.
     """
-    return service.view(run_id, detail=detail)
+    return service.view(run_id, runs_dir, detail=detail)
 
 
 @app.get(
@@ -188,16 +223,16 @@ def close_view(run_id: str, detail: service.Detail = service.Detail.SUMMARY) -> 
     tags=["closes"],
     response_model=service.MatchView,
 )
-def match_proof(run_id: str, match_id: str) -> service.MatchView:
+def match_proof(run_id: str, match_id: str, runs_dir: Path = WORKSPACE) -> service.MatchView:
     """One match with its full proof — the input to `POST /v1/verify`."""
-    return service.proof_of(run_id, match_id)
+    return service.proof_of(run_id, match_id, runs_dir)
 
 
 @app.get("/v1/runs/{run_id}/worklist", tags=["closes"], response_model=list[service.ExceptionView])
-def worklist(run_id: str) -> list[service.ExceptionView]:
+def worklist(run_id: str, runs_dir: Path = WORKSPACE) -> list[service.ExceptionView]:
     """The exception queue: ranked by cash impact x age, routed by the
     registry."""
-    return service.view(run_id).exceptions
+    return service.view(run_id, runs_dir).exceptions
 
 
 @app.get(
@@ -205,28 +240,34 @@ def worklist(run_id: str) -> list[service.ExceptionView]:
     tags=["closes"],
     response_model=service.ExceptionView,
 )
-def exception_detail(run_id: str, exception_id: str) -> service.ExceptionView:
-    for item in service.view(run_id).exceptions:
+def exception_detail(
+    run_id: str, exception_id: str, runs_dir: Path = WORKSPACE
+) -> service.ExceptionView:
+    for item in service.view(run_id, runs_dir).exceptions:
         if item.exception.exception_id == exception_id:
             return item
     raise HTTPException(status_code=404, detail=f"no exception {exception_id!r} in run {run_id!r}")
 
 
 @app.get("/v1/runs/{run_id}/events", tags=["record"], response_model=service.Page[dict])
-def run_events(run_id: str, offset: int = 0, limit: int | None = None) -> service.Page[dict]:
+def run_events(
+    run_id: str, offset: int = 0, limit: int | None = None, runs_dir: Path = WORKSPACE
+) -> service.Page[dict]:
     """The typed, hash-chained decision log, a budget at a time.
 
     `total` is always the real total, so a reader can tell a whole log from the
     start of one.
     """
-    return service.event_page(run_id, offset=offset, limit=limit)
+    return service.event_page(run_id, offset=offset, limit=limit, runs_dir=runs_dir)
 
 
 @app.get("/v1/runs/{run_id}/export", tags=["record"], response_model=service.AuditBundle)
-def audit_export(run_id: str, offset: int = 0, limit: int | None = None) -> service.AuditBundle:
+def audit_export(
+    run_id: str, offset: int = 0, limit: int | None = None, runs_dir: Path = WORKSPACE
+) -> service.AuditBundle:
     """Every decision with its proof, its rule version and its approver — plus
     the four steps to re-derive the lot without us."""
-    return service.audit(run_id)
+    return service.audit(run_id, runs_dir, offset=offset, limit=limit)
 
 
 # --------------------------------------------------------------------------
@@ -260,6 +301,7 @@ def verify(
 def reverify(
     run_id: str,
     source_set: Annotated[str, Query(description="Which files to re-derive against.")],
+    runs_dir: Path = WORKSPACE,
 ) -> service.Reverification:
     """Re-derive a whole recorded close from the files on disk.
 
@@ -267,14 +309,14 @@ def reverify(
     pinned, and re-derives every proof in the log. Nothing is read from the
     process that ran the close, so this is the outsider's check, run on demand.
     """
-    return service.reverify(run_id, source_set)
+    return service.reverify(run_id, source_set, runs_dir=runs_dir)
 
 
 @app.get("/v1/runs/{run_id}/chain", tags=["verify"], response_model=service.ChainVerification)
-def chain(run_id: str) -> service.ChainVerification:
+def chain(run_id: str, runs_dir: Path = WORKSPACE) -> service.ChainVerification:
     """Whether the decision log vouches for itself — chain, and terminator
     against the stream."""
-    return service.check_chain(service.events(run_id))
+    return service.check_chain(service.events(run_id, runs_dir))
 
 
 # --------------------------------------------------------------------------
@@ -293,13 +335,16 @@ def propose(
     code: Annotated[str, Body()],
     hypothesis: Annotated[str, Body()],
     evidence: Annotated[list[str], Body()] = [],  # noqa: B006 — FastAPI reads the default
+    runs_dir: Path = WORKSPACE,
 ) -> service.ProposalVerdict:
     """Ask whether a proposed code would be admissible. Nothing is written.
 
     `admissible: true` means well-formed and permitted, not right. Making it so
     needs a named human, and this endpoint cannot name one.
     """
-    return service.propose_reclassification(run_id, exception_id, code, hypothesis, evidence)
+    return service.propose_reclassification(
+        run_id, exception_id, code, hypothesis, evidence, runs_dir=runs_dir
+    )
 
 
 # --------------------------------------------------------------------------
@@ -320,10 +365,3 @@ def _mount_ui() -> None:
 
 
 _mount_ui()
-
-
-@app.get("/", include_in_schema=False, response_class=HTMLResponse)
-def index_redirect() -> HTMLResponse:
-    from .ui import index
-
-    return index()

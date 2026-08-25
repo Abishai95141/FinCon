@@ -27,18 +27,32 @@ import pytest
 from fastapi.testclient import TestClient
 from fastmcp import Client
 
-from recon import loop as looplib
 from recon import service
-from recon.api import app
 from recon.mcp.server import mcp
+from tests.conftest import signed_in_client
 
 LOOP = "settlement_3way"
 BATCH = "A"
 
 
-@pytest.fixture(scope="module")
-def http() -> TestClient:
-    return TestClient(app)
+@pytest.fixture
+def session(tmp_path, monkeypatch):
+    """One account, and an MCP server pointed at the same account's records.
+
+    An MCP server has no session to resolve a tenant from — it runs on
+    somebody's machine and acts as one account, named by `RECON_TENANT`. So the
+    comparison is only meaningful when both surfaces are looking at the same
+    workspace, and setting that up explicitly is what keeps "the two agree" from
+    quietly meaning "the two are both empty".
+    """
+    client, user_id, runs_root = signed_in_client(monkeypatch, tmp_path)
+    monkeypatch.setenv("RECON_TENANT", user_id)
+    return client, runs_root
+
+
+@pytest.fixture
+def http(session) -> TestClient:
+    return session[0]
 
 
 def _tool(name: str, args: dict | None = None):
@@ -49,9 +63,9 @@ def _tool(name: str, args: dict | None = None):
     return asyncio.run(go())
 
 
-@pytest.fixture(scope="module")
-def run_id() -> str:
-    return service.close(LOOP, BATCH).run_id
+@pytest.fixture
+def run_id(session) -> str:
+    return service.close(LOOP, BATCH, runs_dir=session[1]).run_id
 
 
 #: (tool name, tool args, HTTP method, path template). Every read both surfaces
@@ -123,6 +137,12 @@ def test_the_pairing_table_covers_every_read_both_surfaces_expose():
     assert not missing, f"tools no test compares against HTTP: {sorted(missing)}"
 
 
+def _tenant() -> str:
+    import os
+
+    return os.environ["RECON_TENANT"]
+
+
 def _tool_names(go) -> set[str]:
     return asyncio.run(go())
 
@@ -145,7 +165,7 @@ def test_a_close_is_the_same_close_through_either_door(http: TestClient):
 
 
 def test_one_proof_is_the_same_proof_through_either_door(http: TestClient, run_id: str):
-    match_id = service.view(run_id).matches[0].match_id
+    match_id = service.view(run_id, service.runs_root(None) / _tenant()).matches[0].match_id
     over_http = http.get(f"/v1/runs/{run_id}/matches/{match_id}/proof").json()
     over_mcp = _tool("get_proof", {"run_id": run_id, "match_id": match_id})
     assert over_http == over_mcp
@@ -171,6 +191,8 @@ def test_a_verification_is_the_same_verdict_through_either_door(http: TestClient
     # Ingested rather than fetched from us, which is what a verifier actually
     # does — and what `run_match` now tells them to do instead of inlining 342 KB
     # of records they should not be trusting anyway.
+    from recon import loop as looplib
+
     loaded = looplib.get(LOOP).load(service.BATCH_ROOT / BATCH)
     records = [r.model_dump(mode="json") for _, r in [*loaded.anchor_rows, *loaded.group_rows]]
     body = {"proof": staged["matches"][0]["proof"], "records": records, "loop": LOOP}
@@ -208,10 +230,9 @@ def test_the_view_comes_from_the_record_not_from_the_run(run_id: str, tmp_path):
     after = service.view(view.run_id, tmp_path)
     assert after.tiers.matched == 0, "the matches survived their removal from the record"
     assert after.chain_problems, "a log with events removed still claimed to hold"
-    assert looplib.RUNS  # the real runs dir was untouched by this test
 
 
-def test_a_record_names_bundles_the_way_a_stranger_would_read_them(run_id: str):
+def test_a_record_names_bundles_the_way_a_stranger_would_read_them(session, run_id: str):
     """An audit artifact must not carry the home directory of whoever ran it.
 
     `rulestore.STORE` resolves to an absolute path so it works from any cwd, and
@@ -219,20 +240,20 @@ def test_a_record_names_bundles_the_way_a_stranger_would_read_them(run_id: str):
     `data/policy`, `data/taxonomy` and `/Users/somebody/.../data/rules`. Three
     bundles of the same kind, one of them leaking a path nobody outside needs.
     """
-    for entry in service.view(run_id).authority:
+    for entry in service.view(run_id, session[1]).authority:
         assert not entry["bundle"].startswith("/"), entry["bundle"]
         assert entry["bundle"].startswith("data/"), entry["bundle"]
 
 
-def test_the_break_identity_survives_the_record(run_id: str):
+def test_the_break_identity_survives_the_record(session, run_id: str):
     """`ReconException.fingerprint` reaches the log and has to come back.
 
     Content-derived identity is the thing that makes "this is the same break as
     last month" sayable at all, and the surface serves from the record — so a
     fingerprint that is written and not read is a column of dashes for everyone.
     """
-    live = service.close(LOOP, BATCH)
-    from_record = service.view(live.run_id)
+    live = service.close(LOOP, BATCH, runs_dir=session[1])
+    from_record = service.view(live.run_id, session[1])
     assert [e.exception.fingerprint for e in from_record.exceptions] == [
         e.exception.fingerprint for e in live.exceptions
     ]

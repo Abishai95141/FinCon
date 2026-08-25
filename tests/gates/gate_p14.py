@@ -32,9 +32,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from recon import loop as looplib
 from recon import service
-from recon.api import app
+from recon.api import app  # noqa: F401 — imported by the client fixture
+from recon.api.theme import money
+from tests.conftest import signed_in_client
 
 pytestmark = pytest.mark.gate
 
@@ -43,46 +44,76 @@ BATCH = "A"
 
 
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """A browser, and a scratch directory for the logs it causes to be written.
+def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A browser with a real account, and the directory that account writes to.
 
-    The source root is left pointing at the real batches: the gate is about a
-    controller closing a real period, and a fixture that also invented the
-    inputs would be testing a smaller thing than the sentence says.
+    The account is created through the login form and the cookie is the one the
+    server signed — a forged session would be testing the forgery. The source
+    root is left pointing at the real batches: the gate is about a controller
+    closing a real period, and inventing the inputs too would test a smaller
+    thing than the sentence says.
     """
-    monkeypatch.setattr(looplib, "RUNS", tmp_path / "runs")
-    return TestClient(app)
+    return signed_in_client(monkeypatch, tmp_path)
 
 
 @pytest.fixture
-def closed(client: TestClient) -> tuple[TestClient, str]:
-    page = client.post("/ui/close", data={"loop": LOOP, "source_set": BATCH})
-    assert page.status_code == 200
-    return client, str(page.url).rsplit("/", 1)[-1]
+def client(session) -> TestClient:
+    return session[0]
+
+
+@pytest.fixture
+def runs_root(session) -> Path:
+    return session[2]
+
+
+@pytest.fixture
+def closed(session) -> tuple[TestClient, str, Path]:
+    client, _, root = session
+    page = client.post("/periods/close", data=_form(client, loop=LOOP, source_set=BATCH))
+    assert page.status_code == 200, page.text[:400]
+    return client, str(page.url).rsplit("/", 1)[-1], root
+
+
+def _form(client: TestClient, **fields) -> dict:
+    """A form post carrying the double-submit CSRF token the server issued.
+
+    Not a convenience: a test that omitted it would be exercising a path a
+    browser cannot reach, and `test_a_form_post_without_its_token_is_refused`
+    is what keeps that honest.
+    """
+    from recon.api import auth
+
+    return {**fields, "csrf": client.cookies.get(auth.CSRF_COOKIE, "")}
 
 
 # --------------------------------------------------------------- the sentence
 
 
-def test_a_controller_completes_a_close_through_the_ui(client: TestClient, tmp_path: Path):
+def test_a_controller_completes_a_close_through_the_ui(session):
     """Browser only: land, read the page, submit what it offers, read the result."""
-    index = client.get("/ui")
+    client, _user_id, runs_root = session
+    index = client.get("/periods")
     assert index.status_code == 200
 
     # Find the close control the page actually renders, rather than assuming a
     # URL. A gate that posts to a route the page never offers would pass over a
     # UI with no button on it.
-    form = re.search(r"<form method='post' action='(/ui/close)'>(.*?)</form>", index.text, re.S)
+    form = re.search(
+        r"<form method='post' action='(/periods/close)'>(.*?)</form>", index.text, re.S
+    )
     assert form, "the landing page offers no way to close a period"
-    fields = dict(re.findall(r"name='(\w+)' value='([^']+)'", form.group(2)))
+    fields = dict(re.findall(r"name='(\w+)' value='([^']*)'", form.group(2)))
     assert fields.get("loop") and fields.get("source_set"), fields
+    assert "csrf" in fields, "the form carries no CSRF token, so a browser could not post it"
 
     page = client.post(form.group(1), data=fields)
     assert page.status_code == 200
     run_id = str(page.url).rsplit("/", 1)[-1]
 
-    # A close happened, and it left the record a close is supposed to leave.
-    log = (tmp_path / "runs") / run_id / "decisions.jsonl"
+    # A close happened, and it left the record a close is supposed to leave —
+    # inside this account's directory, which is what makes the login mean
+    # something rather than decorate the front of a shared workspace.
+    log = runs_root / run_id / "decisions.jsonl"
     assert log.exists(), "the UI reported a close that wrote no decision log"
     events = [json.loads(line) for line in log.read_text().splitlines()]
     assert events[-1]["kind"] == "CloseCompleted", "the log does not terminate"
@@ -90,29 +121,29 @@ def test_a_controller_completes_a_close_through_the_ui(client: TestClient, tmp_p
     assert any(e["kind"] == "MatchProven" for e in events)
 
     # And the controller can see the things they came for.
-    for expected in ("auto-match", "Worklist", "Authority", "audit export"):
+    for expected in ("Auto-matched", "Worklist", "Authority", "Audit export"):
         assert expected in page.text, f"the close page does not show {expected!r}"
 
 
-def test_the_ui_needs_no_javascript(closed: tuple[TestClient, str]):
+def test_the_ui_needs_no_javascript(closed: tuple[TestClient, str, Path]):
     """A page that needs a build step before a number appears fails the gate on
     a fresh machine. Expandable rows are `<details>`; actions are form posts."""
-    client, run_id = closed
-    for path in ("/ui", f"/ui/runs/{run_id}"):
+    client, run_id, _root = closed
+    for path in ("/periods", f"/periods/{run_id}"):
         body = client.get(path).text
         assert "<script" not in body.lower(), f"{path} ships JavaScript"
-        assert "<details>" in body or path == "/ui"
+        assert "<details>" in body or path == "/periods"
 
 
 # ------------------------------------------------------------- the scorecard
 
 
-def test_the_scorecard_shows_the_proof_tier_breakdown(closed: tuple[TestClient, str]):
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    view = service.view(run_id, looplib.RUNS)
+def test_the_scorecard_shows_the_proof_tier_breakdown(closed: tuple[TestClient, str, Path]):
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    view = service.view(run_id, runs_root)
 
-    assert "proof tiers" in body
+    assert "Proof tiers" in body
     for tier, count in view.tiers.by_proof_tier.items():
         assert f"{tier}={count}" in body, f"proof tier {tier} is missing from the page"
     for tier, count in view.tiers.by_match_tier.items():
@@ -120,13 +151,13 @@ def test_the_scorecard_shows_the_proof_tier_breakdown(closed: tuple[TestClient, 
 
 
 def test_the_match_rate_never_appears_without_its_decomposition(
-    closed: tuple[TestClient, str],
+    closed: tuple[TestClient, str, Path],
 ):
     """`90%` on its own is the gameable headline this project exists to stop
     quoting. The numerator, the denominator and the tier split travel with it."""
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    view = service.view(run_id, looplib.RUNS)
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    view = service.view(run_id, runs_root)
 
     assert view.tiers.rate in body
     assert re.search(r"\d+/\d+", view.tiers.rate), view.tiers.rate
@@ -134,18 +165,18 @@ def test_the_match_rate_never_appears_without_its_decomposition(
     assert "resting on a declared gap" in body
 
 
-def test_blocking_recall_is_rendered_absent_and_never_zero(closed: tuple[TestClient, str]):
+def test_blocking_recall_is_rendered_absent_and_never_zero(closed: tuple[TestClient, str, Path]):
     """Invariant 6 says recall is reported on every run. In production it cannot
     be measured, and the honest report of an unmeasured thing is `absent` — a
     zero says we ran it and got nothing, which is a claim that flatters us."""
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    block = body[body.index("blocking recall") : body.index("blocking recall") + 400]
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    block = body[body.index("Blocking recall") : body.index("Blocking recall") + 400]
     assert "absent" in block
     assert "0.0%" not in block and "0%" not in block
     assert "labelled" in block, "the page does not say what would measure it"
 
-    view = service.view(run_id, looplib.RUNS)
+    view = service.view(run_id, runs_root)
     assert service.BlockingView(considered=0, exhaustive=0, reduction="—").recall is None
     assert view.complete  # unrelated to recall, and the page must not conflate them
 
@@ -153,16 +184,19 @@ def test_blocking_recall_is_rendered_absent_and_never_zero(closed: tuple[TestCli
 # ---------------------------------------------------------------- the worklist
 
 
-def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, str]):
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    view = service.view(run_id, looplib.RUNS)
+def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, str, Path]):
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    view = service.view(run_id, runs_root)
     assert view.exceptions, "no exceptions to show"
 
     for item in view.exceptions:
         exc = item.exception
         assert exc.code in body
-        assert str(exc.amount) in body
+        # The formatted figure, not the raw Decimal: a controller reads
+        # ₹87,250.40, and asserting on `87250.40` would pass over a page that
+        # printed an unreadable number.
+        assert money(exc.amount) in body
         assert item.owner in body
         # `assert exc.fingerprint[:8] in body` was the first version and it was
         # vacuous: the fingerprint came back empty from the record, so the check
@@ -174,24 +208,24 @@ def test_every_worklist_row_expands_to_its_evidence(closed: tuple[TestClient, st
     assert body.count("<details>") >= len(view.exceptions)
 
 
-def test_an_unratified_code_is_marked_as_one(closed: tuple[TestClient, str]):
+def test_an_unratified_code_is_marked_as_one(closed: tuple[TestClient, str, Path]):
     """A proposed category rendered identically to a promoted one hides the one
     thing the reader needs in order to calibrate trust."""
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    for item in service.view(run_id, looplib.RUNS).exceptions:
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    for item in service.view(run_id, runs_root).exceptions:
         if item.authority_note:
             assert item.authority_note in body
 
 
-def test_every_match_expands_to_the_proof_behind_it(closed: tuple[TestClient, str]):
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
+def test_every_match_expands_to_the_proof_behind_it(closed: tuple[TestClient, str, Path]):
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
     # The close page renders every proof inline, so it asks for `detail=full`;
     # a test checking what the page shows has to ask the same question of the
     # service. `test_a_projection_never_changes_an_answer` is what holds the two
     # detail levels to the same *answer*.
-    view = service.view(run_id, looplib.RUNS, detail=service.Detail.FULL)
+    view = service.view(run_id, runs_root, detail=service.Detail.FULL)
     for match in view.matches:
         assert match.proof is not None, f"{match.match_id} rendered with no proof"
         assert match.proof.proof_id in body
@@ -203,8 +237,8 @@ def test_every_match_expands_to_the_proof_behind_it(closed: tuple[TestClient, st
 # ------------------------------------------------------------- the audit trail
 
 
-def test_the_audit_export_carries_proof_rule_and_approver(closed: tuple[TestClient, str]):
-    client, run_id = closed
+def test_the_audit_export_carries_proof_rule_and_approver(closed: tuple[TestClient, str, Path]):
+    client, run_id, _root = closed
     bundle = client.get(f"/v1/runs/{run_id}/export").json()
 
     assert bundle["policy_approved_by"]
@@ -219,38 +253,38 @@ def test_the_audit_export_carries_proof_rule_and_approver(closed: tuple[TestClie
     assert bundle["authority"], "the export does not say who signed the authority"
 
 
-def test_re_derivation_is_reachable_from_the_page(closed: tuple[TestClient, str]):
+def test_re_derivation_is_reachable_from_the_page(closed: tuple[TestClient, str, Path]):
     """The strongest thing this system can say is "check me", so it is a button."""
-    client, run_id = closed
-    page = client.get(f"/ui/runs/{run_id}").text
+    client, run_id, _root = closed
+    page = client.get(f"/periods/{run_id}").text
     assert "Re-derive" in page
 
-    report = client.post(f"/ui/runs/{run_id}/reverify", data={"source_set": BATCH})
+    report = client.post(f"/periods/{run_id}/reverify", data=_form(client, source_set=BATCH))
     assert report.status_code == 200
     assert "holds" in report.text and "same file" in report.text
     assert "DOES NOT HOLD" not in report.text
 
-    wrong = client.post(f"/ui/runs/{run_id}/reverify", data={"source_set": "B"})
-    assert "DIFFERENT FILE" in wrong.text
+    wrong = client.post(f"/periods/{run_id}/reverify", data=_form(client, source_set="B"))
+    assert "different file" in wrong.text
     assert "not the bytes this close ran on" in wrong.text, (
         "pointed at the wrong period it reports a finding about the close rather "
         "than about the request"
     )
 
 
-def test_a_tampered_log_makes_the_page_say_so(closed: tuple[TestClient, str]):
+def test_a_tampered_log_makes_the_page_say_so(closed: tuple[TestClient, str, Path]):
     """Nothing is shown that the record cannot say — including when the record
     has been edited. A surface that refused to render would leave the reader
     with no page and no reason."""
-    client, run_id = closed
-    log = looplib.RUNS / run_id / "decisions.jsonl"
+    client, run_id, runs_root = closed
+    log = runs_root / run_id / "decisions.jsonl"
     lines = log.read_text().splitlines()
     tampered = json.loads(lines[3])
     tampered["outcome"] = "edited-after-the-fact"
     lines[3] = json.dumps(tampered)
     log.write_text("\n".join(lines) + "\n")
 
-    page = client.get(f"/ui/runs/{run_id}")
+    page = client.get(f"/periods/{run_id}")
     assert page.status_code == 200
     assert "does not vouch for itself" in page.text
     assert client.get(f"/v1/runs/{run_id}/chain").json()["holds"] is False
@@ -270,12 +304,12 @@ def test_a_period_missing_a_source_cannot_be_closed(
     (root / "OCT" / "settlement.csv").write_text("row_id\n")
     monkeypatch.setattr(service, "BATCH_ROOT", root)
 
-    page = client.get("/ui").text
+    page = client.get("/periods").text
     assert "OCT" in page
-    assert "missing bank_icici_camt053.xml" in page
+    assert "Missing bank_icici_camt053.xml" in page
     assert "Cannot close" in page
 
-    refused = client.post("/ui/close", data={"loop": LOOP, "source_set": "OCT"})
+    refused = client.post("/periods/close", data=_form(client, loop=LOOP, source_set="OCT"))
     assert refused.status_code == 422
     assert "bank_icici_camt053.xml" in refused.text
 
@@ -325,13 +359,13 @@ def test_no_route_accepts_authority(client: TestClient):
             assert not offending, f"{method.upper()} {path} accepts {sorted(offending)}"
 
 
-def test_the_close_page_shows_only_what_the_record_holds(closed: tuple[TestClient, str]):
+def test_the_close_page_shows_only_what_the_record_holds(closed: tuple[TestClient, str, Path]):
     """Structural: the page is a render of the view, and the view is a render of
     the log. Asserted by rebuilding the view from the file and requiring the
     page's numbers to be its numbers."""
-    client, run_id = closed
-    body = client.get(f"/ui/runs/{run_id}").text
-    from_record = service.view(run_id, looplib.RUNS)
+    client, run_id, runs_root = closed
+    body = client.get(f"/periods/{run_id}").text
+    from_record = service.view(run_id, runs_root)
 
     assert f"{from_record.events} events" in body
     assert from_record.policy_ref in body
