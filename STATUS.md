@@ -63,6 +63,49 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### What the comparison repos were worth · 2026-08-25
+
+Read `formancehq/reconciliation` (112 Go files, graphed) and Hyperswitch's
+reconciliation docs. Two things came back.
+
+**Convergence, which is worth as much as a finding.** Formance's `TemplateKind`
+is a typed catalog of rule shapes that "compiles deterministically to an
+internal CEL expression. The kernel is not exposed at V1 GA; templates are the
+entire customer-facing surface. See ADR-001." That is our ADR-001, arrived at
+independently, down to the document number. Their `TemplateSourceParity` — "two
+independent records of the same money match" — is our `MatchProfile`.
+
+**A real gap: exception identity was still positional.** Formance dedups alerts
+on `(rule_id, fingerprint, period_id)` and carries `first_seen_at` and
+`occurrence_count`, so a break that persists is one case that keeps recurring
+rather than N unrelated findings. Ours was `EXC-00001` — a position in a list.
+Measured: batch A and batch B both produce `EXC-00001..7`, identical strings
+naming different findings, and the worklist's "age" was the age of the
+*transaction* rather than of the break.
+
+That is precisely the defect P12 fixed for records
+(`source:natural-key-hash:occurrence`), left in place one layer up for eleven
+phases, and it took reading someone else's design to see it.
+
+`ReconException.fingerprint` is content-derived now — from the natural keys of
+the records involved, not their ids, so a re-export with different row numbering
+is the same break. **Two of the seven breaks are now visibly recurring across A
+and B**; before, nothing linked them. It reaches the decision log and the
+worklist:
+
+```
+    1. E06   ₹ 90259.47   87d  0473f708  → gateway-ops
+    5. E04   ₹  1050.42   86d  9640bb98  → credit-control
+```
+
+**Not done:** `first_seen_at` and `occurrence_count` need cross-close state, and
+the worklist still ranks by the age of the record. The identity is the
+precondition; the history is a store this system does not have.
+
+**The ratchet caught me adding the field.** `fingerprint` was unread outside
+`contracts/` — a field only tests looked at, which is the exact shape it exists
+to stop. Wired into the log and the worklist rather than budgeted for.
+
 ### E04 partial payment: red first, then green · 2026-08-25
 
 ```
