@@ -551,3 +551,51 @@ def test_a_minted_code_can_carry_every_property_a_seeded_code_can():
         "the behaviour does not read it"
     )
     assert honest.escalates("E14"), "seeded codes must keep working"
+
+
+def test_the_spec_author_is_told_every_per_verb_requirement():
+    """The contract enforces four per-verb rules and the tool schema stated one,
+    in prose. A model proposing `parse=constant` without `value` was refused for
+    a rule nobody had given it — twice, in five live runs.
+
+    Checked in **both** directions, and the first version was not: it iterated
+    over what the data claimed, so deleting a requirement from the data made the
+    test pass with nothing left to check. That is a control measuring one
+    direction of harm, which is the failure this project keeps finding in its own
+    gates. Here the required set is *derived* — omit each candidate argument and
+    see what actually raises — and compared against what the author is told.
+    """
+    import pydantic
+
+    from recon.contracts.adapter import VERB_REQUIREMENTS, CanonicalField, FieldMap, ParseVerb
+    from recon.triage.normalize import _verb_help
+
+    CANDIDATES = {
+        "source": "col",
+        "value": "x",
+        "fmt": "YYYY-MM-DD",
+        "pattern": "x",
+        "sign_column": "c",
+    }
+    help_text = _verb_help()
+
+    for verb in ParseVerb:
+        derived = set()
+        for argument in CANDIDATES:
+            missing = {k: v for k, v in CANDIDATES.items() if k != argument}
+            try:
+                FieldMap(to=CanonicalField.RAW, parse=verb, **missing)
+            except pydantic.ValidationError:
+                derived.add(argument)
+
+        claimed = set(VERB_REQUIREMENTS.get(verb.value, ()))
+        # `source` is required by every verb but `constant`, and the help says so
+        # once rather than repeating it; the per-verb data carries the extras.
+        assert claimed - {"source"} == derived - {"source"}, (
+            f"{verb.value}: the contract enforces {sorted(derived)} and the author "
+            f"is told {sorted(claimed)}"
+        )
+        for argument in derived:
+            assert f"`{argument}`" in help_text, (
+                f"{verb.value} is refused without `{argument}` and nobody says so"
+            )

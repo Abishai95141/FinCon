@@ -40,6 +40,24 @@ SAMPLE_LINES = 12
 that the arithmetic has to establish anyway, and build-plan `P3` names
 'correct on the sample, wrong on the tail' as a live risk."""
 
+
+def _verb_help() -> str:
+    """What each verb needs, from the contract rather than from memory.
+
+    The schema stated one of four per-verb requirements, in prose, so a model
+    proposing `parse=constant` without `value` was refused for a rule nobody
+    had told it. Same shape as the `raise_advisory` target and the action enum:
+    the vocabulary was under-described, and the refusal read as incompetence.
+    """
+    from ..contracts.adapter import VERB_REQUIREMENTS
+
+    parts = [
+        f"{verb} needs {' and '.join(f'`{a}`' for a in args)}"
+        for verb, args in sorted(VERB_REQUIREMENTS.items())
+    ]
+    return "Every verb needs `source`; " + "; ".join(parts) + ". Anything else is refused."
+
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -71,7 +89,11 @@ SCHEMA = {
                     "to": {"type": "string", "enum": [f.value for f in CanonicalField]},
                     "as_key": {"type": "string", "description": "Required when to=key."},
                     "source": {"type": "string", "description": "The column name."},
-                    "parse": {"type": "string", "enum": [v.value for v in ParseVerb]},
+                    "parse": {
+                        "type": "string",
+                        "enum": [v.value for v in ParseVerb],
+                        "description": _verb_help(),
+                    },
                     "fmt": {
                         "type": "string",
                         "description": "For parse=date: DD.MM.YYYY, YYYY-MM-DD, DD-MM-YY ...",

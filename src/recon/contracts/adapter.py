@@ -99,6 +99,17 @@ class ReaderSpec(BaseModel):
         return self
 
 
+#: What each parse verb needs alongside it, as data. Read by the adapter-synthesis
+#: tool schema; enforced by `FieldMap._verb_has_its_arguments`, which stays the
+#: authority. Kept in step by a property test rather than by memory.
+VERB_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "constant": ("value",),
+    "date": ("source", "fmt"),
+    "regex": ("source", "pattern"),
+    "sign_from_column": ("source", "sign_column"),
+}
+
+
 class FieldMap(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -130,6 +141,12 @@ class FieldMap(BaseModel):
 
     @model_validator(mode="after")
     def _verb_has_its_arguments(self) -> FieldMap:
+        # The checks below are the authority. `VERB_REQUIREMENTS` names the same
+        # facts as data so the tool schema can *tell* an author what it will be
+        # judged by, and `tests/property/` fails if the two drift apart. A model
+        # judged on four rules and told one produces a spec that is refused for
+        # a reason it was never given — which happened twice on `parse=constant`
+        # before this existed.
         if self.parse is ParseVerb.CONSTANT:
             if self.value is None:
                 raise ValueError("CONSTANT requires `value`")
