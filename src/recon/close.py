@@ -24,6 +24,7 @@ computed from the close's own decisions, which needs no labels. A caller that
 
 from __future__ import annotations
 
+import contextlib  # noqa: F401 — a mutation anchor in tools/mutations/p20.py
 import dataclasses
 import hashlib
 import json
@@ -55,6 +56,7 @@ from .engine.tiers import run as run_tiers
 from .engine.verifier import verify
 from .intake.proofs import IntakeProof
 from .journal import Journal
+from .journal import exclusive as journal_lock
 from .journal.derive import Decisions, RejectedMatch, derive
 from .ledger.accounts import ChartOfAccounts
 from .ledger.beancount_io import CloseResult as LedgerResult
@@ -419,77 +421,84 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         period=[request.period[0].isoformat(), request.period[1].isoformat()],
     )
 
-    journal = Journal(request.journal_path, fresh=True)
-    journal.extend(derive(decisions))
-    for verdict in authority:
+    # One writer per decision log, and readers wait rather than seeing half of
+    # one. Two closes of the same period used to interleave — one deleting the
+    # file while the other read it back — and the caller was told the log had
+    # been TAMPERED WITH, which is the most alarming message this system can
+    # produce, emitted for two people pressing the same button. Measured, not
+    # hypothesised: four concurrent closes, one JournalTampered.
+    with journal_lock(request.journal_path):
+        journal = Journal(request.journal_path, fresh=True)
+        journal.extend(derive(decisions))
+        for verdict in authority:
+            journal.append(
+                EventKind.AUTHORITY_VERIFIED,
+                actor="engine",
+                outcome="trusted" if verdict.trusted else "untrusted",
+                input_hash=verdict.digest,
+                policy_ref=request.policy.ref,
+                payload=AuthorityVerifiedPayload(
+                    bundle=verdict.name,
+                    digest=verdict.digest,
+                    trusted=verdict.trusted,
+                    signed_by=verdict.signed_by,
+                    key_id=verdict.key_id,
+                    reasons=list(verdict.reasons) or ([] if verdict.signed else ["unsigned"]),
+                ),
+            )
+        # A rule whose approval does not hold in this close did not act. A refusal
+        # nobody records reads exactly like a rule that worked.
+        for rule_id, reasons in sorted(staged.inadmissible.items()):
+            journal.append(
+                EventKind.PROPOSAL_REFUSED,
+                actor="engine",
+                outcome="inadmissible",
+                input_hash=rule_id,
+                policy_ref=request.policy.ref,
+                payload=ProposalRefusedPayload(
+                    subject=rule_id,
+                    proposal_kind="promoted_rule",
+                    reasons=list(reasons),
+                ),
+            )
+        for eff in effects:
+            journal.append(
+                EventKind.RULE_APPLIED,
+                actor="engine",
+                outcome="observable" if eff.observable else "inert",
+                input_hash=eff.rule_id,
+                policy_ref=request.policy.ref,
+                payload=RuleAppliedPayload(
+                    rule_ref=f"{eff.rule_id}@v{eff.rule_version}",
+                    fired=eff.fired,
+                    suppressed=eff.suppressed,
+                    advisories_applied=eff.advisories_applied,
+                    keys_normalized=eff.keys_normalized,
+                    postings_redirected=eff.postings_redirected,
+                    tolerance_widened=eff.tolerance_widened,
+                    unapplied=list(eff.unapplied),
+                    observable=eff.observable,
+                ),
+            )
+        complete = completeness.complete
         journal.append(
-            EventKind.AUTHORITY_VERIFIED,
+            EventKind.CLOSE_COMPLETED,
             actor="engine",
-            outcome="trusted" if verdict.trusted else "untrusted",
-            input_hash=verdict.digest,
+            outcome="complete" if complete else "incomplete",
+            input_hash=decisions.label_digest,
             policy_ref=request.policy.ref,
-            payload=AuthorityVerifiedPayload(
-                bundle=verdict.name,
-                digest=verdict.digest,
-                trusted=verdict.trusted,
-                signed_by=verdict.signed_by,
-                key_id=verdict.key_id,
-                reasons=list(verdict.reasons) or ([] if verdict.signed else ["unsigned"]),
+            payload=CloseCompletedPayload(
+                events_before_this=journal.count,
+                matches=len(kept),
+                rejected=len(rejected),
+                exceptions=len(exceptions),
+                postings=len(entries),
+                out_of_scope=len(staged.scope),
+                outcome_digest=digest,
+                scorecard_digest=request.annotations.get("scorecard_digest", ""),
+                complete=complete,
             ),
         )
-    # A rule whose approval does not hold in this close did not act. A refusal
-    # nobody records reads exactly like a rule that worked.
-    for rule_id, reasons in sorted(staged.inadmissible.items()):
-        journal.append(
-            EventKind.PROPOSAL_REFUSED,
-            actor="engine",
-            outcome="inadmissible",
-            input_hash=rule_id,
-            policy_ref=request.policy.ref,
-            payload=ProposalRefusedPayload(
-                subject=rule_id,
-                proposal_kind="promoted_rule",
-                reasons=list(reasons),
-            ),
-        )
-    for eff in effects:
-        journal.append(
-            EventKind.RULE_APPLIED,
-            actor="engine",
-            outcome="observable" if eff.observable else "inert",
-            input_hash=eff.rule_id,
-            policy_ref=request.policy.ref,
-            payload=RuleAppliedPayload(
-                rule_ref=f"{eff.rule_id}@v{eff.rule_version}",
-                fired=eff.fired,
-                suppressed=eff.suppressed,
-                advisories_applied=eff.advisories_applied,
-                keys_normalized=eff.keys_normalized,
-                postings_redirected=eff.postings_redirected,
-                tolerance_widened=eff.tolerance_widened,
-                unapplied=list(eff.unapplied),
-                observable=eff.observable,
-            ),
-        )
-    complete = completeness.complete
-    journal.append(
-        EventKind.CLOSE_COMPLETED,
-        actor="engine",
-        outcome="complete" if complete else "incomplete",
-        input_hash=decisions.label_digest,
-        policy_ref=request.policy.ref,
-        payload=CloseCompletedPayload(
-            events_before_this=journal.count,
-            matches=len(kept),
-            rejected=len(rejected),
-            exceptions=len(exceptions),
-            postings=len(entries),
-            out_of_scope=len(staged.scope),
-            outcome_digest=digest,
-            scorecard_digest=request.annotations.get("scorecard_digest", ""),
-            complete=complete,
-        ),
-    )
 
     return CloseOutcome(
         run_id=request.run_id,

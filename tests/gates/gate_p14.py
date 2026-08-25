@@ -187,7 +187,11 @@ def test_an_unratified_code_is_marked_as_one(closed: tuple[TestClient, str]):
 def test_every_match_expands_to_the_proof_behind_it(closed: tuple[TestClient, str]):
     client, run_id = closed
     body = client.get(f"/ui/runs/{run_id}").text
-    view = service.view(run_id, looplib.RUNS)
+    # The close page renders every proof inline, so it asks for `detail=full`;
+    # a test checking what the page shows has to ask the same question of the
+    # service. `test_a_projection_never_changes_an_answer` is what holds the two
+    # detail levels to the same *answer*.
+    view = service.view(run_id, looplib.RUNS, detail=service.Detail.FULL)
     for match in view.matches:
         assert match.proof is not None, f"{match.match_id} rendered with no proof"
         assert match.proof.proof_id in body

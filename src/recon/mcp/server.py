@@ -137,22 +137,26 @@ def run_close(loop: str, source_set: str) -> dict:
 
 
 @mcp.tool
-def run_match(loop: str, source_set: str) -> dict:
+def run_match(loop: str, source_set: str, offset: int = 0, limit: int | None = None) -> dict:
     """Match one period and return the proofs — no posting, no ledger, no log.
 
     The matching stage on its own, for a caller that wants to check our
-    arithmetic rather than have us close the books. Returns every proven match
-    with its full proof, everything the verifier refused, the exceptions raised,
-    and **the records themselves**, so you can re-derive without asking us for
-    anything else.
+    arithmetic rather than have us close the books. Returns proven matches with
+    their full proofs, everything the verifier refused, and the exceptions
+    raised.
 
-    Better still, ignore the records we hand you: ingest the same source files
-    with the published adapter spec and verify against your own. That is what
-    `verify_proof` is for and it is the only version of this that proves
-    anything about our honesty.
+    The records are **not** inlined — 543 rows of this toy corpus is ~342 KB,
+    most of a context window. `fetch_records` pages them. But ignore them: ingest
+    the same source files with the published adapter spec and verify against your
+    own records. That is what `verify_proof` is for and it is the only version of
+    this that proves anything about our honesty.
+
+    Matches page too, proofs included, because a caller here is calling *for* the
+    proofs. `match_page.next_offset` is the cursor; it is `null` when you have
+    them all, and `total` is always the real total.
     """
     try:
-        return service.match(loop, source_set).model_dump(mode="json")
+        return service.match(loop, source_set, offset=offset, limit=limit).model_dump(mode="json")
     except (service.ServiceError, ValueError) as exc:
         raise ToolRefusal(str(exc)) from exc
 
@@ -163,7 +167,7 @@ def run_match(loop: str, source_set: str) -> dict:
 
 
 @mcp.tool
-def get_close(run_id: str) -> dict:
+def get_close(run_id: str, detail: str = "summary") -> dict:
     """A recorded close, rebuilt from its decision log.
 
     Match rate with its tier split and its proof-tier split, what is blocked,
@@ -171,8 +175,48 @@ def get_close(run_id: str) -> dict:
     authority's signature held. Blocking recall is reported **absent** rather
     than zero: it is measured against labelled true pairs and production has no
     labels — a zero there would be a claim we did not earn.
+
+    `detail="summary"` (the default) names each match and its `proof_id` without
+    inlining twenty proofs; `get_proof` returns the one you want to read.
+    `detail="full"` inlines them all and is ~59 KB. A projection, not a
+    permission — it changes how much of the answer travels, never what it is.
     """
-    return service.view(run_id).model_dump(mode="json")
+    try:
+        return service.view(run_id, detail=service.Detail(detail)).model_dump(mode="json")
+    except ValueError as exc:
+        raise ToolRefusal(f"detail must be 'summary' or 'full': {exc}") from exc
+
+
+@mcp.tool
+def get_proof(run_id: str, match_id: str) -> dict:
+    """One match with its full proof — every leg, its record ids and its subtotal.
+
+    What a verifier reads before calling `verify_proof`. The subtotals here are
+    *claims* made by whatever produced the match; recomputing them from the
+    records is the entire job, and `verify_proof` refuses a proof whose legs do
+    not add up to what it says.
+    """
+    try:
+        return service.proof_of(run_id, match_id).model_dump(mode="json")
+    except service.ServiceError as exc:
+        raise ToolRefusal(str(exc)) from exc
+
+
+@mcp.tool
+def fetch_records(loop: str, source_set: str, offset: int = 0, limit: int | None = None) -> dict:
+    """The records a loop reads, a budget at a time.
+
+    Here for completeness, and worth skipping: verifying our arithmetic against
+    records **we** handed you proves the sum and not the honesty. The source
+    files, the adapter specs and the policy are all published — ingest them
+    yourself and verify against those.
+    """
+    try:
+        return service.record_page(loop, source_set, offset=offset, limit=limit).model_dump(
+            mode="json"
+        )
+    except service.ServiceError as exc:
+        raise ToolRefusal(str(exc)) from exc
 
 
 @mcp.tool
@@ -206,7 +250,7 @@ def explain_exception(run_id: str, exception_id: str) -> dict:
 
 
 @mcp.tool
-def audit_export(run_id: str) -> dict:
+def audit_export(run_id: str, offset: int = 0, limit: int | None = None) -> dict:
     """Everything needed to re-derive a close, and nothing that requires us.
 
     Every decision with its proof, the rule version that fired, the human who
@@ -218,7 +262,7 @@ def audit_export(run_id: str) -> dict:
 
 
 @mcp.tool
-def get_events(run_id: str) -> list[dict]:
+def get_events(run_id: str, offset: int = 0, limit: int | None = None) -> dict:
     """The typed decision log, event by event, hash-chained.
 
     Append-only in the only sense a file can be: each event carries the hash of
@@ -226,8 +270,12 @@ def get_events(run_id: str) -> list[dict]:
     `verify_journal` says where. It does not prove custody — someone able to
     rewrite the whole file can recompute the chain over anything. What it closes
     is the partial edit and the truncated tail.
+
+    Paged: 62 events for a 22-payout month is 114 KB. `total` is always the real
+    total, so "here is the log" and "here is the start of the log" stay
+    distinguishable — which a bare list could not manage.
     """
-    return [e.model_dump(mode="json") for e in service.events(run_id)]
+    return service.event_page(run_id, offset=offset, limit=limit).model_dump(mode="json")
 
 
 # --------------------------------------------------------------------------

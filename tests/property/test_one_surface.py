@@ -65,6 +65,12 @@ PAIRED = [
     ("get_close", {"run_id": "{run}"}, "GET", "/v1/runs/{run}"),
     ("get_worklist", {"run_id": "{run}"}, "GET", "/v1/runs/{run}/worklist"),
     ("get_events", {"run_id": "{run}"}, "GET", "/v1/runs/{run}/events"),
+    (
+        "fetch_records",
+        {"loop": LOOP, "source_set": BATCH},
+        "GET",
+        f"/v1/records?loop={LOOP}&source_set={BATCH}",
+    ),
     ("audit_export", {"run_id": "{run}"}, "GET", "/v1/runs/{run}/export"),
     ("verify_journal", {"run_id": "{run}"}, "GET", "/v1/runs/{run}/chain"),
     ("get_contracts", {}, "GET", "/v1/contracts"),
@@ -108,6 +114,9 @@ def test_the_pairing_table_covers_every_read_both_surfaces_expose():
         "verify_proof",
         "propose_reclassification",
         "explain_exception",
+        # Compared by `test_one_proof_is_the_same_proof_through_either_door`,
+        # which needs a match id from the run and cannot be a table row.
+        "get_proof",
     }
     paired = {name for name, _, _, _ in PAIRED}
     missing = _tool_names(go) - paired - unpaired
@@ -135,9 +144,36 @@ def test_a_close_is_the_same_close_through_either_door(http: TestClient):
     assert over_http["complete"] == over_mcp["complete"]
 
 
+def test_one_proof_is_the_same_proof_through_either_door(http: TestClient, run_id: str):
+    match_id = service.view(run_id).matches[0].match_id
+    over_http = http.get(f"/v1/runs/{run_id}/matches/{match_id}/proof").json()
+    over_mcp = _tool("get_proof", {"run_id": run_id, "match_id": match_id})
+    assert over_http == over_mcp
+    assert over_http["proof"]["proof_id"]
+
+
+def test_both_surfaces_default_to_the_same_detail(http: TestClient, run_id: str):
+    """A default that differs by protocol is two products.
+
+    Worth its own test because `detail` is the one parameter here that changes
+    the size of an answer, and the temptation is to make the browser's default
+    generous and the agent's frugal — at which point the two surfaces disagree
+    about what a close *is*.
+    """
+    assert http.get(f"/v1/runs/{run_id}").json() == _tool("get_close", {"run_id": run_id})
+    full = http.get(f"/v1/runs/{run_id}?detail=full").json()
+    assert full == _tool("get_close", {"run_id": run_id, "detail": "full"})
+    assert full != http.get(f"/v1/runs/{run_id}").json(), "detail=full changed nothing"
+
+
 def test_a_verification_is_the_same_verdict_through_either_door(http: TestClient):
     staged = _tool("run_match", {"loop": LOOP, "source_set": BATCH})
-    body = {"proof": staged["matches"][0]["proof"], "records": staged["records"], "loop": LOOP}
+    # Ingested rather than fetched from us, which is what a verifier actually
+    # does — and what `run_match` now tells them to do instead of inlining 342 KB
+    # of records they should not be trusting anyway.
+    loaded = looplib.get(LOOP).load(service.BATCH_ROOT / BATCH)
+    records = [r.model_dump(mode="json") for _, r in [*loaded.anchor_rows, *loaded.group_rows]]
+    body = {"proof": staged["matches"][0]["proof"], "records": records, "loop": LOOP}
 
     over_http = http.post("/v1/verify", json=body).json()
     over_mcp = _tool("verify_proof", body)

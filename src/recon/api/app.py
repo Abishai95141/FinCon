@@ -143,14 +143,29 @@ def run_close(
 def run_match(
     loop: Annotated[str, Query(description="Which reconciliation loop.")],
     source_set: Annotated[str, Query(description="Which period's source files.")],
+    offset: int = 0,
+    limit: int | None = None,
 ) -> service.MatchStageView:
     """Match a period and return the proofs — no posting, no ledger, no log.
 
-    Returns the records alongside the proofs so a caller can re-derive with no
-    further request. Ingesting the source files yourself and verifying against
-    your own records is the stronger check, and the one worth making.
+    Matches page with their proofs inline, because a caller here is calling for
+    the proofs. Records are not inlined — `GET /v1/records` pages them, and
+    ingesting the source files yourself is the stronger check and the one worth
+    making.
     """
-    return service.match(loop, source_set)
+    return service.match(loop, source_set, offset=offset, limit=limit)
+
+
+@app.get("/v1/records", tags=["closes"], response_model=service.Page[Record])
+def records(
+    loop: Annotated[str, Query(description="Which reconciliation loop.")],
+    source_set: Annotated[str, Query(description="Which period's source files.")],
+    offset: int = 0,
+    limit: int | None = None,
+) -> service.Page[Record]:
+    """The records a loop reads. Verifying against records we supplied proves the
+    sum, not the honesty — the files and the specs are published."""
+    return service.record_page(loop, source_set, offset=offset, limit=limit)
 
 
 # --------------------------------------------------------------------------
@@ -159,9 +174,23 @@ def run_match(
 
 
 @app.get("/v1/runs/{run_id}", tags=["closes"], response_model=service.CloseView)
-def close_view(run_id: str) -> service.CloseView:
-    """A recorded close, rebuilt from its decision log."""
-    return service.view(run_id)
+def close_view(run_id: str, detail: service.Detail = service.Detail.SUMMARY) -> service.CloseView:
+    """A recorded close, rebuilt from its decision log.
+
+    `detail=summary` names each match and its `proof_id`; `detail=full` inlines
+    every proof. A projection, not a permission.
+    """
+    return service.view(run_id, detail=detail)
+
+
+@app.get(
+    "/v1/runs/{run_id}/matches/{match_id}/proof",
+    tags=["closes"],
+    response_model=service.MatchView,
+)
+def match_proof(run_id: str, match_id: str) -> service.MatchView:
+    """One match with its full proof — the input to `POST /v1/verify`."""
+    return service.proof_of(run_id, match_id)
 
 
 @app.get("/v1/runs/{run_id}/worklist", tags=["closes"], response_model=list[service.ExceptionView])
@@ -183,14 +212,18 @@ def exception_detail(run_id: str, exception_id: str) -> service.ExceptionView:
     raise HTTPException(status_code=404, detail=f"no exception {exception_id!r} in run {run_id!r}")
 
 
-@app.get("/v1/runs/{run_id}/events", tags=["record"])
-def run_events(run_id: str) -> list[dict]:
-    """The typed, hash-chained decision log, event by event."""
-    return [e.model_dump(mode="json") for e in service.events(run_id)]
+@app.get("/v1/runs/{run_id}/events", tags=["record"], response_model=service.Page[dict])
+def run_events(run_id: str, offset: int = 0, limit: int | None = None) -> service.Page[dict]:
+    """The typed, hash-chained decision log, a budget at a time.
+
+    `total` is always the real total, so a reader can tell a whole log from the
+    start of one.
+    """
+    return service.event_page(run_id, offset=offset, limit=limit)
 
 
 @app.get("/v1/runs/{run_id}/export", tags=["record"], response_model=service.AuditBundle)
-def audit_export(run_id: str) -> service.AuditBundle:
+def audit_export(run_id: str, offset: int = 0, limit: int | None = None) -> service.AuditBundle:
     """Every decision with its proof, its rule version and its approver — plus
     the four steps to re-derive the lot without us."""
     return service.audit(run_id)

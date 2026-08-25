@@ -20,8 +20,12 @@ the next legitimate write.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,12 +34,20 @@ from ..contracts.event import GENESIS, Event, EventKind, _Payload
 __all__ = [
     "GENESIS",
     "Journal",
+    "JournalBusy",
     "JournalSealed",
     "JournalTampered",
     "digest_of",
+    "exclusive",
     "read",
+    "shared",
     "verify_chain",
 ]
+
+#: How long a caller waits for a log another process is writing. A close takes
+#: milliseconds; anything past this is a stuck writer, not a queue.
+LOCK_WAIT_SECONDS = 30.0
+_POLL = 0.02
 
 
 class JournalSealed(Exception):
@@ -51,6 +63,69 @@ class JournalTampered(Exception):
     """The chain does not hold. Raised rather than reported by default: a log
     that cannot vouch for itself is worse than no log, because it is read as
     evidence."""
+
+
+class JournalBusy(Exception):
+    """Another process is writing this log and has not finished.
+
+    A separate exception from `JournalTampered` on purpose, and the reason is
+    the whole point of the lock. Before it, two closes of the same period
+    interleaved — one deleting the file while the other read it back — and the
+    caller was told the log had been **tampered with**. That is the most
+    alarming message this system can produce, and it was being emitted for an
+    ordinary collision between two people pressing the same button.
+    """
+
+
+def _locked(path: Path, mode: int, label: str) -> Iterator[None]:
+    lock = path.parent / f".{path.name}.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    # Opened "a" rather than "w": a writer truncating the lock file out from
+    # under a waiter is a second race inside the fix for the first.
+    with lock.open("a") as handle:
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while True:
+            try:
+                fcntl.flock(handle, mode | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise JournalBusy(
+                        f"{path} is locked by another process ({label} wait exceeded "
+                        f"{LOCK_WAIT_SECONDS:g}s). A close takes milliseconds, so this "
+                        f"is a stuck writer rather than a queue."
+                    ) from None
+                time.sleep(_POLL)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextmanager
+def exclusive(path: Path) -> Iterator[None]:
+    """One writer at a time for one decision log.
+
+    `flock` on a sidecar file rather than on the log itself, because the writer
+    *deletes* the log (`fresh=True`) and a lock held on a deleted inode
+    protects nothing.
+
+    Advisory, and honestly so: it coordinates processes that ask, and does
+    nothing about one that does not. Everything in this repo asks. It is not a
+    substitute for the durable store this build does not have — see STATUS.
+    """
+    yield from _locked(path, fcntl.LOCK_EX, "write")
+
+
+@contextmanager
+def shared(path: Path) -> Iterator[None]:
+    """Readers, who may overlap with each other but not with a writer.
+
+    Without this the read side was the visible half of the bug: a reader that
+    caught a close mid-write got a partial file, and `read()` correctly
+    reported the chain as broken. Correctly, and misleadingly.
+    """
+    yield from _locked(path, fcntl.LOCK_SH, "read")
 
 
 def _canonical(event: Event) -> str:

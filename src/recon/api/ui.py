@@ -262,7 +262,10 @@ def _proof_block(match: service.MatchView) -> str:
 def close_page(run_id: str) -> HTMLResponse:
     """The close: scorecard, worklist, proof per row, and the way to check it."""
     try:
-        view = service.view(run_id)
+        # The page renders every proof inline behind `<details>`, so it asks for
+        # them. A browser is not a context window; the budget exists for the
+        # surface where a response is charged by the token.
+        view = service.view(run_id, detail=service.Detail.FULL)
     except service.ServiceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

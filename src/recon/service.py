@@ -34,9 +34,12 @@ lenient policy someone brought along cannot be quoted back as our verdict.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,6 +58,7 @@ from .contracts import (
 from .contracts.event import Event
 from .engine.verifier import verify as verify_proof
 from .journal import read as read_journal
+from .journal import shared as journal_lock
 from .journal import verify_chain
 from .journal.replay import ReplayedClose, disagreements, replay, unproven
 from .triage.classify import check_proposal
@@ -73,6 +77,100 @@ API_VERSION = "v1"
 #: signed bundles, so no operator setting can widen what a close is permitted to
 #: accept.
 BATCH_ROOT = Path(os.environ.get("RECON_SOURCE_ROOT", "data/batches"))
+
+#: The most one paged collection may weigh. An MCP tool result goes straight
+#: into a model's context window, and this surface shipped with `run_match`
+#: returning 397 KB — roughly 100k tokens, most of a context, for 543 rows of a
+#: toy corpus. Tested and unusable are different things.
+#:
+#: A **byte** budget rather than a row count, because the rows differ in size by
+#: two orders of magnitude: a proof with 39 record ids and an out-of-scope note
+#: are both "one item". A count tuned for one is wrong for the other, and the
+#: symptom is a limit that works until the day someone's payout has more rows.
+RESULT_BUDGET = 24 * 1024
+
+#: What any single tool result must stay under, asserted over every tool in
+#: `tests/property/test_result_budget.py`. Higher than RESULT_BUDGET because a
+#: response is an envelope plus a page, not a page alone.
+TOOL_BUDGET = 64 * 1024
+
+
+class Detail(StrEnum):
+    """How much of a close to return.
+
+    `SUMMARY` is the default everywhere, including for a browser. The full
+    proofs are 46 KB of the 58 KB a close view used to weigh, and almost no
+    caller needs all twenty at once — a reader opens one row. `get_proof` and
+    `GET /v1/runs/{id}/matches/{match_id}/proof` return one, in full, and a
+    summary row names the `proof_id` so there is always something to ask for.
+    """
+
+    SUMMARY = "summary"
+    FULL = "full"
+
+
+class Page[T](BaseModel):
+    """A slice of a collection that always says what it left out.
+
+    CLAUDE.md bans a silent cap: "if a workflow bounds coverage, log what was
+    dropped — silent truncation reads as 'covered everything' when it didn't."
+    A paged API is the same hazard with a nicer name, so `total` is always the
+    real total, `next_offset` is present exactly when more remain, and
+    `stopped_at_budget` says whether the page ended because the caller asked or
+    because the bytes ran out.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[T]
+    total: int
+    offset: int
+    returned: int
+    next_offset: int | None = None
+    stopped_at_budget: bool = False
+    budget_bytes: int = RESULT_BUDGET
+
+    @property
+    def complete(self) -> bool:
+        return self.next_offset is None
+
+
+def paginate(
+    items: Sequence, *, offset: int = 0, limit: int | None = None, budget: int = RESULT_BUDGET
+) -> dict:
+    """Take items from `offset` until the caller's limit or the byte budget.
+
+    Serialised size is measured as items are added rather than estimated, so an
+    unusually fat row is caught by the thing it would break. At least one item
+    is always returned even if it alone exceeds the budget — a page that could
+    return nothing would make a single large record permanently unreachable,
+    which is a worse failure than a big response.
+    """
+    total = len(items)
+    if offset < 0 or offset > total:
+        raise ServiceError(f"offset {offset} is outside a collection of {total}")
+
+    taken: list = []
+    size = 0
+    stopped = False
+    for item in items[offset : total if limit is None else offset + max(limit, 0)]:
+        encoded = len(json.dumps(item, default=str))
+        if taken and size + encoded > budget:
+            stopped = True
+            break
+        taken.append(item)
+        size += encoded
+
+    consumed = offset + len(taken)
+    return {
+        "items": taken,
+        "total": total,
+        "offset": offset,
+        "returned": len(taken),
+        "next_offset": consumed if consumed < total else None,
+        "stopped_at_budget": stopped,
+        "budget_bytes": budget,
+    }
 
 
 class ServiceError(ValueError):
@@ -259,6 +357,14 @@ class MatchView(BaseModel):
     group_ids: list[str]
     proof: Proof | None = None
     proof_id: str = ""
+    group_size: int = 0
+    proof_omitted: str = ""
+    """Why the proof is not here. Empty means it is.
+
+    Withheld is not the same as missing, and the two must never render alike: a
+    proof the record does not contain is a finding (`CloseView.unproven_matches`),
+    while one this response chose not to inline is a fetch away. So a summary row
+    says which, and names the call that returns it."""
 
 
 class CloseView(BaseModel):
@@ -348,16 +454,26 @@ def events(run_id: str, runs_dir: Path | None = None) -> list[Event]:
     caller is auditing us; hiding the evidence of tampering from them would be
     an odd way to prove we are honest.
     """
-    return read_journal(_log_path(run_id, runs_dir), verify=False)
+    path = _log_path(run_id, runs_dir)
+    with journal_lock(path):
+        return read_journal(path, verify=False)
 
 
-def view(run_id: str, runs_dir: Path | None = None) -> CloseView:
-    """Rebuild a close from its record."""
+def view(
+    run_id: str, runs_dir: Path | None = None, *, detail: Detail = Detail.SUMMARY
+) -> CloseView:
+    """Rebuild a close from its record.
+
+    `detail` is a projection, not a permission — it changes how much of the
+    answer travels, never what the answer is. Worth saying because every other
+    parameter this surface refuses is one that would change what is *allowed*,
+    and the distinction is the whole reason this one is safe to offer.
+    """
     stream = events(run_id, runs_dir)
     replayed = replay(stream)
     problems = verify_chain(stream) + disagreements(replayed)
     lp = looplib.get(replayed.profile)
-    return _view_of(run_id, lp, replayed, stream, problems)
+    return _view_of(run_id, lp, replayed, stream, problems, detail)
 
 
 def _view_of(
@@ -366,6 +482,7 @@ def _view_of(
     replayed: ReplayedClose,
     stream: list[Event],
     problems: list[str],
+    detail: Detail = Detail.SUMMARY,
 ) -> CloseView:
     # The worklist ages an exception against the period it belongs to, which is
     # the loop's, not today's. A wall clock here would make the same close rank
@@ -376,6 +493,7 @@ def _view_of(
     for event in stream:
         by_kind.setdefault(event.kind.value, []).append(event)
 
+    full = detail is Detail.FULL
     matches = [
         MatchView(
             match_id=e.payload.match_id,
@@ -383,16 +501,34 @@ def _view_of(
             anchor_id=e.payload.anchor_id,
             anchor_external=replayed.external_of.get(e.payload.anchor_id, e.payload.anchor_id),
             group_ref=e.payload.group_ref,
-            group_ids=list(e.payload.group_ids),
-            proof=e.payload.proof,
+            # The ids alone are most of a summary's weight on a 39-row payout and
+            # the count is what a reader actually scans. Carried in full at
+            # `detail=full`, where the proof they belong to is also here.
+            group_ids=list(e.payload.group_ids) if full else [],
+            group_size=len(e.payload.group_ids),
+            proof=e.payload.proof if full else None,
             proof_id=e.payload.proof_id,
+            proof_omitted=""
+            if full or e.payload.proof is None
+            else f"withheld at detail=summary; fetch it with get_proof({run_id!r}, "
+            f"{e.payload.match_id!r}) or ask for detail=full",
         )
         for e in by_kind.get("MatchProven", [])
     ]
+    # Counted off the *events*, not off `matches`, and that distinction is a
+    # defect this had for one commit: with proofs withheld at `detail=summary`
+    # every match read as "unrecorded" and the scorecard's proof-tier split —
+    # a headline fact, and the thing that says how much of a close rests on
+    # arithmetic rather than on a declaration — quietly became a column of
+    # nothing. A projection must never change an answer.
     proof_tiers: dict[str, int] = {}
-    for m in matches:
-        key = m.proof.provenance.value if m.proof else "unrecorded"
+    declared = 0
+    for event in by_kind.get("MatchProven", []):
+        proof = event.payload.proof
+        key = proof.provenance.value if proof else "unrecorded"
         proof_tiers[key] = proof_tiers.get(key, 0) + 1
+        if proof is not None and proof.declared_amount is not None:
+            declared += 1
 
     terminator = by_kind.get("CloseCompleted", [])
     complete = bool(terminator) and terminator[-1].payload.complete
@@ -416,7 +552,7 @@ def _view_of(
             rate=_rate(len(matches), replayed.anchors_in_scope),
             by_match_tier=dict(replayed.tiers),
             by_proof_tier=proof_tiers,
-            declared=sum(1 for m in matches if m.proof and m.proof.declared_amount is not None),
+            declared=declared,
         ),
         matches=matches,
         rejected=list(replayed.rejected),
@@ -474,6 +610,59 @@ def _rate(numerator: int, denominator: int) -> str:
     return f"{numerator}/{denominator} ({pct}%)"
 
 
+def proof_of(run_id: str, match_id: str, runs_dir: Path | None = None) -> MatchView:
+    """One match with its proof, in full.
+
+    The counterpart to `detail=summary`: a reader opens one row at a time, and
+    twenty proofs inlined so that one could be read is how a response reaches
+    58 KB.
+    """
+    for match in view(run_id, runs_dir, detail=Detail.FULL).matches:
+        if match.match_id == match_id:
+            return match
+    raise ServiceError(f"no match {match_id!r} in run {run_id!r}")
+
+
+def event_page(
+    run_id: str, *, offset: int = 0, limit: int | None = None, runs_dir: Path | None = None
+) -> Page[dict]:
+    """The typed decision log, a budget at a time.
+
+    62 events for a 22-payout month is 114 KB, and this is a toy corpus. The
+    page always carries the real total, so a reader can tell "here is the log"
+    from "here is the start of the log" — which a bare list could not.
+    """
+    stream = events(run_id, runs_dir)
+    body = [e.model_dump(mode="json") for e in stream]
+    return Page[dict](**paginate(body, offset=offset, limit=limit))
+
+
+def record_page(
+    loop_name: str,
+    source_set: str,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+    root: Path | None = None,
+) -> Page[Record]:
+    """The records a loop reads, for a caller who wants ours rather than theirs.
+
+    Worth saying plainly: a verifier should ingest the source files themselves.
+    Checking our arithmetic against records we handed over proves the sum, not
+    the honesty — and the files, the specs and the policy are all published.
+    """
+    lp = looplib.get(loop_name)
+    base = (root or BATCH_ROOT) / source_set
+    missing = lp.missing(base) if base.exists() else list(lp.filenames)
+    if missing:
+        raise ServiceError(f"{base} is not a complete source set for {lp.name}: {missing} absent")
+    loaded = lp.load(base)
+    rows = [rec for _, rec in [*loaded.anchor_rows, *loaded.group_rows]]
+    rows.sort(key=lambda r: r.record_id)
+    page = paginate([r.model_dump(mode="json") for r in rows], offset=offset, limit=limit)
+    return Page[Record](**page)
+
+
 def close(loop_name: str, source_set: str, *, root: Path | None = None, runs_dir=None) -> CloseView:
     """Run one close and return what the record says about it.
 
@@ -518,14 +707,38 @@ class MatchStageView(BaseModel):
     policy_ref: str
     policy_digest: str
     matches: list[MatchView]
+    match_page: dict = Field(default_factory=dict)
+    """`total`, `offset`, `returned`, `next_offset` for `matches`.
+
+    The proofs stay inline here rather than being withheld the way a close view
+    withholds them, because a verifier calling this is calling it *for* the
+    proofs. So the matches page instead — twelve proofs and a cursor, not twenty
+    proofs and a context window."""
+
     rejected: list[str]
     exceptions: list[ReconException]
-    records: list[Record]
-    records_digest: str
-    source_digests: dict[str, str]
+
+    records: list[Record] = Field(default_factory=list)
+    """Empty unless asked for. 543 rows of a toy corpus is 397 KB — roughly
+    100k tokens, most of a model's context, for a batch this size. The count and
+    the digest are always here, and `fetch_records` pages them; better still,
+    ingest the source files yourself, which is the check that proves something."""
+
+    records_available: int = 0
+    records_note: str = ""
+    records_digest: str = ""
+    source_digests: dict[str, str] = Field(default_factory=dict)
 
 
-def match(loop_name: str, source_set: str, *, root: Path | None = None) -> MatchStageView:
+def match(
+    loop_name: str,
+    source_set: str,
+    *,
+    root: Path | None = None,
+    include_records: bool = False,
+    offset: int = 0,
+    limit: int | None = None,
+) -> MatchStageView:
     """Match and verify one source set. No posting, no ledger, no log.
 
     `close.match_and_verify` is the stage, unchanged — an arm, a surface and the
@@ -562,30 +775,49 @@ def match(loop_name: str, source_set: str, *, root: Path | None = None) -> Match
         )
     )
     records = sorted(staged.records.values(), key=lambda r: r.record_id)
+    proven = [
+        MatchView(
+            match_id=m.match_id,
+            tier=m.tier.value,
+            anchor_id=m.anchor_id,
+            anchor_external=staged.external_of.get(m.anchor_id, m.anchor_id),
+            group_ref=m.group_ref,
+            group_ids=list(m.group_ids),
+            group_size=len(m.group_ids),
+            proof=m.proof,
+            proof_id=m.proof.proof_id,
+        )
+        for m in staged.matches
+    ]
+    page = paginate([mv.model_dump(mode="json") for mv in proven], offset=offset, limit=limit)
+    shown = {row["match_id"] for row in page["items"]}
     return MatchStageView(
         loop=lp.name,
         source_set=source_set,
         policy_ref=lp.policy().ref,
         policy_digest=looplib.file_digest(lp.policy_file),
-        matches=[
-            MatchView(
-                match_id=m.match_id,
-                tier=m.tier.value,
-                anchor_id=m.anchor_id,
-                anchor_external=staged.external_of.get(m.anchor_id, m.anchor_id),
-                group_ref=m.group_ref,
-                group_ids=list(m.group_ids),
-                proof=m.proof,
-                proof_id=m.proof.proof_id,
-            )
-            for m in staged.matches
-        ],
+        matches=[mv for mv in proven if mv.match_id in shown],
+        match_page={k: v for k, v in page.items() if k != "items"},
         rejected=list(staged.refuted),
         exceptions=list(staged.exceptions),
-        records=records,
+        records=records if include_records else [],
+        records_available=len(records),
+        records_note=""
+        if include_records
+        else (
+            f"{len(records)} record(s) withheld — they are ~{_kb(records)} KB and this "
+            f"response goes into a context window. Page them with fetch_records, or "
+            f"ingest the source files yourself with the published adapter spec, which "
+            f"is the check worth making: verifying our arithmetic against records we "
+            f"handed you proves the sum, not the honesty."
+        ),
         records_digest=records_digest(records),
         source_digests=dict(sources.digests),
     )
+
+
+def _kb(records: list[Record]) -> int:
+    return max(1, len(json.dumps([r.model_dump(mode="json") for r in records])) // 1024)
 
 
 def records_digest(records: list[Record]) -> str:
@@ -864,6 +1096,14 @@ class AuditBundle(BaseModel):
     sources: list[dict]
     authority: list[dict]
     decisions: list[dict]
+    decision_page: dict
+    """`total`, `offset`, `returned`, `next_offset` for `decisions` above.
+
+    The bundle is meant to be complete, so paging it is a real cost and is
+    stated rather than hidden: a reader who stops at page one has part of an
+    audit, and the envelope is what tells them so. `GET /v1/runs/{id}/export`
+    with an explicit `limit` returns the lot for an actual download."""
+
     exceptions: list[dict]
     out_of_scope: dict[str, str]
     postings: list[dict]
@@ -873,7 +1113,13 @@ class AuditBundle(BaseModel):
     how_to_verify: list[str]
 
 
-def audit(run_id: str, runs_dir: Path | None = None) -> AuditBundle:
+def audit(
+    run_id: str,
+    runs_dir: Path | None = None,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> AuditBundle:
     stream = events(run_id, runs_dir)
     replayed = replay(stream)
     lp = looplib.get(replayed.profile)
@@ -947,6 +1193,8 @@ def audit(run_id: str, runs_dir: Path | None = None) -> AuditBundle:
             {"kind": "rule_refused", "at": e.at.isoformat(), **e.payload.model_dump(mode="json")}
         )
 
+    decisions.sort(key=lambda d: (d["at"], d.get("match_id") or d.get("rule_ref") or ""))
+    page = paginate(decisions, offset=offset, limit=limit)
     terminator = by_kind.get("CloseCompleted", [])
     return AuditBundle(
         run_id=run_id,
@@ -958,7 +1206,8 @@ def audit(run_id: str, runs_dir: Path | None = None) -> AuditBundle:
         period=[d.isoformat() for d in lp.period],
         sources=sources,
         authority=[e.payload.model_dump(mode="json") for e in by_kind.get("AuthorityVerified", [])],
-        decisions=decisions,
+        decisions=page.pop("items"),
+        decision_page=page,
         exceptions=[e.payload.model_dump(mode="json") for e in by_kind.get("ExceptionRaised", [])],
         out_of_scope=dict(replayed.out_of_scope),
         postings=[e.payload.model_dump(mode="json") for e in by_kind.get("PostingWritten", [])],

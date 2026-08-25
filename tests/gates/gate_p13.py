@@ -148,7 +148,7 @@ def test_the_record_carries_the_proof_not_a_pointer_to_one(closed: dict):
     """Until contract 7.4.0 the log named a `proof_id` and stored no proof, so
     the artifact we hand an auditor cited evidence nobody could fetch."""
     assert closed["unproven_matches"] == [], closed["unproven_matches"]
-    events = _call("get_events", {"run_id": closed["run_id"]})
+    events = _call("get_events", {"run_id": closed["run_id"], "limit": 1000})["items"]
     proven = [e for e in events if e["kind"] == "MatchProven"]
     assert proven, "no MatchProven events"
     assert all(e["payload"].get("proof") for e in proven)
@@ -205,7 +205,7 @@ def test_verify_proof_is_stateless_across_processes(staged: dict, tmp_path: Path
     """
     command, args = serve_command()
     proof = staged["matches"][0]["proof"]
-    records = staged["records"]
+    records = [r.model_dump(mode="json") for r in _records_of(staged)]
 
     async def once():
         async with Client(StdioTransport(command=command, args=args)) as client:
@@ -223,9 +223,15 @@ def test_verify_proof_is_stateless_across_processes(staged: dict, tmp_path: Path
 
 
 def _proof_of(staged: dict, tier: str = "T0") -> Proof:
-    for match in staged["matches"]:
-        if match["tier"] == tier:
-            return Proof.model_validate(match["proof"])
+    offset = staged["match_page"]["offset"]
+    while True:
+        page = _call("run_match", {"loop": LOOP, "source_set": BATCH, "offset": offset})
+        for match in page["matches"]:
+            if match["tier"] == tier:
+                return Proof.model_validate(match["proof"])
+        if page["match_page"]["next_offset"] is None:
+            break
+        offset = page["match_page"]["next_offset"]
     # Not a skip. A mutation that broke `T4` matching outright would make every
     # T4 forgery test skip itself and survive — a green tick over a deleted
     # control. Batch A produces 17 `T0`, 2 `T1` and 1 `T4`; if it stops, that is
@@ -237,7 +243,17 @@ def _proof_of(staged: dict, tier: str = "T0") -> Proof:
 
 
 def _records_of(staged: dict) -> list[Record]:
-    return [Record.model_validate(r) for r in staged["records"]]
+    """Our own, ingested from the source files.
+
+    `run_match` stopped inlining 543 records when the payload budget landed, and
+    the replacement is not `fetch_records` — it is this. Verifying our arithmetic
+    against records *we* handed over proves the sum and not the honesty, so the
+    gate does what it tells an auditor to do.
+    """
+    from recon import loop as looplib
+
+    loaded = looplib.get(LOOP).load(ROOT / BATCH)
+    return [rec for _, rec in [*loaded.anchor_rows, *loaded.group_rows]]
 
 
 def _verify(proof: Proof, records: list[Record]) -> dict:
@@ -364,10 +380,11 @@ def test_verification_refuses_to_pick_a_policy_for_you():
     control-plane audit reintroduced at the one endpoint that must not have it."""
     staged = _call("run_match", {"loop": LOOP, "source_set": BATCH})
     proof = staged["matches"][0]["proof"]
+    records = [r.model_dump(mode="json") for r in _records_of(staged)]
     own = json.loads(Path("data/policy/settlement_3way.json").read_text())
     for args in ({}, {"loop": LOOP, "policy": own}):
         with pytest.raises(Exception) as caught:
-            _call("verify_proof", {"proof": proof, "records": staged["records"], **args})
+            _call("verify_proof", {"proof": proof, "records": records, **args})
         assert "policy" in str(caught.value)
 
 
