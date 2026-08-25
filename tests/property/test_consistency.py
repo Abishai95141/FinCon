@@ -24,7 +24,7 @@ import pytest
 from bench.planted import load_planted
 from bench.run import BATCHES, SETTLEMENT_3WAY, SETTLEMENT_POLICY, close
 
-from recon.engine.consistency import find
+from recon.engine.consistency import RelationSpec, find
 
 SPEC = SETTLEMENT_3WAY.consistency
 TOLERANCE = Decimal(SETTLEMENT_POLICY.consistency_tolerance)
@@ -96,10 +96,49 @@ def test_the_answer_does_not_depend_on_row_order(rows_a):
 
 
 def test_a_population_too_small_to_have_a_majority_is_not_judged(rows_a):
-    """A relation inferred from three rows is a coincidence with a decimal
-    point. Stated as a number in the spec rather than discovered by tuning."""
-    tiny = [r for r in rows_a if r.keys.get("gateway") == "razorpay"][:6]
-    assert find(tiny, SPEC, tolerance=TOLERANCE) == []
+    """A relation inferred from three rows is a coincidence with a decimal point.
+
+    The first version of this took six ordinary rows and asserted no finding —
+    which held whether or not the guard existed, because six rows on the same
+    terms disagree with nothing. It passed under its own mutant. This builds a
+    population that *would* fire: a handful of rows where a bare majority sets
+    the relation and the rest are declared wrong on that authority.
+    """
+    from decimal import Decimal as D
+
+    charges = {r.keys.get("payment_id"): r for r in rows_a if r.keys.get("row_type") == "charge"}
+    fees = [
+        r for r in rows_a if r.keys.get("row_type") == "fee" and r.keys.get("payment_id") in charges
+    ][:4]
+    assert len(fees) == 4 and len(fees) < SPEC.minimum_peers
+
+    # One row billed on different terms, in a population of four. Without the
+    # guard, three rows out-vote it and it is reported as a finding.
+    odd = fees[-1].model_copy(update={"amount": fees[-1].amount * D("1.30")})
+    population = [*charges.values(), *fees[:-1], odd]
+
+    assert find(population, SPEC, tolerance=TOLERANCE) == [], (
+        "a majority of three declared a fourth row wrong"
+    )
+
+    relaxed = RelationSpec(**{**SPEC.__dict__, "minimum_peers": 2})
+    assert find(population, relaxed, tolerance=TOLERANCE), (
+        "the population cannot fire at all, so the guard is untested"
+    )
+
+
+def test_the_close_uses_the_threshold_policy_states(rows_a):
+    """The wiring, not the function. `find()` takes a tolerance and the tests
+    above pass it by hand; a close that read a different one — or none — would
+    raise the rounding scatter as a finding and nothing here would notice."""
+    result = close("A", rules=[])
+    raised = [e for e in result.exceptions if e.code == "E02"]
+
+    assert len(raised) == 1, [str(e.amount) for e in raised]
+    assert raised[0].amount == Decimal("290.07")
+    assert Decimal(SETTLEMENT_POLICY.consistency_tolerance) > Decimal("0.26"), (
+        "the policy threshold must sit above the rounding scatter it exists to ignore"
+    )
 
 
 def test_the_finding_carries_the_relation_it_was_measured_against(rows_a):
