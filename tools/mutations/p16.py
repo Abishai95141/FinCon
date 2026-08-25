@@ -33,8 +33,8 @@ MUTATIONS = [
     (
         "the threshold comes from the data instead of policy",
         "src/recon/engine/tiers.py",
-        """        records, spec, tolerance=Decimal(policy.consistency_tolerance)""",
-        """        records, spec, tolerance=Decimal("0.00")""",
+        """    for finding in consistency.find(records, spec, tolerance=Decimal(policy.consistency_tolerance)):""",
+        """    for finding in consistency.find(records, spec, tolerance=Decimal("0.00")):""",
     ),
     (
         "a handful of rows is treated as a population",
