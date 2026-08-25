@@ -116,6 +116,38 @@ def test_a_reader_waits_for_a_writer_rather_than_seeing_half_a_log(tmp_path: Pat
     assert acquired - started > 0.1, "the shared lock did not wait"
 
 
+def test_the_service_read_path_takes_the_lock_not_just_the_primitive(tmp_path: Path):
+    """The mutation that found this one deleted the lock from `service.events`
+    and survived, because the test above exercises `shared()` directly.
+
+    A lock nobody calls is a lock that is not there, and the caller who would
+    have noticed is the one reading a close through the API while another
+    process writes it. So this holds the writer's lock and times the *service*
+    read — the path a request actually takes.
+    """
+    view = service.close(LOOP, BATCH, runs_dir=tmp_path)
+    log = tmp_path / view.run_id / "decisions.jsonl"
+
+    def hold() -> float:
+        with exclusive(log):
+            time.sleep(0.25)
+            return time.monotonic()
+
+    with cf.ThreadPoolExecutor(max_workers=2) as pool:
+        writer = pool.submit(hold)
+        time.sleep(0.05)
+        started = time.monotonic()
+        stream = service.events(view.run_id, tmp_path)
+        finished = time.monotonic()
+        released = writer.result()
+
+    assert stream, "the read returned nothing"
+    assert finished >= released, "the service read a log while a writer held it"
+    assert finished - started > 0.1, (
+        "service.events did not wait for the writer — it is not taking the shared lock"
+    )
+
+
 def test_readers_do_not_block_each_other(tmp_path: Path):
     """A shared lock that behaved like an exclusive one would serialise every
     page view behind every other, which is a different bug with the same fix."""
