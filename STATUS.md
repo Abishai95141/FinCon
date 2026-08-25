@@ -63,6 +63,59 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### E02 closed: exception coverage 4/5 -> 5/5 · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green   $ make test    481 passed, 46 deselected, 0 xfailed
+$ make lint    clean                    $ make mutate  p16 8/8 · p15 8/8 · p14 14/14 · p13 10/10
+$ make eval    coverage 100% (5/5) · classification 60% (3/5) · ambiguity 100% (1/1)
+```
+
+| | A | B (held out) |
+|---|---|---|
+| exception coverage | 4/5 → **5/5** | 4/5 → **5/5** |
+| exception classification | 2/5 → **3/5** | 2/5 → **3/5** |
+| auto-match / false-match | 90.9% / 0% *(unchanged)* | 90.9% / 0% |
+
+**The audit's prescription for `E02` was wrong.** It said predicates are
+single-record and `E02` needs a fee compared against a rate on a sibling record.
+There is no rate. The engine's inputs are `row_id, row_type, payout_id, gateway,
+payment_id, value_date, amount` — no contract, no terms file, nothing.
+
+What there is, is the population. A gateway bills its book on one set of terms,
+so `fee = rate x charge + fixed` holds across it, and rows on different terms sit
+off the relation. Every *pair* of rows gives one estimate of the rate — the fixed
+component cancels in the difference — so the mode over a sample is what the
+population agrees on, exactly, with no fitting and no floats.
+
+Razorpay's 176 fee rows imply `0.024 x charge + 2.00`; twelve of them sit off it
+by **290.07**, the planted amount to the paisa. On held-out B: 392.66, also
+exact. Cashfree scatters by 0.26 in total, which is rounding — three orders of
+magnitude away, so the policy threshold is not doing delicate work.
+
+**Matching is structurally blind to this**, which is why it survived eleven
+phases. A payout billed on the wrong terms still sums to exactly what the bank
+paid: the legs tie, the residual is zero, and nothing about the match is wrong.
+
+**The finding does not claim what it cannot know.** Not "above contract tier" —
+without the contract, which of two rates was agreed is unknowable and the
+majority is not automatically right. It states the disagreement, its size, and
+the relation it was measured against. The registry's own `E02` definition said
+"it needs the contract"; that has been corrected.
+
+**Caught by the metamorphic suite, after it already produced the right answer on
+both batches:** the rate was inferred from the first N rows *in input order*, so
+shuffling the same records could change which rows were reported and a close
+stopped being replayable. Sorted before sampling now.
+
+**And the ratchet.** `tests/property/test_unenforced.py` counts declarations
+nothing downstream reads and refuses to let the number grow. Event kinds with no
+producer: **0 of 20**, the one sub-class measurably eliminated. Unread contract
+fields: **57**, budgeted and ratcheted. That is higher than the 40 the audit
+quoted, because that scan searched `contracts/` too and counted a validator
+reading its own field as a consumer; 57 is the answer to the stricter question,
+and 40 was the flattering one.
+
 ### Promotion runs in a close · 2026-08-25
 
 ```
