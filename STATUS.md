@@ -63,6 +63,61 @@ $ make gate P=3
 Notes: anything surprising, anything still weak.
 -->
 
+### E04 partial payment: red first, then green · 2026-08-25
+
+```
+$ make verify  P2-P11, 12 gates green   $ make test    506 passed, 46 deselected, 0 xfailed
+$ make lint    clean                    $ make mutate  p17 15/15 · p16 8/8 · p15 8/8 · p14 14/14
+```
+
+| | before | after |
+|---|---|---|
+| auto-match (ours / securo_grouped) | 86.4% / **86.4%** | **90.9%** / 86.4% |
+| exception coverage | 5/6 → surfaced as E14 | **6/6** |
+| exception classification | 3/6 | **4/6** |
+| false matches | 0 | **0** |
+| unprovable | 0 | 1, **all declared** |
+
+**We beat the fair baseline for the first time**, by exactly one pair — the
+short-paid payout, which securo cannot match because the amounts disagree. From
+P3 to today `test_our_matching_rule_does_not_beat_the_fair_baseline` asserted
+they were identical, and that test asked to be *updated with the reason* rather
+than deleted. It has been.
+
+**Authored red first.** `ADV-11` and `ADV-12` went into the adversarial set and
+`E04` into the generator before any implementation; the engine reported `E14
+unexplained` and the failure was committed. Both cases are labelled in the file
+as authored 2026-08-25 rather than at P0 — the other ten were written before any
+engine existed, these by someone who knows what this one handles.
+
+**The benchmark settled a design question I could not.** Should a partial
+payment match, or be refused? `payout_membership` counts the short-paid pair as
+findable, so refusing scores a miss. It matches — at `T4 DECLARED`, a new tier,
+because neither `T0` (amount agrees) nor `T1` (a budget covered it) is true, and
+calling it `T1` inflated a headline number while hiding that the match rests on
+a declaration.
+
+**The declared amount is a number, not prose.** `Proof.declared_amount` is
+checked against the residual the records give; a proof declaring anything else
+is refused, as is one that declares *and* spends tolerance, as is any tier but
+`P3` carrying one.
+
+**Three things it got wrong on the way, each caught by running it:**
+
+1. It claimed the **duplicated-export payout** as a partial payment — a group
+   carrying a row twice sums to more than its credit and looks exactly like
+   short payment. That would put a receivable on a counterparty who owed
+   nothing. It now declines a shortfall that repeated rows already account for.
+2. It posted the shortfall against **BANK**, crediting the bank twice for money
+   it received once. `invariant 1` is what noticed. The anchor's cash is already
+   posted by the match; the shortfall never reached the account and is declined
+   for the same reason the no-bank-line branch declines.
+3. `unprovable_matches` counted it — correctly. That function recomputes from
+   raw records and refuses to read an arm's proofs so no arm can vouch for
+   itself, and excusing a declared gap *inside* it would hand every arm the same
+   excuse. It is **decomposed** instead: 1 unprovable, of which 1 declared, and
+   what must be zero is the undeclared ones.
+
 ### P15a · the strategy pipeline is declarative · 2026-08-25
 
 ```
