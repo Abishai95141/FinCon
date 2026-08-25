@@ -56,6 +56,7 @@ from .arms import deterministic, llm_only, securo_baseline
 from .metrics import (
     METRICS,
     Scorecard,
+    declared_gaps,
     render_table,
     score,
     scorecard_digest,
@@ -273,6 +274,7 @@ def close(
             result,
             truth,
             unprovable=unprovable_matches(result, by_external, tolerance),
+            declared=declared_gaps(result),
             exceptions=score_planted(planted, result.exceptions, in_scope_legs=IN_SCOPE_LEGS),
             elapsed_ns=elapsed,
             records_scored=records_scored,

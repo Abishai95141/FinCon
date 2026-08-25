@@ -138,7 +138,31 @@ def verify(
         if off_side:
             reasons.append(f"leg {leg.side!r} contains records from another side: {off_side[:3]}")
 
-    if abs(recomputed_total) > effective:
+    declared = proof.declared_amount
+    if declared is not None:
+        # A residual the proof states instead of absorbing. It is checked, not
+        # trusted: it must equal the residual these records actually give, to the
+        # paisa. That is what stops "declared" from becoming a way to wave any
+        # difference through — and the number has to become an open item and stay
+        # in the unreconciled total, which the ledger's balance assertion is what
+        # enforces, not this function.
+        if proof.provenance is not ProofTier.P3_DECLARED:
+            reasons.append(
+                f"declares a residual of {declared} at {proof.provenance.value}; only "
+                f"{ProofTier.P3_DECLARED.value} may carry one"
+            )
+        if abs(recomputed_total) != declared:
+            reasons.append(
+                f"declares a gap of {declared} but the records give "
+                f"{abs(recomputed_total)} — a declared residual that does not match "
+                f"the arithmetic is a number of the proof's own choosing"
+            )
+        if proof.tolerance_used != ZERO:
+            reasons.append(
+                f"declares a gap and also spent {proof.tolerance_used} of tolerance; "
+                f"a gap is stated or absorbed, never both"
+            )
+    elif abs(recomputed_total) > effective:
         reasons.append(
             f"recomputed residual {recomputed_total} exceeds the effective "
             f"tolerance {effective} (proof claimed {proof.tolerance_allowed}, "
@@ -153,7 +177,10 @@ def verify(
             f"{recomputed_total} (delta {recomputed_total - proof.residual})"
         )
 
-    if abs(recomputed_total) > proof.tolerance_used:
+    if declared is None and abs(recomputed_total) > proof.tolerance_used:
+        # Skipped for a declared gap, where spending nothing is the point: the
+        # residual was stated and is becoming an open item, not absorbed. The
+        # equality check above is what holds a declared proof honest.
         reasons.append(
             f"tolerance_used {proof.tolerance_used} understates the actual "
             f"residual {abs(recomputed_total)}"

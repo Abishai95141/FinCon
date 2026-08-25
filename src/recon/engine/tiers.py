@@ -172,13 +172,14 @@ def _build_proof(
     provenance: ProofTier,
     rule: Rule | None = None,
     bundle_digest: str | None = None,
+    declared: Decimal | None = None,
 ) -> Proof:
     group_total = sum((r.amount for r in group), ZERO)
     return Proof(
         proof_id=f"PRF-{match_id}",
         match_id=match_id,
         tier=tier,
-        provenance=provenance,
+        provenance=ProofTier.P3_DECLARED if declared is not None else provenance,
         rule_bundle_digest=bundle_digest,
         rule_id=rule.rule_id if rule is not None else None,
         rule_version=rule.version if rule is not None else None,
@@ -193,8 +194,12 @@ def _build_proof(
         residual=_residual(anchor, group, profile),
         tolerance_allowed=budget.allowed,
         tolerance_used=budget.used,
+        declared_amount=declared,
         declared_gap=(
-            "intake for one or more sources was not independently verified"
+            f"{declared} of this payout never arrived; the remainder stays "
+            f"receivable and in the unreconciled total"
+            if declared is not None
+            else "intake for one or more sources was not independently verified"
             if provenance is ProofTier.P3_DECLARED
             else None
         ),
@@ -327,6 +332,7 @@ def run(
     in_scope_anchors = [a for a in anchors if a.record_id not in scope]
     grouped, ungrouped = _groups_of([r for r in group_records if r.record_id not in scope])
     claimed: set[str] = set()
+    declared_gaps: dict[str, tuple[str, Decimal, str]] = {}
     matches: list[Match] = []
     unmatched: list[Record] = []
 
@@ -353,7 +359,15 @@ def run(
         # The budget is spent here rather than inside the strategy: a strategy
         # that could both propose a match and decide what it cost would be
         # marking its own homework, and the tier split is a headline number.
-        if tier is MatchTier.T0_EXACT:
+        if proposal.declared is not None:
+            # A residual stated instead of spent. It does not touch the budget —
+            # a tolerance wide enough to swallow a partial payment is wide enough
+            # to swallow a theft — and it must equal the residual the records
+            # give, or the proof would be declaring a number of its own choosing.
+            if abs(residual) != proposal.declared:
+                return False
+            declared_gaps[anchor.record_id] = (group_ref, proposal.declared, proposal.code or "")
+        elif tier is MatchTier.T0_EXACT:
             if residual != ZERO:
                 return False
         elif not budget.consume(residual):
@@ -377,6 +391,7 @@ def run(
                     budget,
                     *tier_for_group,
                     bundle_digest=digest,
+                    declared=proposal.declared,
                 ),
             )
         )
@@ -406,6 +421,7 @@ def run(
 
     unclaimed = sorted(set(grouped) - claimed)
     _disposition_pass(unmatched, unclaimed, grouped, exceptions)
+    _declared_gap_pass(declared_gaps, grouped, {a.record_id: a for a in anchors}, exceptions)
     _consistency_pass(group_records, profile, policy, exceptions)
     exceptions, advised = _advise(exceptions, applied.advisories)
     # The effect a rule had on *this* close, recorded where it happened. A
@@ -436,6 +452,42 @@ def run(
             out_of_scope=scope,
         ),
     )
+
+
+def _declared_gap_pass(
+    gaps: dict[str, tuple[str, Decimal, str]],
+    grouped: dict[str, list[Record]],
+    records: dict[str, Record],
+    exceptions: list[ReconException],
+) -> None:
+    """Every residual a strategy stated instead of spending becomes an open item.
+
+    The match records that the payout is identified and the money that arrived
+    is reconciled; this records that the rest is still owed. Both are true, and
+    a system that kept only the first would have laundered a loss into a clean
+    close.
+    """
+    for anchor_id, (group_ref, amount, code) in sorted(gaps.items()):
+        anchor = records[anchor_id]
+        exceptions.append(
+            ReconException(
+                exception_id=f"EXC-{len(exceptions) + 1:05d}",
+                code=code,
+                code_provenance=ProofTier.P0_ARITHMETIC,
+                as_of=anchor.posted_on,
+                amount=amount,
+                record_ids=sorted([anchor_id, *(r.record_id for r in grouped.get(group_ref, []))]),
+                hypothesis=(
+                    f"the credit is {amount} short of {group_ref}; the reference is "
+                    f"unambiguous, so the payout is identified and the remainder unpaid"
+                ),
+                evidence=[
+                    anchor.lineage,
+                    f"credit {anchor.amount}",
+                    f"group {group_ref} of {len(grouped.get(group_ref, []))} row(s)",
+                ],
+            )
+        )
 
 
 def _consistency_pass(

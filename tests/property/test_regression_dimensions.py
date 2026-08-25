@@ -119,8 +119,23 @@ def test_rerouting_to_where_it_already_books_moves_nothing(history):
     """A no-op must read as a no-op. `E14` books to suspense; a rule sending it
     to suspense changes nothing, and a dimension that reported movement here
     would report movement for everything."""
+    # Narrowed to exceptions that already book to suspense. The history gained
+    # an `E04` (books to clearing) when partial payment landed, so "reroute
+    # everything to suspense" stopped being a no-op — through no fault of the
+    # dimension being tested. A no-op test needs an input where the operation
+    # really is one.
+    import dataclasses
+
+    only_suspense = dataclasses.replace(
+        history,
+        exceptions=[e for e in history.exceptions if TAXONOMY[e.code].books_to == "suspense"],
+    )
+    assert only_suspense.exceptions, "nothing books to suspense; the case is untestable"
+
     rule = _rule("R-NOOP", RuleAction(kind=ActionKind.BOOK_TO, target="suspense"))
-    delta = regress(rule, history, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY).postings
+    delta = regress(
+        rule, only_suspense, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY
+    ).postings
     assert delta is not None
     assert not delta.moved, delta.summary()
     assert delta.value_moved == Decimal("0.00")

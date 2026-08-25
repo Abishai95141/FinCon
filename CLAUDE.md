@@ -101,6 +101,7 @@ Compaction loses these first. They are load-bearing — use them exactly.
 | `T0` | Exact — amount + date + reference |
 | `T1` | Tolerant — within a stated tolerance budget |
 | `T2` | Subset-sum — N:1, reconstructing which rows sum to a payout |
+| `T4` | Referenced exactly, amount short, difference **declared** not absorbed |
 | `T3` | Unmatched → exception queue |
 
 **Proof tiers** — provenance of a committed decision. Never a binary gate.

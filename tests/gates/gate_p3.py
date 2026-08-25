@@ -93,19 +93,30 @@ def test_baseline_arms_are_scored_on_the_same_ground_truth(sides, batch):
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])
-def test_our_matching_rule_does_not_beat_the_fair_baseline(sides, batch):
-    """Recorded because it is true, not because it flatters us.
+def test_our_matching_rule_beats_the_fair_baseline_by_exactly_one_declared_pair(sides, batch):
+    """Updated with the reason, as the previous version asked to be.
 
-    Once securo's rule is handed the payout grouping it produces *identical*
-    pairs to T0/T1 on this data. The match rate is not our differentiator — the
-    grouping is most of the work, and the tail is where the difference lives.
-    If a later change makes these diverge, this test should be updated with the
-    reason rather than deleted.
+    From P3 to 2026-08-25 this asserted `ours.pairs == theirs.pairs`: handed the
+    payout grouping, securo's exact-amount rule produced *identical* pairs, and
+    the match rate was not our differentiator. That was true and worth recording.
+
+    The partial-payment strategy is the first thing to break the tie, and it
+    breaks it by exactly one pair — the short-paid payout, which securo cannot
+    match because the amounts do not agree and which we match with the shortfall
+    declared, posted nowhere, and raised as `E04`. Every other pair is still
+    identical, so the honest claim is unchanged in shape: the difference is in
+    the tail, and this is one item of tail that happens to also be a match.
     """
     bank, settlement, provenance, _truth = _run(sides, batch)
     ours = deterministic.run(bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance)
     theirs = securo_baseline.run_grouped(bank, settlement)
-    assert ours.pairs == theirs.pairs
+
+    extra = set(ours.pairs) - set(theirs.pairs)
+    assert set(theirs.pairs) - set(ours.pairs) == set(), "we lost a pair securo still finds"
+    assert len(extra) == 1, f"expected exactly the short-paid payout, got {extra}"
+
+    declared = [p for p in ours.proofs if p.declared_amount is not None]
+    assert len(declared) == 1, "the extra pair is not the declared one"
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])
@@ -132,9 +143,10 @@ def test_what_we_miss_is_what_should_be_missed(sides, batch):
     )
     ambiguous = set(labels["ungrouped_payouts"])
 
-    short_paid = {e["subject"] for e in labels["expected_exceptions"] if e["code"] == "E04"}
-    assert missed == {dup_payout} | ambiguous | short_paid, (
-        f"missed {missed}, expected the E06 payout, the ambiguous one, and the short-paid one"
+    # The short-paid payout left this set when `partial_payment` landed: it is
+    # matched with the shortfall declared, which is what ADV-11 asks for.
+    assert missed == {dup_payout} | ambiguous, (
+        f"missed {missed}, expected exactly the E06 payout and the ambiguous one"
     )
 
 
@@ -149,7 +161,13 @@ def test_every_reported_match_verifies_independently(sides, batch):
     for proof in result.proofs:
         verdict = verify(proof, records, POLICY)
         assert verdict.proven, f"{proof.proof_id}: {verdict}"
-        assert verdict.recomputed_residual == D("0.00")
+        if proof.declared_amount is None:
+            assert verdict.recomputed_residual == D("0.00")
+        else:
+            # A declared gap is the one match that does not close to zero, and
+            # the proof has to say so in a number: the verifier refuses unless
+            # the declaration equals the residual the records give.
+            assert abs(verdict.recomputed_residual) == proof.declared_amount
 
 
 def test_tolerant_tier_actually_fires(sides):

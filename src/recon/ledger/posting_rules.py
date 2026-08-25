@@ -91,6 +91,7 @@ def entries_for(
             )
         )
 
+    matched_anchors = {m.anchor_id for m in matches}
     for index, exc in enumerate(exceptions, start=1):
         on_anchor = [r for r in exc.record_ids if records.get(r) and records[r].side == anchor_side]
         if not on_anchor:
@@ -101,6 +102,18 @@ def entries_for(
             )
             continue
         anchor = records[on_anchor[0]]
+        if anchor.record_id in matched_anchors:
+            # The anchor matched, so its cash is already on the books. What this
+            # exception carries is the part that never arrived — a receivable,
+            # not unattributed cash — and posting it against BANK would credit
+            # the bank twice for money it received once. Same reason the
+            # no-bank-line branch above declines: the money is not in the bank.
+            declined.append(
+                f"{exc.exception_id} ({exc.code}, ₹{exc.amount}): the anchor is matched and "
+                f"its cash is already posted; this is the shortfall, which never reached "
+                f"the account and is a receivable rather than unattributed cash"
+            )
+            continue
         # A `book_to` rule overrides the registry's booking for the exceptions it
         # fires on. Passed in rather than read from the rule, so this module
         # still reads no model output — the posting layer is asserted by AST to

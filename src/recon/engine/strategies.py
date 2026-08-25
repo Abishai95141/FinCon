@@ -54,6 +54,22 @@ class Offer:
 class Proposal:
     group_ref: str
     tier: MatchTier
+    declared: Decimal | None = None
+    """A residual this strategy states rather than absorbs.
+
+    `None` means the proposal must close inside the profile's tolerance, which
+    is every strategy but one. A partial payment is the exception: the money
+    that arrived is real and the remainder is really unpaid, so absorbing the
+    difference into tolerance would launder a loss, and refusing the match
+    throws away a group the reference already identified.
+
+    Whatever is declared here has to become an open item and stay in the
+    unreconciled total (invariant 1) — the ledger's balance assertion is what
+    makes that true rather than this field."""
+
+    code: str | None = None
+    """The exception a declared residual raises. A gap with no code would be a
+    number in a proof that nobody has to work."""
 
 
 #: A strategy: an offer in, at most one proposal out.
@@ -113,11 +129,54 @@ def _tolerant(offer: Offer) -> Proposal | None:
     return Proposal(found[0], MatchTier.T1_TOLERANT) if len(found) == 1 else None
 
 
+def _partial_payment(offer: Offer) -> Proposal | None:
+    """`E04` — the reference is unambiguous and the money is short.
+
+    Deliberately narrow. It fires only when the anchor names its group outright,
+    which is what keeps a declared residual from becoming a way to match
+    anything to anything: this is not free matching with the difference waved
+    through, it is "we know which payout this is and we know exactly how much
+    never arrived".
+
+    An overpayment is `E05` and a different conversation — a credit balance is
+    not a receivable — so only shortfalls are proposed here.
+    """
+    ref = offer.anchor.source_row_id or ""
+    if ref not in offer.available:
+        return None
+    if offer.allowed is not None and ref not in offer.allowed:
+        return None
+
+    residual = offer.residual(offer.anchor, offer.available[ref])
+    if abs(residual) <= offer.profile.tolerance.absolute:
+        return None  # `exact` or `tolerant` owns this; a shortfall it is not
+    if residual >= 0:
+        return None  # not short — an overpayment is E05
+
+    # A shortfall that a repeated row already accounts for is not a partial
+    # payment. Found by running it: on the first pass this claimed the
+    # duplicated-export payout, because a group carrying a row twice sums to
+    # more than the credit and looks exactly like short payment. Booking that as
+    # `E04` puts a receivable on a counterparty who owes nothing — the money was
+    # never short, the export was wrong.
+    #
+    # `key_occurrence` is content-derived identity, so this asks a general
+    # question — "is this row a repeat of another row in the same group?" — and
+    # knows nothing about gateways or exports.
+    shortfall = abs(residual)
+    repeated = [r for r in offer.available[ref] if r.key_occurrence > 0]
+    if repeated and abs(sum((r.amount for r in repeated), Decimal("0.00"))) == shortfall:
+        return None
+
+    return Proposal(ref, MatchTier.T4_DECLARED, declared=shortfall, code="E04")
+
+
 #: The closed vocabulary. A profile naming anything else is refused before a
 #: close begins, the way an adapter spec naming an unknown verb is.
 STRATEGIES: dict[str, Strategy] = {
     "exact": _exact,
     "tolerant": _tolerant,
+    "partial_payment": _partial_payment,
 }
 
 #: Strategies that operate over a pool rather than one anchor at a time, and so

@@ -27,7 +27,7 @@ from recon.engine import strategies, tiers
 #: honest because the refactor itself was proven digest-identical *first*, on the
 #: corpus it was made against; a digest re-pinned to whatever the code now emits
 #: asserts nothing.
-BASELINE = {"A": "44a74546ba9efad9b9e0e449", "B": "b528b72ecaa72cf2f82900f0"}
+BASELINE = {"A": "5d5a6958f5d17aeb5618ad87", "B": "51ae44dea18b4c6e5802cf64"}
 
 
 @pytest.mark.parametrize("batch", ["A", "B"])

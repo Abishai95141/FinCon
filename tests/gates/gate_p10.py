@@ -198,7 +198,14 @@ def test_the_baseline_ties_on_match_rate_and_surfaces_nothing(card_index):
     it."""
     cards = card_index["A"]
     ours, theirs = cards["deterministic"], cards["securo_grouped"]
-    assert ours.auto_match_rate.value == theirs.auto_match_rate.value
+    # Was `==` from P10 to 2026-08-25, and that equality was the whole finding:
+    # handed the grouping, a trivial matcher tied us. `partial_payment` breaks it
+    # by exactly one pair — the short-paid payout, which securo cannot match
+    # because the amounts do not agree. The finding survives in the shape that
+    # matters: the gap on matching is one item wide, and the gap on the tail is
+    # everything below.
+    assert ours.correct - theirs.correct == 1
+    assert ours.auto_match_rate.value > theirs.auto_match_rate.value
     assert theirs.exceptions.surfaced == 0
     assert theirs.exceptions.coverage.value == 0.0
     assert ours.exceptions.surfaced > theirs.exceptions.surfaced, (

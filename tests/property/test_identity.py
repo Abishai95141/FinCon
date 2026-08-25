@@ -328,9 +328,16 @@ def test_the_label_for_the_duplicated_payout_does_not_balance(sides):
 
 
 def test_the_deterministic_arm_reports_no_unprovable_match(sides):
-    """Invariant 2, measured rather than asserted. Every match it reports
-    carries a proof the verifier re-derives, so the count is zero by
-    construction — and if it ever is not, the invariant has been broken."""
+    """Invariant 2, measured rather than asserted — and the assertion is now
+    "every unprovable match is a declared one", not "there are none".
+
+    A partial payment genuinely does not tie: the money that arrived is less
+    than the payout, which is the whole finding. `unprovable_matches` recomputes
+    from raw records and deliberately refuses to read an arm's proofs, so no arm
+    can vouch for itself; excusing a declared gap *inside* it would hand every
+    arm the same excuse. So it still counts our partial payment, and what must
+    be zero is the number of unprovable matches nobody declared.
+    """
     from bench.arms import deterministic
     from bench.metrics import unprovable_matches
 
@@ -350,8 +357,20 @@ def test_the_deterministic_arm_reports_no_unprovable_match(sides):
         candidates,
         a.scope,
     )
+    from bench.metrics import declared_gaps
+
     by_ext = {e: r for e, r in a.bank + a.settlement}
-    assert unprovable_matches(result, by_ext, SETTLEMENT_3WAY.tolerance.absolute) == 0
+    unprovable = unprovable_matches(result, by_ext, SETTLEMENT_3WAY.tolerance.absolute)
+    declared = declared_gaps(result)
+
+    assert unprovable - declared == 0, (
+        f"{unprovable - declared} match(es) do not tie and nobody said so"
+    )
+    assert declared >= 1, "the detector has stopped counting anything"
+    for proof in result.proofs:
+        if proof.declared_amount is not None:
+            assert proof.provenance is ProofTier.P3_DECLARED
+            assert proof.declared_gap, "a declared amount with no reason a human can read"
 
 
 def test_an_unprovable_pairing_is_counted(sides):

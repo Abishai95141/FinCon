@@ -685,7 +685,8 @@ def test_p10_numbers_are_unchanged(tmp_path):
     card = {c.arm: c for c in close("A", journal_dir=tmp_path, rules=[]).cards}["deterministic"]
     # 20 -> 19 with the `E04` plant: a short-paid payout does not match.
     # Zero false matches is the line that must never move.
-    assert card.produced == 19
+    # 19 -> 20: the short-paid payout matches now, with its shortfall declared.
+    assert card.produced == 20
     assert card.false_matches == 0
     # 4 -> 5 when the consistency pass landed: `E02` was the planted defect
     # the engine could not see, and matching is structurally blind to it —
@@ -693,7 +694,7 @@ def test_p10_numbers_are_unchanged(tmp_path):
     # 5 -> 6 surfaced when `E04` was planted; it is surfaced as `E14` and not
     # yet classified, which is the red state ADV-11 predicts.
     assert card.exceptions.surfaced == 6
-    assert card.exceptions.classified == 2
+    assert card.exceptions.classified == 3
 
 
 def test_a_promoted_rule_only_ever_improves_on_that_baseline(tmp_path):
@@ -732,7 +733,11 @@ def test_the_worklist_says_how_far_the_routing_actually_spread(tmp_path):
 
     bare = close("A", journal_dir=tmp_path / "a", rules=[]).worklist
     line = summarise(bare)
-    assert "2 owner(s)" in line and "gateway-ops" in line, line
+    # 1 -> 2 -> 3 as the engine learned to name things: `E02` routes to
+    # gateway-ops, `E04` to credit-control. The router never changed; what
+    # changed is how much the engine can say.
+    assert "3 owner(s)" in line, line
+    assert "gateway-ops" in line and "credit-control" in line, line
 
     codes = [item.code.code for item in bare]
     assert codes.count("E14") >= len(codes) // 2, (

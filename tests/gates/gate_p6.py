@@ -327,4 +327,8 @@ def test_p3_numbers_are_unchanged_by_p6(batch):
     # payout does not match, correctly. Returns to 20 when the partial-payment
     # strategy lands — the labels count that pair as findable.
     assert tiers.get("T0", 0) + tiers.get("T1", 0) == 19
-    assert all(m.proof.residual == D("0.00") for m in outcome.matches)
+    # Every match closes to zero except the declared one, which closes to the
+    # shortfall it states — that is the point of `T4`.
+    assert all(
+        m.proof.residual == D("0.00") for m in outcome.matches if m.proof.declared_amount is None
+    )

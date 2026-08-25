@@ -479,7 +479,14 @@ def test_invariant_1_the_unattributed_bank_value_equals_the_suspense_balance(clo
         (p.amount for e in closed.entries for p in e.postings if p.role is AccountRole.SUSPENSE),
         D("0.00"),
     )
-    anchor_ids = {r for r, rec in closed.records.items() if rec.side == "bank"}
+    # A matched anchor's cash is attributed by definition, so an exception
+    # hanging off one is not unattributed bank value. The partial-payment case
+    # made that distinction load-bearing: the credit arrived and is posted, and
+    # what the exception carries is the part that never arrived — a receivable,
+    # off the bank leg entirely. Counting it here would ask suspense to hold
+    # money the bank never received.
+    matched = {m.anchor_id for m in closed.matches}
+    anchor_ids = {r for r, rec in closed.records.items() if rec.side == "bank" and r not in matched}
     unattributed = sum(
         (exc.amount for exc in closed.exceptions if set(exc.record_ids) & anchor_ids),
         D("0.00"),

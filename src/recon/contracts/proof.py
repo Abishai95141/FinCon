@@ -26,6 +26,17 @@ class MatchTier(StrEnum):
     T0_EXACT = "T0"
     T1_TOLERANT = "T1"
     T2_SUBSET_SUM = "T2"
+    T4_DECLARED = "T4"
+    """Referenced exactly, amount short, and the difference *declared* rather
+    than absorbed.
+
+    A tier of its own because neither of the others is true: `T0` means the
+    amount agrees and `T1` means a budget covered the gap, and here the amount
+    does not agree and no budget was spent. Calling it `T1` inflated the
+    tolerant count — a headline number — and hid that the match rests on a
+    declaration. `T3` is the unmatched queue and is not a way of matching, so
+    this takes the next free label rather than renumbering a published
+    vocabulary."""
 
 
 class ProofTier(StrEnum):
@@ -108,6 +119,14 @@ class Proof(BaseModel):
     attested_at: datetime | None = None
     """Required when provenance is P2 — an attestation needs a name on it."""
 
+    declared_amount: Money | None = None
+    """A residual stated rather than spent, as a number a checker can compare.
+
+    Prose cannot be verified. `declared_gap` says *what* the gap is for a human;
+    this says *how much*, and `verify` refuses unless it equals the residual the
+    records actually give. Without it, a `P3` proof could declare any difference
+    it liked and call the match honest."""
+
     declared_gap: str | None = None
     """Required when provenance is P3 — a declared gap must say what the gap is.
     'Accepted with a stated gap' is only meaningful if the gap is stated."""
@@ -126,6 +145,10 @@ class Proof(BaseModel):
             raise ValueError("P2 proof must name attested_by")
         if self.provenance is ProofTier.P3_DECLARED and not self.declared_gap:
             raise ValueError("P3 proof must state declared_gap")
+        if self.declared_amount is not None and not self.declared_gap:
+            raise ValueError(
+                "a declared amount with no stated reason is a number nobody can act on"
+            )
         if not self.legs:
             raise ValueError("a proof with no legs proves nothing")
         if self.tolerance_used > self.tolerance_allowed:

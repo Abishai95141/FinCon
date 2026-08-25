@@ -105,15 +105,11 @@ def test_policy_carries_a_signature():
     assert verdict.signed_by, "signed by nobody in particular is not an attestation"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="E04 partial payment is surfaced as `E14 unexplained` rather than "
-    "classified. Authored 2026-08-25 as ADV-11/ADV-12 and planted in the "
-    "generator, then committed red before any implementation. The engine has the "
-    "facts — the reference identifies the payout and the shortfall is known to "
-    "the paisa — and discards them. The labels count the pair as findable, so "
-    "the fix is a match plus an open item, not a refusal.",
-)
+# Was xfail(strict) for the length of one afternoon: authored red on 2026-08-25
+# as ADV-11/ADV-12, planted in the generator, committed failing, then closed by
+# the `partial_payment` strategy. The engine had the facts and discarded them;
+# now it matches the payout, declares the shortfall as a number a verifier
+# checks, and raises `E04` against credit-control.
 def test_a_partial_payment_is_classified_rather_than_unexplained():
     import json
     from pathlib import Path as _P
@@ -124,5 +120,6 @@ def test_a_partial_payment_is_classified_rather_than_unexplained():
     planted = next(e for e in labels["expected_exceptions"] if e["code"] == "E04")
     result = close("A")
 
-    codes = {e.code for e in result.exceptions}
-    assert "E04" in codes, f"raised {sorted(codes)}; the shortfall is {planted['unreconciled']}"
+    raised = [e for e in result.exceptions if e.code == "E04"]
+    assert len(raised) == 1, f"raised {[e.code for e in result.exceptions]}"
+    assert str(raised[0].amount) == planted["unreconciled"]

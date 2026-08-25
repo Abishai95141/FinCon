@@ -43,6 +43,11 @@ PROFILE = MatchProfile(
     # A fee shares its charge's payment_id; without this the solver reports
     # subsets that mix a charge from one group with a fee from another.
     cohesion_key="payment_id",
+    # `partial_payment` sits after `tolerant` and before `subset_sum`: a credit
+    # that closes inside tolerance is an ordinary match, and one that does not
+    # is only a partial payment when the reference already identifies the
+    # payout. Anything still unmatched after that is the solver's problem.
+    strategies=("exact", "tolerant", "partial_payment", "subset_sum"),
     # A fee is levied on the charge sharing its payment_id, and a gateway bills
     # its whole book on one set of terms. Rows that do not follow the relation
     # their own peers follow are a finding — which is how `E02` is visible at

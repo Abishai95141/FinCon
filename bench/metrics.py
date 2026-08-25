@@ -64,6 +64,9 @@ class Scorecard:
     """How the matches were found. Required of any arm that produced one."""
 
     unprovable: int = 0
+    declared: int = 0
+    """Of `unprovable`, how many the arm declared. An undeclared one is the
+    finding; a declared one is a receivable."""
     """Matches the arm reported whose residual does not close under policy.
 
     The metric the scorecard was missing, and the reason it was missing is worth
@@ -242,6 +245,19 @@ def truth_groups(labels_path: Path) -> dict[str, str]:
     }
 
 
+def declared_gaps(result: ArmResult) -> int:
+    """Matches whose residual the arm *stated* rather than absorbed.
+
+    Kept beside `unprovable_matches` rather than subtracted from it. That
+    function recomputes from raw records and refuses to read an arm's proofs, so
+    no arm can vouch for itself — weakening it to excuse a declared gap would
+    hand every arm the same excuse. A partial payment genuinely does not tie;
+    what distinguishes it is that the difference is named, posted and worked,
+    and that is a second number, not a smaller first one.
+    """
+    return sum(1 for p in result.proofs if p.declared_amount is not None)
+
+
 def unprovable_matches(result: ArmResult, records: dict, tolerance) -> int:
     """Matches whose residual does not close, recomputed from raw records.
 
@@ -271,6 +287,7 @@ def score(
     elapsed_ns: int | None = None,
     records_scored: int = 0,
     unprovable: int = 0,
+    declared: int = 0,
 ) -> Scorecard:
     if result.absent:
         return Scorecard(arm=result.name, absent=result.absent, notes=list(result.notes))
@@ -289,6 +306,7 @@ def score(
         false_matches=false,
         missed=len(truth) - correct,
         unprovable=unprovable,
+        declared=declared,
         tiers=dict(result.tiers),
         exceptions=exceptions,
         elapsed_ns=elapsed_ns,
