@@ -118,3 +118,58 @@ def test_every_registered_strategy_is_reachable_from_a_profile():
         f"{sorted(known - declared)} is registered and no shipped profile uses it; "
         "either declare it or delete it"
     )
+
+
+def _offer(anchor, groups, allowed=None):
+    from decimal import Decimal
+
+    from recon.engine.strategies import Offer
+
+    return Offer(
+        anchor=anchor,
+        available=groups,
+        allowed=allowed,
+        profile=SETTLEMENT_3WAY,
+        residual=lambda a, g: sum((r.amount for r in g), Decimal("0.00")) - a.amount,
+    )
+
+
+def test_no_strategy_proposes_a_group_blocking_ruled_out():
+    """Asserted directly, because the batches cannot assert it.
+
+    Blocking bites hard here — 74.5% reduction, every matched anchor on a strict
+    subset — and yet deleting the filter changed no answer, because widening the
+    candidate set never produced a second viable group on this data. A control
+    that only bites on inputs we happen not to have is a control nobody has
+    tested, so this constructs the input.
+    """
+    result = close("A", rules=[])
+    grouped: dict[str, list] = {}
+    for record in result.settlement_records:
+        if record.group_ref:
+            grouped.setdefault(record.group_ref, []).append(record)
+    anchor = next(r for r in result.records.values() if r.side == "bank" and r.source_row_id)
+
+    wide = _offer(anchor, grouped, allowed=None)
+    narrow = _offer(anchor, grouped, allowed=set())
+
+    for name, strategy in strategies.STRATEGIES.items():
+        assert strategy(narrow) is None, f"{name} proposed a group blocking excluded"
+        proposed = strategy(wide)
+        if proposed is not None:
+            assert proposed.group_ref in grouped, name
+
+
+def test_the_driver_owns_the_tolerance_budget_not_the_strategy():
+    """`_exact` used to re-check the residual the driver already checks. Both
+    were right and one was redundant, which is the shape of a copy that rots.
+
+    So the tier contract is asserted where it now lives: a `T0` proposal whose
+    residual is not zero must not become a match."""
+    source = inspect.getsource(tiers.run)
+    assert "if residual != ZERO:" in source, "the driver stopped enforcing T0's contract"
+
+    result = close("A", rules=[])
+    for match in result.matches:
+        if match.tier.value == "T0":
+            assert match.proof.residual == 0, match.match_id

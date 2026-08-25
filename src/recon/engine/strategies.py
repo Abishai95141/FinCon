@@ -61,17 +61,18 @@ Strategy = Callable[[Offer], Proposal | None]
 
 
 def _exact(offer: Offer) -> Proposal | None:
-    """`T0` — the anchor names its group and the residual is zero.
+    """`T0` — the anchor names its group outright.
 
-    Zero, not "within tolerance": a `T0` that spent budget would be a `T1`
-    wearing the stronger label, and the tier split is a headline number.
+    Proposes; it does not decide what the proposal cost. The driver holds the
+    tolerance budget and refuses a `T0` whose residual is not zero, and this
+    checked the same thing again until the mutation suite pointed out that
+    deleting the check here changed nothing. Two places computing one fact is
+    how the copy nobody reads starts to rot.
     """
     ref = offer.anchor.source_row_id or ""
     if ref not in offer.available:
         return None
     if offer.allowed is not None and ref not in offer.allowed:
-        return None
-    if offer.residual(offer.anchor, offer.available[ref]) != Decimal("0.00"):
         return None
     return Proposal(ref, MatchTier.T0_EXACT)
 

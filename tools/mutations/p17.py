@@ -37,9 +37,13 @@ MUTATIONS = [
     ),
     (
         "T0 accepts a residual it should have left to T1",
-        "src/recon/engine/strategies.py",
-        """    if offer.residual(offer.anchor, offer.available[ref]) != Decimal("0.00"):""",
-        """    if False:""",
+        "src/recon/engine/tiers.py",
+        """        if tier is MatchTier.T0_EXACT:
+            if residual != ZERO:
+                return False""",
+        """        if tier is MatchTier.T0_EXACT:
+            if False:
+                return False""",
     ),
     (
         "the tolerant strategy picks the first of several viable groups",
