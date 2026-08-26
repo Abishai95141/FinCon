@@ -129,6 +129,11 @@ through the disposition pass as an exception.
 | `E09` **Netting ambiguity** | `E10` Reference corruption | `E11` Counterparty alias | `E12` Wrong entity |
 | `E13` Solver timeout | `E14` **Unexplained** | | |
 
+Six more are minted `PROVISIONAL` in the `X-` namespace for the TDS loop —
+`X-TDS-NOT-DEPOSITED`, `-PAN-MISMATCH`, `-QUARTER-ERROR`, `-SECTION-MISMATCH`,
+`-RATE-DIFF`, `-UNBOOKED`. They label and route to the tax desk; none directs a
+posting, and the engine assigns none of them yet.
+
 `E09`, `E13` and `E14` are the honesty codes, and `E14` is the one every close is
 full of. `E09` means multiple valid subsets exist and there is no correct answer
 to pick. `E13` means we hit a compute bound — a capacity limit must never
@@ -184,8 +189,12 @@ src/recon/
   triage/        worklist (ranked, routed) · client.py = the only place a model speaks
                  classify.py = proposals, checked · induce.py = rule induction ·
                  normalize.py = adapter synthesis. All three land at P12 and run.
-  profiles/      loop definitions as data (settlement_3way only — gstr2b is P15 and
-                 does not exist: no profile, no generator, no adapters, no data)
+  profiles/      loop definitions as data. **Two loops**: settlement_3way, and
+                 tds_26as (Form 26AS from TRACES against a TDS receivable ledger,
+                 matched on TAN+section+quarter over an April-March year). The
+                 second one is how invariant 7 stopped being an assertion — it
+                 cost one profile, two adapter specs, a policy, a chart and six
+                 taxonomy entries, and nothing under engine/
   engine/strategies.py  the closed registry a profile names its match order from
   engine/consistency.py rows that disagree with their own population — E02, with
                  no contract to compare against
