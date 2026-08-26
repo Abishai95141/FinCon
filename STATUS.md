@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Current phase** | `P13`/`P14` **landed**: `src/recon/api/` and `src/recon/mcp/` were 0-byte files for thirteen phases, so everything the engine did was real and none of it was reachable by anyone not running Python in this repo. Both surfaces are driving adapters over one `recon.service`. Next is `P15c` — the second loop, which is a second P0. |
-| **Last green gate** | **P14** — `make verify` runs P0–P11 plus P13 and P14, 14 gate files. `P12` is still **RED on the count**: `R-DUP-06` is promoted, shipping and attributed on held-out B, but the gate says three rules and there is one. |
-| **Tests** | **585 offline** (`make test`) + **73 live** (need `DEEPSEEK_API_KEY`). **0 known-broken rows.** Contract **7.4.0**. |
-| **Mutation** | 13 sets, **~184 mutants, all caught**: p9 20 · p10 15 · p11 24 · p12 20 · p12b 14 · p12d 12 · p13 10 · p14 14 · p15 8 · p16 8 · p17 15 · p18 4 · **p19 20**. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
-| **Build runs?** | `make eval` closes A and B from a clean checkout. `make replay` rebuilds the scorecard from the decision log alone. **`make serve`** starts the HTTP API and the screens; **`make mcp`** starts the MCP server on stdio. `make sign SIGNER='name'` re-signs the authority bundles. |
-| **Last verified numbers** | Ours vs `securo_grouped`, both batches: auto-match **90.9% / 86.4%**, false-match **0.00% / 0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. Tiers `T0=17 T1=2 T4=1` on A. 1 unprovable, **all declared**. Blocking recall 100%. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. With the model edge on top, classification reaches **4/5→80%** on A (single sample; measured range 40–80%, n=5). |
-| **Updated** | 2026-08-25 |
+| **Current phase** | **The product surface**, beyond P14. FinCon has a login, a shell, per-account sources and records, a visible model step, a human sign-off, and a processing view. Next by the plan is `P15c` — the second loop, which is a second P0. |
+| **Last green gate** | **P14** — `make verify` runs P0–P11 plus P13/P14, 14 gate files. `P12` is still **RED on the count**: one promoted rule against a gate that says three. |
+| **Tests** | **645 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **0 known-broken rows.** Contract **7.5.0**. |
+| **Mutation** | 14 sets, all caught: p9–p20. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
+| **Build runs?** | `make eval` closes A and B. `make serve` → `/login`; `make mcp` → 16 tools. `make ses [CHECK=1]` finishes the Cognito→SES wiring. A model key loads from gitignored `data/dev/.env`. |
+| **Last verified numbers** | Ours vs `securo_grouped`: auto-match **90.9% / 86.4%**, false-match **0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. Live model: an `E14` classified as `E08` by `deepseek-v4-flash` in 2.1s, 2026-08-26. |
+| **Updated** | 2026-08-26 |
 
 ---
 
@@ -64,6 +64,48 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### The product surface · 2026-08-26
+
+Beyond the P14 gate, and driven by review rather than by the plan. Each of these
+was a gap somebody named out loud.
+
+**"Where is the sign-off? It seems approved but I didn't."** The close said
+`complete`, the badge said *Needs review*, and there was nothing to review with —
+the product was showing "the engine finished" as "a person approved".
+`recon/review.py` is a **second** hash-chained record: `decisions.jsonl` seals at
+its terminator and must stay sealed. Sign-off refuses three ways — an unnamed
+signer, books that do not balance, and blocking items nobody has opened.
+Acknowledging resolves nothing and says so; resolving *with a posting* needs the
+attestation path and is still its own phase.
+
+**"When is the AI used?"** It wasn't, anywhere on the surface.
+`/periods/{id}/items/{id}` is now where the thesis lives: model proposes →
+`check_proposal` checks → a named human decides, all on one page in that order.
+An item the engine *derived* is never sent — refusing after the call would still
+have spent it. Verified live: `E14 ₹89,406.41` → **E08** by `deepseek-v4-flash`
+in 2.1s, and it sat inert behind Accept/Discard.
+
+**"There is supposed to be an upload."** Sources are per-account. *Load sample
+data* copies the shipped periods in; a real upload sits beside it. Copied rather
+than read in place, so a first close runs over the account's own files — a demo
+mode reading a shared directory would be the second code path.
+
+**"I want the processing visible."** A close runs on a thread and the browser
+lands on a page reporting the pipeline's six real boundaries with the fact each
+produced. No percentage (the work is discrete), no spinner implying progress, and
+a failed close leaves later stages **waiting** rather than green.
+
+**AWS provisioned** — Cognito pool with a confidential client, both S3 buckets
+with Object Lock, SES identity, three secrets. Two judgement calls against the
+written plan, both recorded in `.env.aws.example`: `GOVERNANCE/1d` rather than
+`COMPLIANCE`, and the AWS-managed KMS key rather than a CMK.
+
+Three bugs worth keeping: `review._append` **self-deadlocked** (took the write
+lock, then called `state()`, which wants a shared one on the same file — flock
+does not care that both are this process); the sign-off panel said *Signed off*
+beside a badge still reading *Needs review*; and an incomplete period briefly
+started a close that failed on the thread instead of being refused outright.
 
 ### P13 — substrate · 2026-08-25
 

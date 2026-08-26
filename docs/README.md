@@ -49,6 +49,7 @@ Republishing to the same URL requires passing it as `url` to the Artifact tool.
 | Where the Run Goes Quiet | https://claude.ai/code/artifact/f23cb3b6-be3a-400b-9be4-999162743893 | `05-FAILURE-REGISTER.md` |
 | The Route From Here | https://claude.ai/code/artifact/b43c41e6-fd0a-4fb8-8422-bd0c327b14a8 | `06-PLAN-V2.md` |
 | Glass and Evidence | https://claude.ai/code/artifact/22e06f61-e217-4959-943c-692dffd14479 | `09-PRODUCT-DIRECTION.md` |
+| FinCon Clear Ledger | https://claude.ai/code/artifact/97d639ef-32e1-470d-bd84-e5604ab44f8b | the design system, rendered live — no markdown mirror |
 
 The walkthrough has no markdown mirror in this repo; its numbers are illustrative and internally
 consistent (verified with a script at authoring time), not measurements. Real numbers come from
