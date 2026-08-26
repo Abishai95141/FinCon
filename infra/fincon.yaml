@@ -202,6 +202,19 @@ Resources:
         Path: /fincon
         CreationInfo: {OwnerUid: "10001", OwnerGid: "10001", Permissions: "0755"}
 
+  UploadsAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      # A second access point rather than a subdirectory of the first, so the
+      # decision logs and the source files a person uploaded are separate roots
+      # on the same filesystem. One `rm -rf` in the wrong place then costs the
+      # uploads and not the audit trail.
+      FileSystemId: !Ref FileSystem
+      PosixUser: {Uid: "10001", Gid: "10001"}
+      RootDirectory:
+        Path: /uploads
+        CreationInfo: {OwnerUid: "10001", OwnerGid: "10001", Permissions: "0755"}
+
   # ---- the service --------------------------------------------------------
 
   LogGroup:
@@ -292,6 +305,13 @@ Resources:
             AuthorizationConfig:
               AccessPointId: !Ref AccessPoint
               IAM: ENABLED
+        - Name: uploads
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref FileSystem
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId: !Ref UploadsAccessPoint
+              IAM: ENABLED
       ContainerDefinitions:
         - Name: fincon
           Image: !Ref Image
@@ -299,6 +319,12 @@ Resources:
           PortMappings: [{ContainerPort: 8000, Protocol: tcp}]
           MountPoints:
             - {SourceVolume: records, ContainerPath: /app/data/runs, ReadOnly: false}
+            # The files a controller uploaded. Missing from this list until
+            # 2026-08-26, so `data/sources` lived in the container's own layer
+            # and every deployment silently deleted every account's bank
+            # statement — the app then answered "no source set for this account"
+            # about a period the person had loaded ten minutes earlier.
+            - {SourceVolume: uploads, ContainerPath: /app/data/sources, ReadOnly: false}
           Environment:
             - {Name: RECON_ENV, Value: prod}
             # Named rather than inferred from the pool being set. `build_identity`

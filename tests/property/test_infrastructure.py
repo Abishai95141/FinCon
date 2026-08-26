@@ -156,17 +156,19 @@ def test_the_records_volume_is_mounted_where_the_app_writes(resources):
     from recon import loop as looplib
 
     task = resources["TaskDefinition"]["Properties"]
-    mounts = task["ContainerDefinitions"][0]["MountPoints"]
-    assert len(mounts) == 1
-    assert mounts[0]["ReadOnly"] is False
-    assert mounts[0]["ContainerPath"] == f"/app/{looplib.RUNS}", (
-        f"the volume is mounted at {mounts[0]['ContainerPath']} and the app writes "
-        f"to /app/{looplib.RUNS}"
+    mounts = {m["ContainerPath"]: m for m in task["ContainerDefinitions"][0]["MountPoints"]}
+    records = mounts.get(f"/app/{looplib.RUNS}")
+    assert records is not None, (
+        f"nothing is mounted at /app/{looplib.RUNS}, which is where the app writes"
     )
+    assert records["ReadOnly"] is False
 
-    volume = task["Volumes"][0]["EFSVolumeConfiguration"]
-    assert volume["TransitEncryption"] == "ENABLED"
-    assert volume["AuthorizationConfig"]["IAM"] == "ENABLED"
+    # Every volume, not just the first. `data/sources` was added as a second
+    # mount and asserting on `Volumes[0]` alone would have left it unchecked.
+    for volume in task["Volumes"]:
+        config = volume["EFSVolumeConfiguration"]
+        assert config["TransitEncryption"] == "ENABLED"
+        assert config["AuthorizationConfig"]["IAM"] == "ENABLED"
 
 
 def test_the_access_point_uid_matches_the_container_user(resources):
@@ -326,3 +328,37 @@ def test_the_task_role_grants_exactly_the_cognito_calls_the_app_makes(resources)
 
     assert not (called - granted), f"the app calls what the role cannot: {called - granted}"
     assert not (granted - called), f"the role grants what the app never calls: {granted - called}"
+
+
+def test_everything_a_person_created_is_on_the_filesystem_that_survives(resources):
+    """Two directories, not one.
+
+    `data/sources` was missing from the mounts, so the files a controller
+    uploaded lived in the container's own layer and every deployment silently
+    deleted them — the app then answered "no source set for this account" about a
+    period the person had loaded ten minutes earlier. Found by redeploying and
+    trying to close the same period.
+
+    Read off the app's own constants rather than hardcoded here, so a rename
+    moves both or fails.
+    """
+    from recon import loop as looplib
+    from recon import service
+
+    container = resources["TaskDefinition"]["Properties"]["ContainerDefinitions"][0]
+    mounted = {m["ContainerPath"] for m in container["MountPoints"]}
+
+    for path in (looplib.RUNS, service.TENANT_SOURCES):
+        assert f"/app/{path}" in mounted, (
+            f"{path} is not on the persistent filesystem, so a deployment deletes it"
+        )
+
+    # Separate access points, so one root cannot reach the other's files.
+    volumes = {
+        v["Name"]: v["efsVolumeConfiguration"]
+        if "efsVolumeConfiguration" in v
+        else v["EFSVolumeConfiguration"]
+        for v in resources["TaskDefinition"]["Properties"]["Volumes"]
+    }
+    points = {v["AuthorizationConfig"]["AccessPointId"]["Fn::Ref"] for v in volumes.values()}
+    assert len(points) == len(volumes), "two volumes share an access point"
