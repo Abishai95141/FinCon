@@ -185,3 +185,49 @@ def test_no_grid_lets_a_code_block_widen_the_page():
     for selector in (".snip", ".tbl"):
         assert f"{selector}{{" in css or f"{selector} " in css
     assert "overflow-x:auto" in css
+
+
+def test_the_worklist_tells_a_solved_break_from_an_unsolved_one(tmp_path, monkeypatch):
+    """Three states that need three different things from a person.
+
+    Before this they all rendered as bold text and a paragraph, so a break the
+    engine had *solved* looked exactly like one it had given up on — and the
+    ambiguity's four-sentence explanation, which is correct because it has to say
+    how to resolve it, filled the cell and buried the twenty rows that were named.
+    """
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    close_and_wait(client, loop="tds_26as", source_set="FY2627")
+    body = client.get("/worklist").text
+
+    assert "badge-ok'>derived" in body, "a code the arithmetic named is not marked as derived"
+    assert "either / or" in body, "a derived ambiguity is not marked as one"
+    assert "these files cannot separate them" in body
+
+    # The long explanation belongs on the item page, not in a table cell.
+    assert "ask the deductor for the challan" not in body, (
+        "the full ambiguity reason is in the worklist row again"
+    )
+
+
+def test_every_worklist_row_opens_the_item_it_describes(tmp_path, monkeypatch):
+    """The page a controller starts the day on had no way to open anything on
+    it — every row described work with no door into it."""
+    import re
+
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    page = close_and_wait(client, loop="tds_26as", source_set="FY2627")
+    run_id = str(page.url).rsplit("/", 1)[-1]
+
+    body = client.get("/worklist").text
+    links = set(re.findall(r"/periods/[^/']+/items/(EXC-\d+)", body))
+    assert len(links) >= 20, f"only {len(links)} of the worklist rows link to an item"
+
+    opened = client.get(f"/periods/{run_id}/items/{sorted(links)[0]}")
+    assert opened.status_code == 200
+    assert "near miss" in opened.text, (
+        "the item page does not show the near-miss evidence the code was derived from"
+    )

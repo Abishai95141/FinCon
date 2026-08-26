@@ -1401,6 +1401,47 @@ def _empty(ico: str, title: str, body: str, action: str = "") -> str:
     )
 
 
+def _named(exc, title: str) -> str:
+    """The code, and how the engine arrived at it.
+
+    Three states worth telling apart at a glance, because they need three
+    different things from a person:
+
+    * **derived** — the arithmetic named it. Act on it.
+    * **either/or** — the arithmetic proved the files cannot separate two
+      causes. Go and get the third document.
+    * **unexplained** — no reading at all. Read the evidence yourself.
+
+    Before this they all rendered as bold text and a paragraph, so a break the
+    engine had *solved* looked exactly like one it had given up on.
+    """
+    derived = exc.code_provenance.value == "P0" and exc.code != "E14"
+    if derived:
+        chip = "<span class='badge badge-ok'>derived</span>"
+    elif exc.ambiguous_codes:
+        chip = "<span class='badge badge-declared'>either / or</span>"
+    else:
+        chip = "<span class='badge badge-mute'>unexplained</span>"
+    return f"<b>{escape(exc.code)}</b> {escape(title)} {chip}"
+
+
+def _reading(exc) -> str:
+    """One line. The whole hypothesis belongs on the item page.
+
+    An ambiguity's explanation runs to four sentences — correctly, because it
+    has to say *how* to resolve it — and putting that in a table cell made the
+    row unreadable and buried the twenty rows that were solved.
+    """
+    if exc.ambiguous_codes:
+        return (
+            "either <b>"
+            + "</b> or <b>".join(escape(c) for c in exc.ambiguous_codes)
+            + "</b> &mdash; these files cannot separate them"
+        )
+    text = exc.hypothesis or "the engine has facts, not an explanation"
+    return escape(text if len(text) <= 150 else text[:147] + "…")
+
+
 @router.get("/worklist", response_class=HTMLResponse)
 def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) -> Response:
     """Every open item across every close, ranked and routed.
@@ -1431,9 +1472,14 @@ def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) 
             rows.append(
                 (
                     item.cash_impact_paise * max(item.age_days, 1),
+                    # The code links to the item, not just the run. This is the
+                    # page a controller starts the day on and it had no way to
+                    # open anything on it — every row was a description of work
+                    # with no door into it.
                     f"<tr><td><a href='/periods/{escape(run_id)}'>{escape(run_id)}</a></td>"
-                    f"<td><b>{escape(exc.code)}</b> {escape(item.code_title)}{note}"
-                    f"<span class='sub'>{escape(exc.hypothesis or 'the engine has facts, not an explanation')}</span></td>"
+                    f"<td><a class='plain' href='/periods/{escape(run_id)}/items/"
+                    f"{escape(exc.exception_id)}'>{_named(exc, item.code_title)}</a>{note}"
+                    f"<span class='sub'>{_reading(exc)}</span></td>"
                     f"<td class='right num'>{money(exc.amount)}</td>"
                     f"<td class='right num'>{item.age_days}d</td>"
                     f"<td class='num'>{escape(exc.fingerprint[:8] or '&mdash;')}</td>"
