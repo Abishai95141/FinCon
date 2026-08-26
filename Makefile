@@ -136,6 +136,34 @@ mcp:
 mcp-http:
 	uv run recon-mcp-http
 
+# ---- AWS -----------------------------------------------------------------
+# The image is tagged with the commit, never `latest`: a service pointed at a
+# moving tag cannot be rolled back to whatever was running.
+ECR = 531728396678.dkr.ecr.ap-south-1.amazonaws.com/fincon
+TAG = $(shell git rev-parse --short HEAD)
+
+image:
+	aws ecr get-login-password --region ap-south-1 | \
+	  docker login --username AWS --password-stdin $(firstword $(subst /, ,$(ECR)))
+	docker build --platform linux/amd64 -t $(ECR):$(TAG) .
+	docker push $(ECR):$(TAG)
+
+deploy: image
+	aws cloudformation deploy --template-file infra/fincon.yaml --stack-name fincon \
+	  --capabilities CAPABILITY_IAM --parameter-overrides \
+	    Image=$(ECR):$(TAG) \
+	    CognitoUserPoolId=ap-south-1_kNSrctMRo \
+	    CognitoClientId=4scuq8j5s68siqgnikmnskcir6 \
+	    CognitoClientSecretArn=$(shell aws secretsmanager describe-secret --secret-id fincon/cognito-client-secret --query ARN --output text) \
+	    SessionSecretArn=$(shell aws secretsmanager describe-secret --secret-id fincon/session-secret --query ARN --output text) \
+	    DeepSeekApiKeyArn=$(shell aws secretsmanager describe-secret --secret-id fincon/deepseek-api-key --query ARN --output text) \
+	    $(if $(PUBLIC_URL),PublicUrl=$(PUBLIC_URL),) $(if $(CERT),CertificateArn=$(CERT),)
+	aws cloudformation describe-stacks --stack-name fincon \
+	  --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' --output table
+
+deploy-logs:
+	aws logs tail /ecs/fincon --since 15m --follow
+
 # Finish the Cognito -> SES wiring once the sender identity is verified.
 ses:
 	uv run python -m tools.wire_ses $(if $(CHECK),--check,)
