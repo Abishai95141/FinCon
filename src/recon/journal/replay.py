@@ -135,6 +135,7 @@ def replay(events: list[Event]) -> ReplayedClose:
                         alternatives=payload.alternatives,
                         hypothesis=payload.hypothesis,
                         evidence=list(payload.evidence),
+                        ambiguous_codes=list(payload.ambiguous_codes),
                         blocks_close=payload.blocks_close,
                     )
                 )

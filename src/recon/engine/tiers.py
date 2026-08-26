@@ -587,7 +587,7 @@ def _disposition_pass(
     # is already somebody else's, which is a suggestion nobody can act on.
     leftover_groups = [r for ref in unclaimed_groups for r in grouped[ref]]
 
-    def read(row: Record, others: list[Record]) -> tuple[str, ProofTier, str, list[str]]:
+    def read(row: Record, others: list[Record]) -> tuple[str, ProofTier, str, list[str], list[str]]:
         """Which key component this row failed on, and what that means.
 
         Arithmetic, not a heuristic. Without it an unmatched row reaches triage
@@ -612,12 +612,13 @@ def _disposition_pass(
                 undecided,
                 "",
                 miss.as_evidence() if miss else [],
+                [],
             )
 
         evidence = miss.as_evidence()
         verdict = diagnose.diagnose(miss, rules)
         if verdict.decided:
-            return (verdict.code, ProofTier.P0_ARITHMETIC, verdict.reason, evidence)
+            return (verdict.code, ProofTier.P0_ARITHMETIC, verdict.reason, evidence, [])
         if verdict.ambiguous:
             # Stays E14 on purpose. The engine genuinely cannot say which, and a
             # code carrying two meanings routes to two desks. The candidates go
@@ -628,13 +629,14 @@ def _disposition_pass(
                 undecided,
                 f"either {' or '.join(verdict.codes)}. {verdict.reason}",
                 evidence,
+                list(verdict.codes),
             )
-        return (ExceptionCode.E14_UNEXPLAINED, undecided, verdict.reason, evidence)
+        return (ExceptionCode.E14_UNEXPLAINED, undecided, verdict.reason, evidence, [])
 
     for anchor in unmatched:
         if anchor.record_id in seen:
             continue
-        code, provenance, why, evidence = read(anchor, leftover_groups)
+        code, provenance, why, evidence, ambiguous = read(anchor, leftover_groups)
         exceptions.append(
             ReconException(
                 exception_id=f"EXC-{len(exceptions) + 1:05d}",
@@ -643,6 +645,7 @@ def _disposition_pass(
                 as_of=anchor.posted_on,
                 amount=abs(anchor.amount),
                 record_ids=[anchor.record_id],
+                ambiguous_codes=ambiguous,
                 hypothesis=why or "no strategy produced a match and the engine cannot say why",
                 evidence=[anchor.lineage, f"amount {anchor.amount}", *evidence],
                 blocks_close=True,
@@ -655,10 +658,10 @@ def _disposition_pass(
         if all(rid in seen for rid in row_ids):
             continue
         total = sum((r.amount for r in rows), ZERO)
-        code, provenance, why, evidence = (
+        code, provenance, why, evidence, ambiguous = (
             read(rows[0], unmatched)
             if len(rows) == 1
-            else (ExceptionCode.E14_UNEXPLAINED, ProofTier.P3_DECLARED, "", [])
+            else (ExceptionCode.E14_UNEXPLAINED, ProofTier.P3_DECLARED, "", [], [])
         )
         exceptions.append(
             ReconException(
@@ -668,6 +671,7 @@ def _disposition_pass(
                 as_of=max(r.posted_on for r in rows),
                 amount=abs(total),
                 record_ids=row_ids,
+                ambiguous_codes=ambiguous,
                 hypothesis=why
                 or f"group {group_ref!r} was not claimed by any anchor in this period",
                 evidence=[f"{len(rows)} row(s)", f"total {total}", *evidence],

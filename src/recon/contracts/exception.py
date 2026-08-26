@@ -124,6 +124,15 @@ class ReconException(BaseModel):
     record_ids: list[str] = Field(default_factory=list)
     """The records this is about."""
 
+    ambiguous_codes: list[str] = Field(default_factory=list)
+    """Codes the engine *derived* are equally supported, when it could not pick.
+
+    Structured rather than left in the hypothesis, because a checker that had to
+    parse "either X or Y" out of prose would be the engine reading text it wrote
+    — and because this is what stops a model proposal overturning a derived
+    ambiguity. The engine did not fail to decide here; it decided that these
+    files cannot decide, which is a `P0` finding like any other."""
+
     hypothesis: str | None = None
     """Model-authored, one sentence. Never authoritative — a human reads it."""
 

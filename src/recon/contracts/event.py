@@ -243,6 +243,16 @@ class ExceptionRaisedPayload(_Payload):
     alternatives: list[list[str]] | None = None
     hypothesis: str | None = None
     evidence: list[str] = Field(default_factory=list)
+
+    ambiguous_codes: list[str] = Field(default_factory=list)
+    """Codes the engine derived are equally supported, when it could not pick.
+
+    Carried, because a record that dropped it would leave a replayed `E14`
+    indistinguishable from one the engine simply could not read — and because
+    the checker that stops a model overturning a derived ambiguity reads this
+    field. `fingerprint` and `proof_id` were both added to an exception and left
+    out of the log before this; the pattern is a field the writer sets and the
+    reader never sees."""
     blocks_close: bool = False
     external_ids: dict[str, str] = Field(default_factory=dict)
 

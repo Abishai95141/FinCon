@@ -37,6 +37,19 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 
 
+#: Attempts per call. Three because a rate limit clears in seconds and a
+#: provider outage does not clear at all — more attempts would turn a dead
+#: endpoint into a slow one, which is harder to notice.
+RETRIES = 3
+
+#: First wait, doubled each attempt.
+BACKOFF_SECONDS = 1.5
+
+#: Statuses worth trying again. 429 is a rate limit and 5xx is the provider;
+#: everything else is our request and will fail identically forever.
+TRANSIENT_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+
+
 class ModelUnavailable(Exception):
     """The edge could not be reached. Distinct from a refusal: a network failure
     is a fact about us, not about the proposal, and reporting one as the other
@@ -116,13 +129,30 @@ class ModelEdge:
                 "Content-Type": "application/json",
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                return json.loads(response.read())
-        except urllib.error.HTTPError as exc:
-            raise ModelUnavailable(f"HTTP {exc.code}: {exc.read()[:200]!r}") from exc
-        except OSError as exc:
-            raise ModelUnavailable(f"{type(exc).__name__}: {exc}") from exc
+        # Bounded retries, on *transient* failures only. A rate limit or a 502
+        # is the provider being busy and the same request will work in a moment;
+        # a 400 is a request that will never work and retrying it three times
+        # just spends three times as long being wrong.
+        #
+        # Deliberately **not** retried: a reply that is not a tool call. That is
+        # `ProposalRefused`, raised further up, and it is a finding about the
+        # model rather than a network event — retrying until it complies would be
+        # ADR-001 dismantled by patience instead of by an `except` block.
+        last: Exception | None = None
+        for attempt in range(RETRIES):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as exc:
+                detail = f"HTTP {exc.code}: {exc.read()[:200]!r}"
+                if exc.code not in TRANSIENT_STATUS:
+                    raise ModelUnavailable(detail) from exc
+                last = ModelUnavailable(detail)
+            except OSError as exc:
+                last = ModelUnavailable(f"{type(exc).__name__}: {exc}")
+            if attempt < RETRIES - 1:
+                time.sleep(BACKOFF_SECONDS * (2**attempt))
+        raise ModelUnavailable(f"{RETRIES} attempts failed; last was {last}") from last
 
     # -- the only way a model speaks ---------------------------------------
 

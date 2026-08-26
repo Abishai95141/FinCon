@@ -32,6 +32,7 @@ import ast
 import json
 import re
 import shutil
+import textwrap
 from collections import Counter
 from pathlib import Path
 
@@ -398,3 +399,278 @@ def test_the_planted_tail_is_not_all_one_thing(batch):
     assert max(by_code.values()) <= len(labels["planted"]) // 2, (
         f"one code dominates the tail: {by_code}"
     )
+
+
+# --------------------------------------------------- naming the tail
+
+
+def _truth(labels: dict, records: dict, exception) -> str | None:
+    """What the labels say this exception is, keyed so it cannot be ambiguous.
+
+    **The date is in the key on purpose.** Two planted variances in this batch
+    share `(tan, section, quarter)` — a PAN mismatch and a section mismatch on
+    the same deductor and quarter — so a lookup without the date silently
+    returns whichever was written last. That is how the first measurement of
+    this reported the model getting one wrong when the model was right and the
+    scoring was ambiguous.
+    """
+    for record_id in exception.record_ids:
+        record = records.get(record_id)
+        if record is None:
+            continue
+        key = (
+            record.keys.get("tan", ""),
+            record.keys.get("section", ""),
+            record.keys.get("quarter", ""),
+            record.posted_on.isoformat(),
+        )
+        for planted in labels["planted"]:
+            if (
+                planted["tan"].lower(),
+                planted["section"].lower(),
+                planted["quarter"].lower(),
+                planted["transaction_date"],
+            ) == key:
+                return planted["expected_code"]
+    return None
+
+
+@pytest.fixture(scope="module")
+def records(batch):
+    src = looplib.get(LOOP).load(batch)
+    return {rec.record_id: rec for _, rec in [*src.anchor_rows, *src.group_rows]}
+
+
+def test_the_arithmetic_names_most_of_the_tail_and_is_never_wrong(closed, records):
+    """The half that needs no model, scored against labels written first.
+
+    A derived code is `P0 ARITHMETIC`. Being *mostly* right is not good enough
+    for that tier — a wrong code at P0 is worse than `E14`, because nothing
+    downstream will question it.
+    """
+    view, labels, _runs = closed
+
+    derived = [
+        e.exception
+        for e in view.exceptions
+        if e.exception.code != "E14" and e.exception.code_provenance.value == "P0"
+    ]
+    assert len(derived) >= 18, f"only {len(derived)} of the tail was named arithmetically"
+
+    wrong = []
+    for exception in derived:
+        expected = _truth(labels, records, exception)
+        if expected is not None and expected != exception.code:
+            wrong.append(f"{exception.exception_id}: said {exception.code}, labels say {expected}")
+
+    assert not wrong, "arithmetic named something wrongly at P0:\n  " + "\n  ".join(wrong)
+
+
+def test_what_is_left_is_ambiguous_rather_than_merely_hard(closed, records):
+    """Every remaining `E14` must be a *stated* ambiguity, not a shrug.
+
+    "Unexplained" was the honest answer when the engine had one row and no
+    comparison. Now it has the near miss, so anything still unnamed has to say
+    which causes it could be and why the files cannot separate them — otherwise
+    the near-miss work bought a longer evidence list and nothing else.
+    """
+    view, labels, _runs = closed
+    leftover = [e.exception for e in view.exceptions if e.exception.code == "E14"]
+    assert leftover, "nothing is ambiguous, so this test has lost its subject"
+
+    for exception in leftover:
+        assert exception.hypothesis.startswith("either "), (
+            f"{exception.exception_id} is E14 with no candidates named: {exception.hypothesis[:80]}"
+        )
+        # And the truth must be inside the pair it names. An ambiguity that
+        # excludes the right answer is worse than no ambiguity at all.
+        expected = _truth(labels, records, exception)
+        if expected is None:
+            continue
+        assert expected in exception.hypothesis, (
+            f"{exception.exception_id} says {exception.hypothesis[:60]!r} and the "
+            f"labels say {expected}, which is not among the candidates"
+        )
+
+
+def test_a_model_is_never_offered_an_answer_the_arithmetic_derived(closed):
+    """Rule 2, at the one interface a model drives. A proposal is `P2` at best
+    and may not overwrite `P0` — and the refusal happens *before* the call, so
+    the model does not get the chance to be wrong and we do not pay for it."""
+    from recon.triage.classify import reclassifiable
+
+    view, _labels, _runs = closed
+    offered = [e.exception for e in view.exceptions if reclassifiable(e.exception)]
+
+    assert offered, "nothing is offered to triage, so the model does no work at all"
+    assert all(e.code == "E14" for e in offered), (
+        f"a derived code was offered for reclassification: {sorted({e.code for e in offered})}"
+    )
+
+
+@pytest.mark.live
+def test_the_model_declines_what_the_files_cannot_separate(closed, records):
+    """The measurement that matters, and it can go either way.
+
+    Seven items reach the model, and every one of them is a ledger row with
+    nothing on the government's side — which is *either* tax never deposited or
+    tax deposited against another PAN. No amount of reasoning separates those
+    from these two files; you find out by asking the deductor.
+
+    So the useful answer is "I cannot tell, and here are the two". A model that
+    picks one is right about half the time and confident every time, and the
+    wrong half sends a correction return to a deductor who did nothing wrong.
+
+    This asserts the honest behaviour rather than an accuracy number. If a future
+    model starts guessing here, that is a regression even if its guesses improve.
+    """
+    from recon.api.serve import load_dev_env
+    from recon.triage.classify import classify, reclassifiable
+    from recon.triage.client import ModelEdge
+
+    load_dev_env()
+    view, labels, _runs = closed
+    exceptions = [e.exception for e in view.exceptions]
+    offered = [e for e in exceptions if reclassifiable(e)]
+    assert offered, "nothing to ask about"
+
+    loop = looplib.get(LOOP)
+    edge = ModelEdge()
+    results = classify(exceptions=exceptions, taxonomy=loop.taxonomy(), records=records, edge=edge)
+    asked = [
+        c
+        for c in results
+        if c.exception_id in {e.exception_id for e in offered}
+        and not any("not offered" in r for r in c.refusals)
+    ]
+    assert len(asked) == len(offered), (
+        f"{len(offered)} items were offered and {len(asked)} reached the model"
+    )
+
+    guessed = [c for c in asked if c.code and not c.cannot_separate]
+    declined = [c for c in asked if c.cannot_separate]
+
+    assert not guessed, (
+        f"the model picked a single code for {len(guessed)} item(s) the evidence "
+        f"cannot separate: {[(c.exception_id, c.code) for c in guessed]}"
+    )
+    assert len(declined) == len(asked)
+
+    # And the pair it names must contain the answer. Declining is only honest if
+    # the candidates are right — "I cannot tell between these two" is useless
+    # when the truth is a third thing.
+    misses = []
+    for classification in declined:
+        exception = next(e for e in exceptions if e.exception_id == classification.exception_id)
+        expected = _truth(labels, records, exception)
+        if expected is not None and expected not in classification.cannot_separate:
+            misses.append(
+                f"{classification.exception_id}: truth {expected}, "
+                f"declined between {classification.cannot_separate}"
+            )
+    assert not misses, "the declined candidates exclude the answer:\n  " + "\n  ".join(misses)
+
+
+def test_a_guess_is_refused_even_if_the_model_makes_one(closed):
+    """The control that does not depend on the model behaving.
+
+    Asked with the evidence in front of it, deepseek-v4-flash declines every one
+    of these. Asked on a different day, or by a different model, it might not —
+    and the system has to reach the same place either way. A control that works
+    because the model happens to co-operate is not a control.
+
+    The engine derived that these files cannot separate two causes. That is
+    arithmetic over raw records, so it is `P0`; a proposal is `P2`; and a lower
+    tier does not overturn a higher one. The refusal is the same rule this
+    project already runs on, applied at the one interface a model drives.
+    """
+    from recon.triage.classify import check_proposal
+
+    view, _labels, _runs = closed
+    index = {e.exception.exception_id: e.exception for e in view.exceptions}
+    ambiguous = [e for e in index.values() if e.ambiguous_codes]
+    assert ambiguous, "nothing carries a derived ambiguity, so this test has no subject"
+
+    taxonomy = looplib.get(LOOP).taxonomy()
+    exception = ambiguous[0]
+
+    for candidate in exception.ambiguous_codes:
+        verdict = check_proposal(
+            {
+                "exception_id": exception.exception_id,
+                "code": candidate,
+                "hypothesis": "it is obviously this one",
+                "evidence": list(exception.record_ids),
+            },
+            exceptions=index,
+            taxonomy=taxonomy,
+        )
+        assert not verdict.ok, f"a guess of {candidate} was accepted over a derived ambiguity"
+        assert "P0" in " ".join(verdict.reasons)
+
+    declined = check_proposal(
+        {
+            "exception_id": exception.exception_id,
+            "code": "",
+            "hypothesis": "these two files cannot separate them",
+            "evidence": list(exception.record_ids),
+            "cannot_separate": list(exception.ambiguous_codes),
+        },
+        exceptions=index,
+        taxonomy=taxonomy,
+    )
+    assert declined.ok, f"declining was refused: {declined.reasons}"
+
+
+def test_the_derived_ambiguity_survives_the_decision_log(closed):
+    """A field the writer sets and the reader never sees is this codebase's most
+    repeated defect — `fingerprint` and `proof_id` both shipped that way. The
+    checker above reads `ambiguous_codes` off a *replayed* exception, so if the
+    log drops it, a guess becomes acceptable on the second read."""
+    view, _labels, _runs = closed
+    carried = [e.exception for e in view.exceptions if e.exception.ambiguous_codes]
+
+    assert carried, (
+        "no replayed exception carries its derived ambiguity, so the control that "
+        "refuses a guess is reading an empty field"
+    )
+    for exception in carried:
+        assert len(exception.ambiguous_codes) >= 2
+        assert all(code in exception.hypothesis for code in exception.ambiguous_codes)
+
+
+def test_a_transient_failure_is_retried_and_a_bad_request_is_not():
+    """One rate limit used to lose an item. Three attempts now, on transient
+    statuses only — retrying a 400 spends three times as long being wrong, and
+    retrying a reply that was not a tool call would be ADR-001 dismantled by
+    patience instead of by an `except` block."""
+    from recon.triage import client
+
+    assert client.RETRIES >= 2
+    assert 429 in client.TRANSIENT_STATUS
+    assert 500 in client.TRANSIENT_STATUS
+    assert 400 not in client.TRANSIENT_STATUS
+    assert 401 not in client.TRANSIENT_STATUS
+
+    import inspect
+
+    # Parsed, not grepped. Two earlier versions of this assertion failed on the
+    # *comment inside the loop explaining why a refusal is not handled there* —
+    # a substring check over source cannot tell code from the prose about it,
+    # which is the same mistake as searching a module for the word "request".
+    loop = ast.parse(textwrap.dedent(inspect.getsource(client.ModelEdge._post)))
+    handled = {
+        name
+        for node in ast.walk(loop)
+        if isinstance(node, ast.ExceptHandler | ast.Raise)
+        for name in (n.id for n in ast.walk(node) if isinstance(n, ast.Name))
+    }
+    assert "ProposalRefused" not in handled, (
+        "a refusal is raised or caught inside the retry loop, so the edge would "
+        "retry until the model complies — ADR-001 dismantled by patience rather "
+        "than by an except block"
+    )
+
+    body = inspect.getsource(client.ModelEdge._post)
+    assert "for attempt in range(RETRIES)" in body, "there is no retry loop to speak of"
+    assert "TRANSIENT_STATUS" in body, "the loop retries every status, including a 400"

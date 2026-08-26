@@ -262,6 +262,7 @@ def derive(decisions: Decisions) -> list[Event]:
                     alternatives=[list(s) for s in exc.alternatives] if exc.alternatives else None,
                     hypothesis=exc.hypothesis,
                     evidence=list(exc.evidence),
+                    ambiguous_codes=list(exc.ambiguous_codes),
                     blocks_close=exc.blocks_close,
                     external_ids=_externals(decisions, ids),
                 ),
