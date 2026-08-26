@@ -91,6 +91,8 @@ SOURCES: tuple[SourceBinding, ...] = (
         side="bank",
         role="anchor",
         external_key="entry_ref",
+        title="Bank statement",
+        blurb="The CAMT.053 your bank publishes, or the CSV export of the same account.",
     ),
     SourceBinding(
         spec_id="gateway-settlement",
@@ -98,6 +100,8 @@ SOURCES: tuple[SourceBinding, ...] = (
         side="settlement",
         role="group",
         external_key="",
+        title="Gateway settlement report",
+        blurb="The payout report from Razorpay, PayU or Cashfree for the same month.",
     ),
 )
 
@@ -170,6 +174,8 @@ LOOP = register(
         policy=policy,
         taxonomy=taxonomy,
         chart=chart,
+        title="Money from your payment gateway",
+        question=("Did every rupee the gateway says it paid out actually arrive in the bank?"),
         description=(
             "Bank statement against gateway settlement: two independent records "
             "of the same money. The order register is a third leg and is not "

@@ -200,6 +200,10 @@ class SourceView(BaseModel):
     filename: str
     side: str
     role: str
+    title: str = ""
+    """What to call this file to somebody who has to go and find it."""
+    blurb: str = ""
+    """Where it comes from, in one line."""
 
 
 class LoopView(BaseModel):
@@ -209,6 +213,13 @@ class LoopView(BaseModel):
 
     name: str
     description: str
+    title: str = ""
+    """The loop's name for a person. `settlement_3way` is an identifier."""
+    question: str = ""
+    """The question this reconciliation answers. Published because "two records
+    of the same money" is true of every loop and tells a caller nothing about
+    which one this is."""
+
     period_start: date
     period_end: date
     policy_ref: str
@@ -246,13 +257,22 @@ def loops() -> list[LoopView]:
             LoopView(
                 name=lp.name,
                 description=lp.description,
+                title=lp.title or lp.name,
+                question=lp.question,
                 period_start=lp.period[0],
                 period_end=lp.period[1],
                 policy_ref=pol.ref,
                 taxonomy_ref=lp.taxonomy().ref,
                 strategies=list(lp.profile.strategies),
                 sources=[
-                    SourceView(spec_id=b.spec_id, filename=b.filename, side=b.side, role=b.role)
+                    SourceView(
+                        spec_id=b.spec_id,
+                        filename=b.filename,
+                        side=b.side,
+                        role=b.role,
+                        title=b.title or b.filename,
+                        blurb=b.blurb,
+                    )
                     for b in lp.sources
                 ],
                 promoted_rules=[r.ref for r in rulestore.load(lp.profile.name)],
@@ -269,7 +289,7 @@ def loops_for(name: str):
 
 
 def source_sets(loop_name: str, root: Path | None = None) -> list[SourceSetView]:
-    """Every directory under `root`, complete or not.
+    """Every period *of this loop*, complete or not.
 
     Incomplete ones are listed rather than hidden. A surface that only showed
     closeable periods would answer "where is October?" with silence, which is
@@ -281,7 +301,11 @@ def source_sets(loop_name: str, root: Path | None = None) -> list[SourceSetView]
     if not base.exists():
         return []
     out: list[SourceSetView] = []
-    for directory in sorted(d for d in base.iterdir() if d.is_dir()):
+    # This loop's periods only. A directory holding *none* of its files is
+    # somebody else's month in the same folder, and listing it reported the tax
+    # period as "missing bank_icici_camt053.xml" on the settlement screen —
+    # true, and nonsense, because it was never a candidate.
+    for directory in looplib.periods(lp, base):
         missing = lp.missing(directory)
         out.append(
             SourceSetView(

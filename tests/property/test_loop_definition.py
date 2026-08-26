@@ -156,3 +156,61 @@ def test_the_period_belongs_to_the_loop_not_to_a_batch():
     lp = looplib.get("settlement_3way")
     assert lp.period == (settlement.WINDOW[0], settlement.WINDOW[1])
     assert lp.profile.tolerance.absolute == Decimal("0.50")
+
+
+def test_a_period_belongs_to_one_loop(tmp_path):
+    """A directory holding none of a loop's files is not that loop's period.
+
+    Without this every loop listed every directory, so the settlement screen
+    reported `FY2627` as "missing bank_icici_camt053.xml" and the tax screen
+    reported `A` as "missing form26as.txt" — each statement true, and each of
+    them nonsense, because neither period was ever a candidate. Six rows on a
+    page where there are three periods, four of them un-closeable by
+    construction.
+    """
+    import shutil
+
+    from recon import loop as looplib
+
+    root = tmp_path / "sources"
+    root.mkdir()
+    for name in ("A", "B", "FY2627"):
+        shutil.copytree(f"data/batches/{name}", root / name)
+
+    looplib._install()
+    settlement = looplib.get("settlement_3way")
+    tds = looplib.get("tds_26as")
+
+    assert looplib.source_sets(settlement, root) == ["A", "B"]
+    assert looplib.source_sets(tds, root) == ["FY2627"]
+
+    # And the *incomplete* listing, which is what the screens render, must be
+    # scoped the same way — a period is listed when it is short a file, and not
+    # when it was never this loop's.
+    assert {d.name for d in looplib.periods(settlement, root)} == {"A", "B"}
+    assert {d.name for d in looplib.periods(tds, root)} == {"FY2627"}
+
+
+def test_a_half_arrived_period_is_still_this_loops_period(tmp_path):
+    """Scoping must not hide the case it exists to surface.
+
+    "Where is October?" answered with silence is the same failure as a filter
+    before the completeness audit. A period missing *one* of its two files is
+    this loop's period and has to stay on the list, named for what it lacks.
+    """
+    import shutil
+
+    from recon import loop as looplib
+
+    root = tmp_path / "sources"
+    (root / "October").mkdir(parents=True)
+    looplib._install()
+    settlement = looplib.get("settlement_3way")
+
+    shutil.copy(
+        "data/batches/A/bank_icici_camt053.xml", root / "October" / "bank_icici_camt053.xml"
+    )
+
+    assert looplib.source_sets(settlement, root) == [], "a half-arrived period is closeable"
+    assert {d.name for d in looplib.periods(settlement, root)} == {"October"}
+    assert settlement.missing(root / "October") == ["settlement.csv"]

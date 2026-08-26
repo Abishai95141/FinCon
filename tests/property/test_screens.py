@@ -129,9 +129,24 @@ def test_data_sources_lists_the_adapters_and_what_has_arrived(session):
     # The two ways in, both on the page: bring your own, or load the shipped
     # examples. A product whose first screen offers neither is a product nobody
     # can start.
-    assert "Load sample data" in body
-    assert "Upload a period" in body
+    # One button, and only one. The page carried a "Load sample data" per loop
+    # plus a third at the bottom, so a person had to guess which one gave them a
+    # working example — the answer being all of them, separately.
+    assert body.count("action='/sources/sample'") == 1, (
+        f"{body.count(chr(39).join(['action=', '/sources/sample', '']))} sample buttons on one page"
+    )
+    # Bring your own is still on the page, collapsed rather than removed: it is
+    # the second thing a person does, not the first, and four file pickers open
+    # by default were most of why this screen read as a form to fill in.
+    assert "Add a period of your own" in body
+    assert "<details>" in body, "the upload form is open by default again"
     assert "enctype='multipart/form-data'" in body, "the upload form cannot carry a file"
+
+    # And each picker says what to go and find, not just what we save it as.
+    assert "Bank statement" in body and "Gateway settlement report" in body, (
+        "the upload boxes are labelled by filename only, so a person cannot tell "
+        "which of their files goes where"
+    )
 
 
 def test_the_close_page_leads_with_the_period_it_ran_on(closed):

@@ -261,7 +261,14 @@ def test_an_upload_lands_under_the_expected_name(tmp_path, monkeypatch):
     assert not (landed / "whatever-they-called-it.csv").exists()
 
     page = client.get("/sources").text
-    assert "missing bank_icici_camt053.xml" in page, "a half-arrived period is not named as one"
+    # The *filename*, not the word around it. A half-arrived period has to name
+    # what it is short of — "1 source missing" is not something anybody can act
+    # on — but the sentence it sits in is copy and pinning that made this test
+    # fail for a rewrite rather than for a regression.
+    assert "bank_icici_camt053.xml" in page, "a half-arrived period does not name what it lacks"
+    assert "ready to close" not in page.split("bank_icici_camt053.xml")[0][-400:], (
+        "a period short of a file is offered as closeable"
+    )
 
 
 def test_one_account_cannot_reach_anothers_sources(tmp_path, monkeypatch):
@@ -272,6 +279,6 @@ def test_one_account_cannot_reach_anothers_sources(tmp_path, monkeypatch):
     assert alice_id != bob_id
 
     assert "ready to close" in alice.get("/sources").text
-    assert "No source files yet" in bob.get("/sources").text
+    assert "Nothing here yet" in bob.get("/sources").text
     refused = bob.post("/periods/close", data=_form(bob, loop=LOOP, source_set=BATCH))
     assert refused.status_code == 422

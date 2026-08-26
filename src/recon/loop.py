@@ -79,6 +79,17 @@ class SourceBinding:
     """Which normalized key names this row for a human. `""` means the source's
     own row id."""
 
+    title: str = ""
+    """What to call this file to somebody who has to go and find it.
+
+    `bank_icici_camt053.xml` is the name we save it under; "Bank statement" is
+    what a person is looking for. The upload form showed only the filename and a
+    side name, so it asked for `form26as.txt — government` and left the reader
+    to work out that this means their Form 26AS from TRACES."""
+
+    blurb: str = ""
+    """Where it comes from, in one line."""
+
 
 @dataclass(frozen=True)
 class LoadedSources:
@@ -146,6 +157,14 @@ class Loop:
     taxonomy: Callable[[], TaxonomyRegistry]
     chart: Callable[[], ChartOfAccounts]
     description: str = ""
+
+    title: str = ""
+    """The loop's name for a person. `settlement_3way` is an identifier."""
+
+    question: str = ""
+    """The question this reconciliation answers, in one sentence. Shown wherever
+    a loop is named, because "two records of the same money" is true of both of
+    these and tells nobody which is which."""
 
     @property
     def filenames(self) -> tuple[str, ...]:
@@ -217,17 +236,38 @@ def _install() -> None:
     from .profiles import settlement, tds  # noqa: F401
 
 
-def source_sets(loop: Loop, root: Path) -> list[str]:
-    """Directories under `root` that hold every file this loop reads.
+def belongs_to(loop: Loop, directory: Path) -> bool:
+    """Whether this directory is a period of *this* loop at all.
 
-    A surface lists these so a controller picks a period rather than typing a
-    path. A directory holding *some* of the files is deliberately absent from
-    this list and legible through `Loop.missing` — a close over a half-arrived
-    month is the failure this exists to prevent.
+    A period holding none of a loop's files is not that loop's period — it is
+    somebody else's month sitting in the same folder. Without this, every loop
+    listed every directory, so the settlement screen reported `FY2627` as
+    "missing bank_icici_camt053.xml" and the tax screen reported `A` as
+    "missing form26as.txt" — each of them true and each of them nonsense, because
+    neither period was ever a candidate.
     """
+    return len(loop.missing(directory)) < len(loop.sources)
+
+
+def periods(loop: Loop, root: Path) -> list[Path]:
+    """Every directory that is a period of this loop, arrived or not."""
     if not root.exists():
         return []
-    return sorted(d.name for d in root.iterdir() if d.is_dir() and not loop.missing(d))
+    return sorted(
+        (d for d in root.iterdir() if d.is_dir() and belongs_to(loop, d)),
+        key=lambda d: d.name,
+    )
+
+
+def source_sets(loop: Loop, root: Path) -> list[str]:
+    """This loop's periods whose files have *all* arrived.
+
+    A surface lists these so a controller picks a period rather than typing a
+    path. A directory holding *some* of the files is deliberately absent and
+    legible through `Loop.missing` — a close over a half-arrived month is the
+    failure this exists to prevent.
+    """
+    return [d.name for d in periods(loop, root) if not loop.missing(d)]
 
 
 def run_id_for(loop: Loop, sources: LoadedSources, *, label: str, rules: Sequence = ()) -> str:

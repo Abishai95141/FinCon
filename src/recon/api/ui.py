@@ -661,12 +661,17 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
         cards.append(
             f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1rem'>"
             f"<div style='display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap'>"
-            f"<h3 style='margin:0'>{escape(lp.name)}</h3>"
-            f"<span class='badge badge-mute'>{escape(lp.policy_ref)}</span>"
-            f"<span class='badge badge-mute'>{escape(lp.taxonomy_ref)}</span></div>"
-            f"<p class='cap' style='margin:.4rem 0 1rem'>{escape(lp.description)}<br>"
-            f"{lp.period_start}&ndash;{lp.period_end} &middot; "
-            f"{escape(' → '.join(lp.strategies))} &middot; "
+            f"<h3 style='margin:0'>{escape(lp.title)}</h3>"
+            f"<span class='badge badge-mute'>{escape(lp.name)}</span></div>"
+            f"<p class='lede' style='margin:.4rem 0 .6rem'>{escape(lp.question)}</p>"
+            # The identifiers still matter — a close runs under a named policy and
+            # a named vocabulary, and an auditor asks which. They sit below the
+            # question rather than beside the title, because the version of a
+            # taxonomy is not what a person is here to choose between.
+            f"<p class='cap' style='margin:0 0 1rem'>{escape(lp.description)}<br>"
+            f"Covers {lp.period_start}&ndash;{lp.period_end} &middot; "
+            f"tries {escape(' → '.join(lp.strategies))} &middot; "
+            f"under {escape(lp.policy_ref)} and {escape(lp.taxonomy_ref)} &middot; "
             f"rules in force: {escape(', '.join(lp.promoted_rules) or 'none')}</p>"
             f"<div class='tbl'><table><tr><th>Period</th><th>Sources</th>"
             f"<th class='right'>Action</th></tr>{''.join(rows)}</table></div></div>"
@@ -689,11 +694,17 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
         )
 
     body = (
-        f"<h1>Close the books</h1>"
-        f"<p class='cap' style='margin:0 0 1.6rem'>Pick a period whose source files have "
-        f"arrived. Everything here is read from disk &mdash; nothing has been run yet.</p>"
+        f"<h1>Close a period</h1>"
+        # "So many closes" was the reaction to this page, and it was fair: it
+        # listed two reconciliations x three period names and offered six
+        # buttons, four of which could not be pressed. Periods are scoped to
+        # their own loop now, and this says what pressing one *does*.
+        f"<p class='cap' style='margin:0 0 1.6rem'>A close reads one period's two files, "
+        f"matches what it can prove, writes the journal entries, and hands back "
+        f"everything it could not match. It takes a few seconds. Nothing here has run "
+        f"yet &mdash; this page is read from disk.</p>"
         f"{''.join(cards)}"
-        f"<p class='sec' style='margin-top:2rem'>Recorded closes</p>{closes}"
+        f"<p class='sec' style='margin-top:2rem'>Closes you have run</p>{closes}"
     )
     return shell(user, active="periods", crumb="<b>Periods</b>", body=body, worklist=open_items)
 
@@ -1731,76 +1742,99 @@ def sources_page(
     elif uploaded:
         banner = f"<div class='alert alert-info'>Uploaded {escape(uploaded)}.</div>"
 
+    have_any = any(service.source_sets(lp.name, root) for lp in service.loops())
+
+    sample = (
+        f"<form method='post' action='/sources/sample'>{csrf}"
+        f"<button class='btn btn-primary' type='submit'>{icon('download', 15)}"
+        f"Load the example data</button></form>"
+    )
+
     cards = []
     for lp in service.loops():
         sets = service.source_sets(lp.name, root)
         rows = "".join(
             f"<tr><td><b>{escape(s.name)}</b></td>"
-            f"<td>{"<span class='badge badge-ok'>ready to close</span>" if s.complete else f"<span class='badge badge-declared'>missing {escape(chr(44).join(s.missing))}</span>"}</td>"
+            f"<td>{"<span class='badge badge-ok'>ready to close</span>" if s.complete else f"<span class='badge badge-declared'>waiting for {escape(chr(44).join(s.missing))}</span>"}</td>"
             f"<td class='cap'>{escape(', '.join(s.present)) or '&mdash;'}</td>"
             f"<td class='right'>{"<a class='btn btn-secondary' href='/periods'>Close it</a>" if s.complete else ''}</td></tr>"
             for s in sets
         )
-        adapters = "".join(
-            f"<tr><td><b>{escape(src.filename)}</b><span class='sub'>side "
-            f"{escape(src.side)} &middot; {escape(src.role)}</span></td>"
-            f"<td class='num'>{escape(src.spec_id)}</td></tr>"
-            for src in lp.sources
-        )
         inputs = "".join(
-            f"<div class='field'><label for='{escape(src.filename)}'>{escape(src.filename)}"
-            f" <span class='cap'>&mdash; {escape(src.side)}</span></label>"
-            f"<input class='input' type='file' id='{escape(src.filename)}' "
-            f"name='{escape(src.filename)}'></div>"
+            f"<div class='field'><label for='{escape(lp.name)}-{escape(src.filename)}'>"
+            f"{escape(src.title)}</label>"
+            f"<p class='cap' style='margin:0 0 .4rem'>{escape(src.blurb)}</p>"
+            f"<input class='input' type='file' id='{escape(lp.name)}-{escape(src.filename)}' "
+            f"name='{escape(src.filename)}'>"
+            f"<p class='cap' style='margin:.3rem 0 0'>saved as "
+            f"<code>{escape(src.filename)}</code>, read by "
+            f"<code>{escape(src.spec_id)}</code></p></div>"
             for src in lp.sources
         )
         cards.append(
             f"<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
-            f"<h3 style='margin:0 0 .2rem'>{escape(lp.name)}</h3>"
-            f"<p class='cap' style='margin:0 0 1.2rem'>{escape(lp.description)}</p>"
-            f"<p class='sec' style='margin-bottom:.5rem'>Your periods</p>"
+            f"<h3 style='margin:0 0 .2rem'>{escape(lp.title)}</h3>"
+            f"<p class='cap' style='margin:0 0 1.2rem'>{escape(lp.question)}</p>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Periods on this account</p>"
             + (
                 f"<div class='tbl' style='margin-bottom:1.4rem'><table><tr><th>Period</th>"
                 f"<th>State</th><th>Files</th><th></th></tr>{rows}</table></div>"
                 if sets
-                else _empty(
-                    "inbox",
-                    "No source files yet",
-                    "Load the shipped example periods to see a close end to end, or "
-                    "upload a bank statement and a gateway settlement of your own.",
-                    f"<form method='post' action='/sources/sample' style='display:inline'>{csrf}"
-                    f"<button class='btn btn-primary' type='submit'>{icon('download', 15)}"
-                    f"Load sample data</button></form>",
-                )
-                + "<div style='height:1.4rem'></div>"
+                else "<div class='note' style='margin-bottom:1.4rem'>Nothing here yet. "
+                "Load the example data above, or add a period below.</div>"
             )
-            + f"<div class='grid' style='display:grid;gap:1.4rem;grid-template-columns:minmax(0,1fr)'>"
-            f"<div><p class='sec' style='margin-bottom:.5rem'>Upload a period</p>"
+            + f"<details><summary class='sec' style='cursor:pointer'>"
+            f"Add a period of your own</summary><div style='padding-top:1rem'>"
             f"<form method='post' action='/sources/upload' enctype='multipart/form-data'>{csrf}"
-            f"<div class='field'><label for='period'>Period name</label>"
-            f"<input class='input' id='period' name='period' placeholder='October 2026' required>"
-            f"</div>{inputs}"
-            f"<button class='btn btn-primary' type='submit'>{icon('arrow', 15)}Upload</button>"
-            f"</form>"
-            f"<p class='cap' style='margin-top:.8rem'>Files are stored under your account "
-            f"only. A period is closeable once every file the loop expects has arrived &mdash; "
-            f"a close over a half-arrived month would report a clean period over rows that "
-            f"never came.</p></div>"
-            f"<div><p class='sec' style='margin-bottom:.5rem'>Adapters</p>"
-            f"<div class='tbl'><table><tr><th>File</th><th>Spec</th></tr>{adapters}</table></div>"
-            f"<p class='cap' style='margin-top:.8rem'>Specs are data, not code. An unknown "
-            f"parse verb is a spec error before anything runs, never an execution "
-            f"(ADR-001).</p>"
-            f"<form method='post' action='/sources/sample' style='margin-top:1rem'>{csrf}"
-            f"<button class='btn btn-secondary' type='submit'>{icon('download', 15)}"
-            f"Load sample data</button></form></div></div></div>"
+            f"<div class='field'><label for='{escape(lp.name)}-period'>What to call it"
+            f"</label><input class='input' id='{escape(lp.name)}-period' name='period' "
+            f"placeholder='October 2026' required></div>{inputs}"
+            f"<button class='btn btn-primary' type='submit'>{icon('arrow', 15)}"
+            f"Add this period</button></form>"
+            f"<p class='cap' style='margin-top:.8rem'>Both files are needed before this "
+            f"period can be closed. Closing a half-arrived month would report a clean "
+            f"period over rows that never came, so the button stays off until they are "
+            f"both here. Specs are data, not code &mdash; an unknown parse verb is a spec "
+            f"error before anything runs, never an execution (ADR-001).</p>"
+            f"</div></details></div>"
         )
+
+    # What this is *for*, once, at the top. The page listed two loops and four
+    # upload boxes and never said what any of it was — a person arriving here
+    # could not tell which file went where, or why there were two of anything.
+    explainer = (
+        "<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
+        "<p class='sec'>What this is</p>"
+        "<p class='lede' style='margin:0 0 .9rem'>A reconciliation compares two "
+        "independent records of the same money and proves every match from the raw "
+        "rows. Whatever cannot be matched becomes a ranked worklist with a named "
+        "reason &mdash; that tail is the work, and it is the point.</p>"
+        "<p class='cap' style='margin:0 0 1rem'>There are two of them here because "
+        "they answer different questions and are chased with different people. Each "
+        "needs its own pair of files, for its own period.</p>"
+        + "".join(
+            f"<div class='kv'><div class='row'><span class='k'>{escape(lp.title)}</span>"
+            f"<span class='v'>{escape(lp.question)}</span></div></div>"
+            for lp in service.loops()
+        )
+        + (
+            f"<div style='margin-top:1.2rem'>{sample}"
+            f"<p class='cap' style='margin:.6rem 0 0'>One button, both reconciliations "
+            f"&mdash; real files with known answers, so you can run a close end to end "
+            f"before bringing your own.</p></div>"
+            if not have_any
+            else f"<div style='margin-top:1.2rem'>{sample}"
+            f"<p class='cap' style='margin:.6rem 0 0'>Reloads any example period that is "
+            f"not already here. It never touches a file you uploaded.</p></div>"
+        )
+        + "</div>"
+    )
 
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Data sources</h1>"
-        f"<p class='sub'>Two records of the same money, per period. Bring your own, or "
-        f"load the shipped examples to see a close end to end.</p></div></div>"
-        f"{banner}{''.join(cards)}"
+        f"<p class='sub'>The records a close reads. Two per reconciliation, "
+        f"per period.</p></div></div>"
+        f"{banner}{explainer}{''.join(cards)}"
     )
     return shell(user, active="sources", crumb="<b>Data sources</b>", body=body)
 
@@ -2274,7 +2308,7 @@ def _disposition_panel(run_id, exception_id, exc, state, csrf, runs_dir) -> str:
         who = state.disposed_by.get(exception_id, "somebody")
         return (
             f"<div class='panel' style='padding:1.3rem 1.4rem'>"
-            f"<p class='sec' style='margin-bottom:.5rem'>How this ended</p>"
+            f"<p class='sec' style='margin-bottom:.5rem'>Resolved</p>"
             f"<div class='note note-ok'><b>{escape(done.replace('_', ' ').title())}</b> by "
             f"{escape(who)}. A journal entry was written and this item no longer blocks "
             f"sign-off &mdash; it is in <code>journal.csv</code> at "
@@ -2358,11 +2392,13 @@ def _disposition_panel(run_id, exception_id, exc, state, csrf, runs_dir) -> str:
 
     return (
         f"<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec' style='margin-bottom:.5rem'>How this ends</p>"
-        f"<p class='cap' style='margin:0 0 .3rem'>Four endings, and each one writes a journal "
-        f"entry and closes the item. All four are <code>P2 ATTESTED</code>: raw records cannot "
-        f"prove a row is spurious &mdash; they contain it &mdash; so a rule may propose an "
-        f"ending and only a person may make one.</p>{rows}</div>"
+        f"<p class='sec' style='margin-bottom:.5rem'>Resolve it &mdash; pick one</p>"
+        f"<p class='cap' style='margin:0 0 .3rem'>An unresolved break stays on the worklist "
+        f"and blocks sign-off. Each of these four writes a journal entry, moves the money to "
+        f"where it actually belongs, and takes the item off your desk. All four are "
+        f"<code>P2 ATTESTED</code> and carry your name: raw records cannot prove a row is "
+        f"spurious &mdash; they contain it &mdash; so a rule may propose an ending and only a "
+        f"person may make one.</p>{rows}</div>"
     )
 
 

@@ -163,6 +163,8 @@ SOURCES: tuple[SourceBinding, ...] = (
         side="government",
         role="anchor",
         external_key="",
+        title="Form 26AS",
+        blurb="Download it from the TRACES portal as text — Part A, the whole year.",
     ),
     SourceBinding(
         spec_id="tds-ledger",
@@ -170,6 +172,8 @@ SOURCES: tuple[SourceBinding, ...] = (
         side="books",
         role="group",
         external_key="",
+        title="Your TDS receivable ledger",
+        blurb="Export it from Tally or Zoho: the tax you expect to be credited with.",
     ),
 )
 
@@ -271,6 +275,11 @@ LOOP = register(
         policy=policy,
         taxonomy=taxonomy,
         chart=chart,
+        title="Tax deducted at source",
+        question=(
+            "Has every rupee of tax withheld from you actually reached the "
+            "government against your PAN?"
+        ),
         description=(
             "Form 26AS from TRACES against the TDS receivable ledger: what the "
             "Income Tax Department says was deposited, against what the books "
