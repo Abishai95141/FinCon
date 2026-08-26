@@ -7,24 +7,27 @@ requires-python = ">=3.12"
 # Pinned deliberately. Beancount v3 split out beangulp/beanquery and removed
 # bean-extract/bean-identify from core — v2 tutorials do not apply.
 # See docs/03-BUILD-PLAN.md problem P15.
+# Every one of these is imported somewhere under src/. Ten more were declared
+# here until 2026-08-26 and imported nowhere — splink, duckdb, polars, lxml,
+# ofxparse, python-calamine, sqlalchemy, psycopg, anthropic and beanquery — which
+# read as capability this project does not have. A dependency list is a claim
+# about what a thing is built on, and `tests/property/test_dependencies.py` now
+# fails if one of these stops being used or a new unused one appears.
 dependencies = [
-  "beancount>=3.0",
-  "beanquery>=0.1",
-  "polars>=1.0",
-  "pydantic>=2.7",
-  "fastapi>=0.115",
-  "uvicorn>=0.30",
-  "sqlalchemy>=2.0",
-  "psycopg[binary]>=3.2",
-  "ortools>=9.10",
-  "splink>=4.0",
-  "duckdb>=1.0",
-  "lxml>=5.2",
-  "ofxparse>=0.21",
-  "python-calamine>=0.2",
-  "anthropic>=0.40",
-  "fastmcp>=2.0",
-  "boto3>=1.43.79",
+  "beancount>=3.0",   # the double-entry engine. post_and_assert round-trips
+                      # through the real loader and its errors are the verdict
+  "pydantic>=2.7",    # the semver'd contract surface — ADR-002
+  "fastapi>=0.115",   # HTTP surface, and the generated OpenAPI schemas
+  "uvicorn>=0.30",    # serves it
+  "ortools>=9.10",    # CP-SAT, behind the T2 subset-sum enumerator
+  "fastmcp>=2.0",     # MCP server, and the Cognito OAuth provider
+  "boto3>=1.43.79",   # Cognito, S3, Secrets Manager
+  "botocore>=1.35",   # ClientError, caught by name in api/auth.py. Declared
+                      # rather than inherited from boto3: we import it directly,
+                      # and a transitive dependency is not a promise
+  "cryptography>=43", # Ed25519 — the authority bundles' signatures. This one is
+                      # load-bearing for the trust argument, so it is not going
+                      # to arrive by accident through somebody else's tree
 ]
 
 # The product's two surfaces, as commands. `src/recon/api/` and
