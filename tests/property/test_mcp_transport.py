@@ -41,9 +41,9 @@ from tests.conftest import signed_in_client
 PORT = 8141
 CONFIGURED = {
     "FINCON_PUBLIC_URL": "https://app.fincon.example",
-    "COGNITO_USER_POOL_ID": "ap-south-1_TESTPOOL",
-    "COGNITO_CLIENT_ID": "test-client-id",
-    "COGNITO_CLIENT_SECRET": "test-client-secret",
+    "RECON_COGNITO_POOL_ID": "ap-south-1_TESTPOOL",
+    "RECON_COGNITO_CLIENT_ID": "test-client-id",
+    "RECON_COGNITO_CLIENT_SECRET": "test-client-secret",
     "AWS_REGION": "ap-south-1",
 }
 
@@ -68,9 +68,9 @@ def real_pool(monkeypatch: pytest.MonkeyPatch):
     """Point at the deployed pool, so FastMCP's OIDC discovery succeeds and the
     routes it generates are the ones the deployment actually serves."""
     monkeypatch.setenv("FINCON_PUBLIC_URL", PUBLIC)
-    monkeypatch.setenv("COGNITO_USER_POOL_ID", REAL_POOL)
-    monkeypatch.setenv("COGNITO_CLIENT_ID", REAL_CLIENT)
-    monkeypatch.setenv("COGNITO_CLIENT_SECRET", "unused-for-discovery")
+    monkeypatch.setenv("RECON_COGNITO_POOL_ID", REAL_POOL)
+    monkeypatch.setenv("RECON_COGNITO_CLIENT_ID", REAL_CLIENT)
+    monkeypatch.setenv("RECON_COGNITO_CLIENT_SECRET", "unused-for-discovery")
     monkeypatch.setenv("AWS_REGION", "ap-south-1")
     return monkeypatch
 
@@ -266,8 +266,8 @@ def test_a_configured_server_puts_cognito_in_front(configured, monkeypatch):
     provider = mcphttp.auth_provider(settings)
 
     assert isinstance(provider, Recorder)
-    assert seen["user_pool_id"] == CONFIGURED["COGNITO_USER_POOL_ID"]
-    assert seen["client_id"] == CONFIGURED["COGNITO_CLIENT_ID"]
+    assert seen["user_pool_id"] == CONFIGURED["RECON_COGNITO_POOL_ID"]
+    assert seen["client_id"] == CONFIGURED["RECON_COGNITO_CLIENT_ID"]
     assert seen["aws_region"] == CONFIGURED["AWS_REGION"]
     assert seen["base_url"] == CONFIGURED["FINCON_PUBLIC_URL"]
     assert "openid" in seen["required_scopes"]
@@ -284,7 +284,7 @@ def test_the_real_cognito_pool_answers_discovery():
     is what catches a pool id that was renamed or a region that is wrong, which
     the recorder above cannot see.
     """
-    pool = os.environ.get("COGNITO_USER_POOL_ID")
+    pool = os.environ.get("RECON_COGNITO_POOL_ID")
     region = os.environ.get("AWS_REGION")
     if not (pool and region):
         pytest.skip("no Cognito pool configured in this environment")
@@ -300,10 +300,10 @@ def test_missing_settings_are_named_not_counted(monkeypatch):
     """ "3 settings missing" is not something anybody can act on."""
     for name, value in CONFIGURED.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.delenv("COGNITO_CLIENT_SECRET")
+    monkeypatch.delenv("RECON_COGNITO_CLIENT_SECRET")
 
     settings = mcphttp.Settings.from_env()
-    assert settings.missing == ["COGNITO_CLIENT_SECRET"]
+    assert settings.missing == ["RECON_COGNITO_CLIENT_SECRET"]
     assert not settings.authenticated
     assert settings.endpoint, "a public url was set and the endpoint went missing with it"
 
@@ -332,7 +332,7 @@ def test_the_page_offers_the_url_once_it_exists(tmp_path, configured):
     endpoint = f"{CONFIGURED['FINCON_PUBLIC_URL']}{mcphttp.MOUNT}"
     assert endpoint in hosted
     assert f"claude mcp add --transport http fincon {endpoint}" in hosted
-    assert CONFIGURED["COGNITO_USER_POOL_ID"] in hosted, "the issuer is not shown"
+    assert CONFIGURED["RECON_COGNITO_POOL_ID"] in hosted, "the issuer is not shown"
 
     assert "RECON_TENANT" not in hosted, (
         "the hosted panel still asks for an account id; over OAuth the account is "
@@ -580,7 +580,7 @@ def test_unset_and_broken_are_not_the_same_failure(configured, monkeypatch):
     with pytest.raises(mcphttp.AuthorityUnavailable) as caught:
         mcphttp.build(mcphttp.Settings.from_env())
     message = str(caught.value)
-    assert CONFIGURED["COGNITO_USER_POOL_ID"] in message
+    assert CONFIGURED["RECON_COGNITO_POOL_ID"] in message
     assert CONFIGURED["AWS_REGION"] in message
     assert not isinstance(caught.value, mcphttp.TransportError), (
         "a broken pool is catchable as a missing one, so the app will serve "

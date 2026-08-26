@@ -214,3 +214,115 @@ def test_the_deployment_rolls_back_rather_than_serving_a_broken_task(resources):
     assert breaker["Enable"] is True
     assert breaker["Rollback"] is True
     assert config["MinimumHealthyPercent"] == 100
+
+
+def test_the_deployment_names_its_credential_store(resources):
+    """`build_identity` refuses a local store outside dev, and the container did
+    not say which store to use — so the first signup on the deployed site created
+    the Cognito user and then 500'd on the next line.
+
+    The refusal was right. What was missing was the deployment stating what it
+    wanted, and an environment that leaves it unset is one that only works
+    because something else defaults."""
+    env = {
+        e["Name"]: e["Value"]
+        for e in resources["TaskDefinition"]["Properties"]["ContainerDefinitions"][0]["Environment"]
+    }
+    assert env.get("RECON_ENV") == "prod"
+    assert env.get("RECON_AUTH") == "cognito", (
+        "the task does not name a credential store, so it falls back to the "
+        "development one and is refused"
+    )
+    assert env.get("RECON_COGNITO_POOL_ID"), "cognito is named and no pool is given"
+
+
+def test_the_deployment_sets_no_variable_the_code_does_not_read(resources):
+    """The general form of a defect I chased three times in one afternoon.
+
+    `COGNITO_USER_POOL_ID` against `RECON_COGNITO_POOL_ID`, then
+    `FINCON_SESSION_SECRET` against `RECON_SESSION_SECRET`. Each time the
+    container set a name nothing read, the code fell back to a default or
+    refused, and the failure appeared only after a deploy — one signup at a time.
+
+    A variable the code never reads is not harmless: it is a setting somebody
+    believes is in force. Checked by scanning what `src/` actually looks up.
+    """
+    import re as _re
+
+    read = set()
+    for path in (ROOT / "src").rglob("*.py"):
+        text = path.read_text()
+        # Literal lookups...
+        read |= set(_re.findall(r"environ(?:\.get)?\[?\(?[\"'](\w+)[\"']", text))
+        # ...and the module constants some of them are named by, which is why a
+        # regex alone reported FINCON_PUBLIC_URL as unread while the transport
+        # was reading it through `PUBLIC_URL_VAR`.
+        read |= set(_re.findall(r"^[A-Z_]*VAR\s*=\s*[\"'](\w+)[\"']", text, _re.M))
+
+    container = resources["TaskDefinition"]["Properties"]["ContainerDefinitions"][0]
+    names = {e["Name"] for e in container["Environment"]}
+    names |= {s["Fn::If"][1]["Name"] for s in container["Secrets"] if "Fn::If" in s}
+
+    unread = sorted(n for n in names if n not in read)
+    assert not unread, (
+        f"the task sets variables nothing in src/ reads: {unread}. Each one is a "
+        f"setting somebody believes is in force."
+    )
+
+
+def test_one_pool_is_named_once(resources):
+    """The web login read `RECON_COGNITO_POOL_ID` and the MCP transport read
+    `COGNITO_USER_POOL_ID` — one pool, two names, and a deployment that sets one
+    has a working endpoint and a broken login with nothing saying so."""
+    from recon.mcp import http as mcphttp
+
+    container = resources["TaskDefinition"]["Properties"]["ContainerDefinitions"][0]
+    env = {e["Name"] for e in container["Environment"]}
+    secrets = {s["Fn::If"][1]["Name"] for s in container["Secrets"] if "Fn::If" in s}
+
+    assert mcphttp.POOL_VAR in env
+    assert mcphttp.CLIENT_VAR in env
+    assert mcphttp.SECRET_VAR in secrets
+
+    stray = {name for name in env | secrets if name.startswith("COGNITO_")}
+    assert not stray, f"a second name for the same fact: {stray}"
+
+
+def test_the_task_role_grants_exactly_the_cognito_calls_the_app_makes(resources):
+    """Read off `api/auth.py` rather than kept in step by hand.
+
+    `AdminGetUser` was missing and every signup on the deployed site 500'd after
+    the Cognito user had already been created — an account that exists and an app
+    that cannot read it back. Nothing offline could see it, because nothing
+    offline calls Cognito.
+
+    The other direction matters as much: a role holding actions the app never
+    makes is standing permission for whatever gets written next.
+    """
+    import re as _re
+
+    source = (ROOT / "src" / "recon" / "api" / "auth.py").read_text()
+    called = {
+        "".join(part.title() for part in name.split("_"))
+        for name in _re.findall(
+            r"\.(admin_get_user|sign_up|initiate_auth|confirm_sign_up|"
+            r"resend_confirmation_code|get_user|list_users)\(",
+            source,
+        )
+    }
+    assert called, "no Cognito calls found; this test has lost its subject"
+
+    statements = [
+        s
+        for p in resources["TaskRole"]["Properties"]["Policies"]
+        for s in p["PolicyDocument"]["Statement"]
+    ]
+    granted = {
+        action.split(":", 1)[1]
+        for s in statements
+        for action in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
+        if action.startswith("cognito-idp:")
+    }
+
+    assert not (called - granted), f"the app calls what the role cannot: {called - granted}"
+    assert not (granted - called), f"the role grants what the app never calls: {granted - called}"

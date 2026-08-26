@@ -35,6 +35,15 @@ PUBLIC_URL_VAR = "FINCON_PUBLIC_URL"
 #: `{public_url}{MOUNT}`, and nothing derives it from a request.
 MOUNT = "/mcp"
 
+#: The same three facts the web login reads. One name each, deliberately: this
+#: module briefly used `COGNITO_USER_POOL_ID` while `api.auth` read
+#: `RECON_COGNITO_POOL_ID`, which is one pool named twice — a deployment that
+#: sets one and not the other has a working MCP endpoint and a broken login, or
+#: the reverse, and nothing says so.
+POOL_VAR = "RECON_COGNITO_POOL_ID"
+CLIENT_VAR = "RECON_COGNITO_CLIENT_ID"
+SECRET_VAR = "RECON_COGNITO_CLIENT_SECRET"
+
 #: Addresses where "anyone who can reach the port" already means "anyone who can
 #: read the files anyway", so an unauthenticated endpoint adds no exposure.
 #:
@@ -93,9 +102,9 @@ class Settings:
     def from_env(cls) -> Settings:
         return cls(
             public_url=os.environ.get(PUBLIC_URL_VAR, "").rstrip("/"),
-            user_pool_id=os.environ.get("COGNITO_USER_POOL_ID", ""),
-            client_id=os.environ.get("COGNITO_CLIENT_ID", ""),
-            client_secret=os.environ.get("COGNITO_CLIENT_SECRET", ""),
+            user_pool_id=os.environ.get(POOL_VAR, ""),
+            client_id=os.environ.get(CLIENT_VAR, ""),
+            client_secret=os.environ.get(SECRET_VAR, ""),
             region=os.environ.get("AWS_REGION", ""),
             host=os.environ.get("FINCON_MCP_HOST", "127.0.0.1"),
             port=int(os.environ.get("FINCON_MCP_PORT", "8138")),
@@ -110,9 +119,9 @@ class Settings:
         """
         wanted = {
             PUBLIC_URL_VAR: self.public_url,
-            "COGNITO_USER_POOL_ID": self.user_pool_id,
-            "COGNITO_CLIENT_ID": self.client_id,
-            "COGNITO_CLIENT_SECRET": self.client_secret,
+            POOL_VAR: self.user_pool_id,
+            CLIENT_VAR: self.client_id,
+            SECRET_VAR: self.client_secret,
             "AWS_REGION": self.region,
         }
         return sorted(name for name, value in wanted.items() if not value)

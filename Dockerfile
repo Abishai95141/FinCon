@@ -38,6 +38,15 @@ COPY data/adapters/ ./data/adapters/
 COPY data/trust/authorized-key.hex ./data/trust/authorized-key.hex
 RUN uv sync --frozen --no-dev
 
+# The sample corpus, generated into the image from its fixed seed rather than
+# copied — `data/batches/` is gitignored output, and an image that shipped
+# somebody's local copy would be shipping whatever happened to be on that laptop.
+# 260 KB, deterministic, and it is what the "Load sample" button hands a new
+# account. `MANIFEST.json` carries the digests, so the batch in the image is
+# checkable against the batch anybody else generates from the same seed.
+COPY bench/ ./bench/
+RUN python -m bench.generator && rm -rf bench/__pycache__
+
 # `dev-signing-key.hex` is NOT copied. The image ships the authorized *public* key
 # and nothing else — a bundle that carried its own verification key would vouch
 # for itself, and an image that carried the private one would let anyone holding

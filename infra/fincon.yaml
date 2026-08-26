@@ -256,12 +256,17 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
+                # Exactly the five calls `api/auth.py` makes, and nothing that
+                # would let a compromised task manage the pool. AdminGetUser was
+                # missing and every signup on the deployed site 500'd after
+                # creating the user — the account existed and the app could not
+                # read it back.
                 Action:
                   - cognito-idp:SignUp
                   - cognito-idp:InitiateAuth
                   - cognito-idp:ConfirmSignUp
                   - cognito-idp:ResendConfirmationCode
-                  - cognito-idp:GetUser
+                  - cognito-idp:AdminGetUser
                 Resource: !Sub
                   - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${Pool}"
                   - Pool: !Ref CognitoUserPoolId
@@ -296,19 +301,25 @@ Resources:
             - {SourceVolume: records, ContainerPath: /app/data/runs, ReadOnly: false}
           Environment:
             - {Name: RECON_ENV, Value: prod}
+            # Named rather than inferred from the pool being set. `build_identity`
+            # refuses a local credential store outside dev — which is why the
+            # first deployed signup 500'd after creating the Cognito user — and
+            # deriving the answer from another variable would make that refusal
+            # depend on two things agreeing instead of on one being stated.
+            - {Name: RECON_AUTH, Value: cognito}
             - {Name: AWS_REGION, Value: !Ref AWS::Region}
-            - {Name: COGNITO_USER_POOL_ID, Value: !Ref CognitoUserPoolId}
-            - {Name: COGNITO_CLIENT_ID, Value: !Ref CognitoClientId}
+            - {Name: RECON_COGNITO_POOL_ID, Value: !Ref CognitoUserPoolId}
+            - {Name: RECON_COGNITO_CLIENT_ID, Value: !Ref CognitoClientId}
             - {Name: FINCON_PUBLIC_URL, Value: !Ref PublicUrl}
             - {Name: FINCON_MCP_HOST, Value: 0.0.0.0}
           Secrets:
             - !If
               - HasCognitoSecret
-              - {Name: COGNITO_CLIENT_SECRET, ValueFrom: !Ref CognitoClientSecretArn}
+              - {Name: RECON_COGNITO_CLIENT_SECRET, ValueFrom: !Ref CognitoClientSecretArn}
               - !Ref AWS::NoValue
             - !If
               - HasSessionSecret
-              - {Name: FINCON_SESSION_SECRET, ValueFrom: !Ref SessionSecretArn}
+              - {Name: RECON_SESSION_SECRET, ValueFrom: !Ref SessionSecretArn}
               - !Ref AWS::NoValue
             - !If
               - HasModelKey
