@@ -1,0 +1,14 @@
+# Everything that must not reach an image somebody deploys.
+data/dev/           # the DeepSeek key and the local user file
+data/runs/          # somebody's actual closes
+data/batches/       # generated, and an EFS mount at runtime
+data/trust/*signing*  # the private key. The public one is copied explicitly.
+repos/              # cloned baselines, hundreds of MB
+graphify-out/
+.venv/
+.git/
+.scratch/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

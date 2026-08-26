@@ -130,7 +130,12 @@ def mount_mcp(application: FastAPI = app) -> bool:
     try:
         server = mcphttp.build(settings)
     except mcphttp.TransportError:
+        # Nothing configured. Serve the site; the banner says the endpoint is
+        # not being served and names what is missing.
         return False
+    # `AuthorityUnavailable` is not caught. Somebody set five variables and one
+    # of them is wrong, and coming up healthy without the endpoint they asked
+    # for is how a page ends up reading "live" over nothing.
 
     mcp_app = server.http_app(path="/")
 

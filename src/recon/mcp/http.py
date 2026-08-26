@@ -35,11 +35,41 @@ PUBLIC_URL_VAR = "FINCON_PUBLIC_URL"
 #: `{public_url}{MOUNT}`, and nothing derives it from a request.
 MOUNT = "/mcp"
 
-LOOPBACK = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+#: Addresses where "anyone who can reach the port" already means "anyone who can
+#: read the files anyway", so an unauthenticated endpoint adds no exposure.
+#:
+#: `0.0.0.0` was in this set for one commit and it is the opposite of loopback —
+#: it is *every* interface. The container inherited `FINCON_MCP_HOST=0.0.0.0`,
+#: the refusal did not fire, and a test run of the image served an
+#: unauthenticated MCP endpoint on all of them. Caught by running the container
+#: and reading its own banner, which said so in plain words.
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
 class TransportError(RuntimeError):
-    """A configuration this module will not serve, with the reason intact."""
+    """Nothing is configured, and the bind address makes that unsafe.
+
+    Recoverable at the caller: `mount_mcp` catches this and serves the web app
+    without an MCP endpoint, because refusing to run a site over an endpoint
+    nobody has set up yet would be the tail wagging the dog.
+    """
+
+
+class AuthorityUnavailable(RuntimeError):
+    """Cognito *was* configured and could not be reached or does not exist.
+
+    Deliberately **not** a `TransportError`, and deliberately not caught. If
+    somebody set five variables they intend an authenticated endpoint, and the
+    two ways to get this wrong are not the same:
+
+    * unset — decline the endpoint, serve the site, say so in the banner
+    * set and broken — stop, and let the deployment roll back
+
+    Degrading the second into the first is how a container comes up healthy
+    while the "Agent access" page reads *live* — because `describe()` sees five
+    variables and cannot see a 404 from the pool they name — and an operator
+    hands a colleague a URL that answers nothing.
+    """
 
 
 @dataclass(frozen=True)
@@ -142,7 +172,15 @@ def build(settings: Settings | None = None):
     from .server import mcp
 
     if settings.authenticated:
-        mcp.auth = auth_provider(settings)
+        try:
+            mcp.auth = auth_provider(settings)
+        except Exception as exc:
+            raise AuthorityUnavailable(
+                f"Cognito is configured and unusable: pool {settings.user_pool_id!r} in "
+                f"{settings.region!r} did not answer OIDC discovery ({type(exc).__name__}). "
+                f"Check the pool id, the region, and that the app client exists. Refusing "
+                f"to start rather than serving a page that says the endpoint is live."
+            ) from exc
         return mcp
 
     if not settings.loopback_only:
@@ -193,7 +231,7 @@ def main() -> None:
 
     try:
         serve()
-    except TransportError as exc:
+    except (TransportError, AuthorityUnavailable) as exc:
         print(f"recon-mcp-http: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
@@ -205,6 +243,7 @@ if __name__ == "__main__":
 __all__ = [
     "MOUNT",
     "PUBLIC_URL_VAR",
+    "AuthorityUnavailable",
     "Settings",
     "TransportError",
     "auth_provider",

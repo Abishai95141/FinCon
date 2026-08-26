@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -505,3 +506,85 @@ def test_the_mounted_endpoint_actually_answers_the_protocol(tmp_path):
     assert "task group is not initialized" not in body
     payload = json.loads(body.split("data:", 1)[1] if "data:" in body else body)
     assert payload["result"]["serverInfo"]["name"] == "recon"
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "10.0.1.5", "::", "fe80::1"])
+def test_a_wildcard_bind_is_not_loopback(host, unconfigured):
+    """`0.0.0.0` sat in the loopback set for one commit.
+
+    It is the opposite of loopback — it is *every* interface — and the container
+    inherits `FINCON_MCP_HOST=0.0.0.0`, so the first run of the built image
+    served an unauthenticated MCP endpoint on all of them. The refusal that
+    exists precisely to prevent that did not fire.
+
+    Found by running the container and reading its own startup banner, which
+    announced "NO AUTHORIZATION" while binding to the world. Nothing in the
+    suite would have caught it, because every test until now passed the host
+    `127.0.0.1`.
+    """
+    with pytest.raises(mcphttp.TransportError):
+        mcphttp.build(mcphttp.Settings(host=host))
+
+
+def test_the_container_cannot_serve_mcp_without_cognito():
+    """The Dockerfile's own environment, checked against the rule.
+
+    A deployment that has not been given a user pool must start the web app and
+    decline the endpoint — not start both and hope the security group is right.
+    """
+    dockerfile = pathlib.Path(__file__).resolve().parents[2] / "Dockerfile"
+    text = dockerfile.read_text()
+
+    host = re.search(r"FINCON_MCP_HOST=(\S+)", text)
+    assert host, "the image no longer sets a bind address, so this test is blind"
+    assert host.group(1) not in mcphttp.LOOPBACK
+
+    with pytest.raises(mcphttp.TransportError):
+        mcphttp.build(mcphttp.Settings(host=host.group(1)))
+
+
+def test_unset_and_broken_are_not_the_same_failure(configured, monkeypatch):
+    """Two ways to have no endpoint, and they must not collapse into one.
+
+    Unset means somebody has not deployed OAuth yet: decline it, serve the site,
+    name what is missing. Set-and-broken means somebody typed a pool id wrong
+    while intending an authenticated endpoint, and coming up healthy without it
+    is how the page ends up reading "live" over nothing — `describe()` sees five
+    variables and cannot see a 404 from the pool they name.
+    """
+
+    def explode(**_kwargs):
+        raise RuntimeError("404 from cognito")
+
+    monkeypatch.setattr("fastmcp.server.auth.providers.aws.AWSCognitoProvider", explode)
+
+    with pytest.raises(mcphttp.AuthorityUnavailable) as caught:
+        mcphttp.build(mcphttp.Settings.from_env())
+    message = str(caught.value)
+    assert CONFIGURED["COGNITO_USER_POOL_ID"] in message
+    assert CONFIGURED["AWS_REGION"] in message
+    assert not isinstance(caught.value, mcphttp.TransportError), (
+        "a broken pool is catchable as a missing one, so the app will serve "
+        "without the endpoint somebody explicitly asked for"
+    )
+
+
+def test_the_app_declines_an_unset_endpoint_and_refuses_a_broken_one(configured, monkeypatch):
+    """The same distinction where it has an effect: `mount_mcp` catches one and
+    not the other."""
+    from recon.api.app import app, mount_mcp
+
+    for name in CONFIGURED:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("FINCON_MCP_HOST", "0.0.0.0")
+    assert mount_mcp(app) is False, "an unset endpoint took the web app down with it"
+
+    for name, value in CONFIGURED.items():
+        monkeypatch.setenv(name, value)
+
+    def explode(**_kwargs):
+        raise RuntimeError("404 from cognito")
+
+    monkeypatch.setattr("fastmcp.server.auth.providers.aws.AWSCognitoProvider", explode)
+    with pytest.raises(mcphttp.AuthorityUnavailable):
+        mount_mcp(app)
