@@ -17,6 +17,7 @@ document below answers the question in front of you.
 | 09 | [Product direction](09-PRODUCT-DIRECTION.md) | **PROPOSED, not approved.** The user journey, screen map, design system, auth and AWS deployment for the product surface. Nothing in §§2–6 is built. |
 | 10 | [The user flow](10-THE-USER-FLOW.md) | What a controller actually does with this, with the real numbers from batch A — and the four things missing, the largest being that an attested exception leads to no disposition. |
 | 11 | [What happens next](11-WHAT-HAPPENS-NEXT.md) | How many documents this engine can reconcile (two sides, any number of files), what practitioners expect after the match — ageing, suspense, preparer≠reviewer, a tax-deduction code we lack — and the one flow to build. |
+| 12 | [Signing in](12-AUTH.md) | The confirmation screen that did not exist, and what splitting sign-in from create-account costs: one enumeration oracle, bounded rather than hidden. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Running it

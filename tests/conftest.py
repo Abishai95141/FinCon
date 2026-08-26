@@ -125,8 +125,18 @@ def signed_in_client(
     monkeypatch.setattr(service, "TENANT_SOURCES", tmp_path / "sources")
 
     client = TestClient(fastapi_app, follow_redirects=True)
-    page = client.get("/login")
+    # Create, then sign in — two routes since 2026-08-26, because one form that
+    # decided which from whether the address existed could not tell a person
+    # which one they were doing. The local credential store confirms on creation;
+    # against Cognito this is where the six-digit code goes.
+    page = client.get("/login?create=1")
     csrf = re.search(r"name='csrf' value='([^']*)'", page.text).group(1)
+    made = client.post(
+        "/signup",
+        data={"email": email, "password": "reconcile-october-2026", "csrf": csrf},
+    )
+    assert made.status_code == 200, made.text[:400]
+
     reply = client.post(
         "/login",
         data={"email": email, "password": "reconcile-october-2026", "csrf": csrf},
@@ -188,3 +198,20 @@ def close_and_wait(client, *, loop: str, source_set: str, tries: int = 200):
         time.sleep(0.05)
         reply = client.get(url)
     raise AssertionError(f"the close never finished: {reply.url}")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_throttle():
+    """Rate-limit buckets are process state, and pytest is one process.
+
+    Without this, `test_auth_screens.py` spends the signup and sign-in budget
+    and every later test that signs a client in gets a 429 — which fails in the
+    full run, passes in isolation, and points at whichever file happens to sort
+    after the one that filled the bucket. That is the worst shape a test failure
+    comes in.
+    """
+    from recon.api.throttle import THROTTLE
+
+    THROTTLE._buckets.clear()
+    yield
+    THROTTLE._buckets.clear()

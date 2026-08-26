@@ -40,7 +40,7 @@ from .. import loop as looplib
 from .. import progress, review, service
 from ..mcp import probe as mcpprobe
 from ..triage import classify as classify_mod
-from . import auth
+from . import auth, throttle
 from .auth import AuthError, User
 from .theme import document, icon, money, wordmark
 
@@ -234,45 +234,24 @@ PROOF_CARD = (
 )
 
 
-def _login_page(*, email: str = "", error: str = "", notice: str = "", csrf: str = "") -> str:
-    """The split. Asymmetric on purpose — an even split is what a template does.
+def _auth_shell(*, title: str, heading: str, lede: str, body: str) -> str:
+    """The split, shared by all three auth screens.
 
-    The form pane is opaque: blur behind a password field is decoration at the
-    exact moment a person needs certainty. The identity pane is the one place in
-    the product where a gradient is permitted, and it carries a real proof
-    rather than an illustration, because that costs nothing and is true.
+    Asymmetric on purpose — an even split is what a template does. The form pane
+    is opaque: blur behind a password field is decoration at the exact moment a
+    person needs certainty. The identity pane is the one place in the product
+    where a gradient is permitted, and it carries a real proof rather than an
+    illustration, because that costs nothing and is true.
     """
-    alert = f"<div class='alert'>{escape(error)}</div>" if error else ""
-    if notice:
-        alert += f"<div class='alert alert-info'>{escape(notice)}</div>"
     return document(
-        "Sign in · FinCon",
+        title,
         f"""
 <div class='auth'>
   <section class='split-form'>
     <div style='margin-bottom:2.2rem'>{wordmark(28, "18px")}</div>
-    <h3 style='font-size:24px'>Sign in</h3>
-    <p class='cap' style='margin:.2rem 0 1.5rem'>
-      New here? Enter your email and we will create the account.</p>
-    {alert}
-    <form method='post' action='/login'>
-      <input type='hidden' name='csrf' value='{escape(csrf)}'>
-      <div class='field'><label for='email'>Email</label>
-        <input class='input' id='email' name='email' type='email' required
-               autocomplete='email' autofocus value='{escape(email)}'
-               placeholder='you@company.com'></div>
-      <div class='field'><label for='password'>Password</label>
-        <div class='input-icon'>{icon("lock", 14)}
-        <input class='input' id='password' name='password' type='password' required
-               autocomplete='current-password' minlength='{auth.MIN_PASSWORD}'></div></div>
-      <button class='btn btn-primary btn-wide' type='submit'>
-        Continue {icon("arrow", 15)}</button>
-    </form>
-    <div class='rule-line'>auditing a close?</div>
-    <a class='btn btn-secondary btn-wide' href='/verify'>
-      {icon("verify", 15)} Verify a proof &mdash; no account needed</a>
-    <p class='cap' style='margin-top:1.6rem'>
-      At least {auth.MIN_PASSWORD} characters. We never store your password.</p>
+    <h3 style='font-size:24px'>{heading}</h3>
+    <p class='cap' style='margin:.2rem 0 1.5rem'>{lede}</p>
+    {body}
   </section>
   <section class='split-art'>
     <div class='orb' style='width:200px;height:200px;top:-40px;right:-30px;
@@ -291,12 +270,135 @@ def _login_page(*, email: str = "", error: str = "", notice: str = "", csrf: str
     )
 
 
-@router.get("/login", response_class=HTMLResponse)
-def login_form(request: Request) -> Response:
-    if visitor(request) is not None:
-        return RedirectResponse("/periods", status_code=303)
+def _alerts(error: str = "", notice: str = "") -> str:
+    out = f"<div class='alert'>{escape(error)}</div>" if error else ""
+    if notice:
+        out += f"<div class='alert alert-info'>{escape(notice)}</div>"
+    return out
+
+
+def _login_page(*, email: str = "", error: str = "", notice: str = "", create: bool = False) -> str:
+    """Sign in and create account, as two named things.
+
+    They were one form until 2026-08-26, and the merge was not laziness: an
+    address we did not know was an account we offered to create in place, so the
+    failure text was identical for an unknown address and a wrong password and
+    the form could not be used to find out who has an account.
+
+    Splitting them costs exactly that, on one path. Create-account has to say
+    "this address already has an account" or somebody who typos into the wrong
+    tab is told it worked and then cannot sign in — and that sentence is an
+    enumeration oracle. Accepted deliberately, and bounded by `throttle.SIGNUP`
+    rather than left fast. Sign-in keeps the property it always had.
+    """
+    tabs = (
+        "<div class='tabs' role='tablist'>"
+        f"<a class='tab{'' if create else ' tab-on'}' href='/login'>Sign in</a>"
+        f"<a class='tab{' tab-on' if create else ''}' href='/login?create=1'>Create account</a>"
+        "</div>"
+    )
+    action = "/signup" if create else "/login"
+    autocomplete = "new-password" if create else "current-password"
+    button = "Create account" if create else "Sign in"
+
+    body = (
+        f"{tabs}{_alerts(error, notice)}"
+        f"<form method='post' action='{action}'>"
+        f"<input type='hidden' name='csrf' value='CSRF_TOKEN_HERE'>"
+        f"<div class='field'><label for='email'>Email</label>"
+        f"<input class='input' id='email' name='email' type='email' required "
+        f"autocomplete='email' autofocus value='{escape(email)}' "
+        f"placeholder='you@company.com'></div>"
+        f"<div class='field'><label for='password'>Password</label>"
+        f"<div class='input-icon'>{icon('lock', 14)}"
+        f"<input class='input' id='password' name='password' type='password' required "
+        f"autocomplete='{autocomplete}' minlength='{auth.MIN_PASSWORD}'></div></div>"
+        f"<button class='btn btn-primary btn-wide' type='submit'>"
+        f"{escape(button)} {icon('arrow', 15)}</button>"
+        f"</form>"
+        f"<div class='rule-line'>auditing a close?</div>"
+        f"<a class='btn btn-secondary btn-wide' href='/verify'>"
+        f"{icon('verify', 15)} Verify a proof &mdash; no account needed</a>"
+        + (
+            f"<p class='cap' style='margin-top:1.6rem'>At least {auth.MIN_PASSWORD} "
+            f"characters. We send a six-digit code to confirm the address, and we "
+            f"never store your password.</p>"
+            if create
+            else "<p class='cap' style='margin-top:1.6rem'>We never store your "
+            "password. If you have not confirmed your email yet, signing in takes "
+            "you to the code.</p>"
+        )
+    )
+    return _auth_shell(
+        title=("Create account · FinCon" if create else "Sign in · FinCon"),
+        heading=("Create your account" if create else "Sign in"),
+        lede=(
+            "One account, its own records. Nobody else can see them." if create else "Welcome back."
+        ),
+        body=body,
+    )
+
+
+def _confirm_page(*, email: str, error: str = "", notice: str = "") -> str:
+    """The screen that did not exist.
+
+    `auth.confirm` and `auth.resend` were implemented, granted in IAM, and
+    referenced nowhere in this module — so an unconfirmed account was told
+    "Confirm your email to finish signing in" by a form with no way to do it.
+    A capability nothing exercises is the defect this codebase keeps finding;
+    this one was sitting in front of every new user.
+    """
+    body = (
+        f"{_alerts(error, notice)}"
+        f"<form method='post' action='/confirm'>"
+        f"<input type='hidden' name='csrf' value='CSRF_TOKEN_HERE'>"
+        f"<input type='hidden' name='email' value='{escape(email)}'>"
+        f"<div class='field'><label for='code'>Six-digit code</label>"
+        f"<input class='input' id='code' name='code' inputmode='numeric' required autofocus "
+        f"pattern='[0-9]*' maxlength='10' placeholder='123456' "
+        f"autocomplete='one-time-code' style='letter-spacing:.35em;font-size:18px'></div>"
+        f"<button class='btn btn-primary btn-wide' type='submit'>"
+        f"Confirm and sign in {icon('arrow', 15)}</button>"
+        f"</form>"
+        f"<form method='post' action='/confirm/resend' style='margin-top:.9rem'>"
+        f"<input type='hidden' name='csrf' value='CSRF_TOKEN_HERE'>"
+        f"<input type='hidden' name='email' value='{escape(email)}'>"
+        f"<button class='btn btn-ghost btn-wide' type='submit'>"
+        f"{icon('refresh', 15)} Send a new code</button></form>"
+        f"<div class='rule-line'>wrong address?</div>"
+        f"<a class='btn btn-secondary btn-wide' href='/login'>Back to sign in</a>"
+        f"<p class='cap' style='margin-top:1.6rem'>The code goes to "
+        f"<b>{escape(email)}</b> and is valid for 24 hours. Check spam &mdash; it "
+        f"comes from Amazon Cognito, not from us.</p>"
+    )
+    return _auth_shell(
+        title="Confirm your email · FinCon",
+        heading="Confirm your email",
+        lede="We sent a six-digit code. Enter it and you are in.",
+        body=body,
+    )
+
+
+#: Substituted by `_auth_response`. Not a brace placeholder: the auth pages are
+#: f-strings, so `{{csrf}}` renders as the literal `{csrf}` and the token never
+#: lands — which is a 403 on every first submit, and exactly what happened.
+CSRF_SLOT = "CSRF_TOKEN_HERE"
+
+
+def _auth_response(html: str, request: Request, *, status: int = 200) -> Response:
+    """Render an auth screen and make sure the CSRF cookie exists.
+
+    Every one of these pages carries a form, and a form whose token the browser
+    does not hold is a 403 on submit that reads to the user as the site being
+    broken.
+    """
+    # The single place a token is chosen. Both halves — the hidden field and the
+    # cookie — come from this one value, because the first version called
+    # `new_csrf()` twice for one page and a first-time visitor got a 403 on
+    # their very first submit. Nothing else caught it: every other test starts
+    # from a client that already holds a cookie.
     token = request.cookies.get(auth.CSRF_COOKIE) or auth.new_csrf()
-    page = HTMLResponse(_login_page(csrf=token))
+    page = HTMLResponse(html.replace(CSRF_SLOT, escape(token)), status_code=status)
     page.set_cookie(
         auth.CSRF_COOKIE,
         token,
@@ -309,6 +411,13 @@ def login_form(request: Request) -> Response:
     return page
 
 
+@router.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, create: str = "") -> Response:
+    if visitor(request) is not None:
+        return RedirectResponse("/periods", status_code=303)
+    return _auth_response(_login_page(create=bool(create)), request)
+
+
 @router.post("/login")
 def login_submit(
     request: Request,
@@ -316,29 +425,170 @@ def login_submit(
     password: str = Form(...),
     csrf: str = Form(""),
 ) -> Response:
-    """One field decides sign-in or sign-up.
+    """Sign in, and only sign in.
 
-    No tabs and no toggle: an address we do not know is an account we offer to
-    create, in place. The failure text is identical for an unknown address and a
-    wrong password — the two must be indistinguishable, or this form becomes an
-    account-enumeration oracle.
+    The failure text is identical for an unknown address and a wrong password —
+    the two must be indistinguishable, or this form becomes the enumeration
+    oracle that splitting the tabs already costs us once. It must not cost us
+    twice.
+
+    `NeedsConfirmation` is the exception, and safe: it only ever follows a
+    correct password, so it tells an attacker nothing they did not already hold.
     """
     _check_csrf(request, csrf)
+    caller = throttle.caller_of(request)
+    try:
+        throttle.THROTTLE.check("signin", caller, throttle.SIGNIN)
+    except throttle.Throttled as exc:
+        return _auth_response(
+            _login_page(email=email, error=str(exc)),
+            request,
+            status=429,
+        )
+
     identity = auth.build_identity()
     try:
-        user = (
-            identity.sign_in(email, password)
-            if identity.exists(email)
-            else identity.sign_up(email, password)
+        user = identity.sign_in(email, password)
+    except auth.NeedsConfirmation:
+        return RedirectResponse(f"/confirm?{urlencode({'email': email})}", status_code=303)
+    except AuthError as exc:
+        return _auth_response(
+            _login_page(email=email, error=str(exc)),
+            request,
+            status=400,
+        )
+
+    throttle.THROTTLE.forget("signin", caller)
+    return _with_session(RedirectResponse("/periods", status_code=303), user)
+
+
+@router.post("/signup")
+def signup_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    csrf: str = Form(""),
+) -> Response:
+    """Create an account, and say so when the address already has one.
+
+    That sentence is an account-enumeration oracle and it is here on purpose:
+    the alternative is telling somebody who typo'd into this tab that it worked,
+    and then watching them fail to sign in. The leak is bounded rather than
+    hidden — five attempts per source address per five minutes, which is more
+    than anybody creating one account needs and useless for walking a list.
+
+    See `docs/12-AUTH.md` for the trade and the way out of it.
+    """
+    _check_csrf(request, csrf)
+    caller = throttle.caller_of(request)
+    try:
+        throttle.THROTTLE.check("signup", caller, throttle.SIGNUP)
+    except throttle.Throttled as exc:
+        return _auth_response(
+            _login_page(email=email, error=str(exc), create=True),
+            request,
+            status=429,
+        )
+
+    identity = auth.build_identity()
+    try:
+        identity.sign_up(email, password)
+    except AuthError as exc:
+        return _auth_response(
+            _login_page(email=email, error=str(exc), create=True),
+            request,
+            status=400,
+        )
+
+    # Straight to the code. A new account is unconfirmed and a screen that said
+    # "check your email" and then returned to a password form is how somebody
+    # ends up locked out of an account they just made.
+    return RedirectResponse(f"/confirm?{urlencode({'email': email})}", status_code=303)
+
+
+@router.get("/confirm", response_class=HTMLResponse)
+def confirm_form(request: Request, email: str = "") -> Response:
+    if visitor(request) is not None:
+        return RedirectResponse("/periods", status_code=303)
+    if not email:
+        return RedirectResponse("/login", status_code=303)
+    return _auth_response(_confirm_page(email=email), request)
+
+
+@router.post("/confirm")
+def confirm_submit(
+    request: Request,
+    email: str = Form(...),
+    code: str = Form(...),
+    csrf: str = Form(""),
+) -> Response:
+    """Take the code, then sign them in without asking for the password again.
+
+    Cognito's `confirm_sign_up` returns nothing to sign a session with, so this
+    confirms and then sends them back to sign in. Deliberate: the password is
+    not held anywhere between the two screens, and a form that carried it
+    through a hidden field to save one step would put it in a browser's history
+    and a proxy's log.
+    """
+    _check_csrf(request, csrf)
+    caller = throttle.caller_of(request)
+    try:
+        throttle.THROTTLE.check("confirm", caller, throttle.CONFIRM)
+    except throttle.Throttled as exc:
+        return _auth_response(
+            _confirm_page(email=email, error=str(exc)),
+            request,
+            status=429,
+        )
+
+    try:
+        auth.build_identity().confirm(email, code)
+    except AuthError as exc:
+        return _auth_response(
+            _confirm_page(email=email, error=str(exc)),
+            request,
+            status=400,
+        )
+
+    throttle.THROTTLE.forget("confirm", caller)
+    return _auth_response(
+        _login_page(
+            email=email,
+            notice="Email confirmed. Sign in and you are through.",
+        ),
+        request,
+    )
+
+
+@router.post("/confirm/resend")
+def confirm_resend(request: Request, email: str = Form(...), csrf: str = Form("")) -> Response:
+    """A new code, at the same rate as guessing one.
+
+    Counted against the confirm bucket rather than a bucket of its own: an
+    unbounded resend is a way to make somebody else's inbox unusable, and the
+    pool's own send allowance is fifty a day.
+    """
+    _check_csrf(request, csrf)
+    caller = throttle.caller_of(request)
+    try:
+        throttle.THROTTLE.check("confirm", caller, throttle.CONFIRM)
+        auth.build_identity().resend(email)
+    except throttle.Throttled as exc:
+        return _auth_response(
+            _confirm_page(email=email, error=str(exc)),
+            request,
+            status=429,
         )
     except AuthError as exc:
-        return HTMLResponse(
-            _login_page(
-                email=email, error=str(exc), csrf=request.cookies.get(auth.CSRF_COOKIE, "")
-            ),
-            status_code=400,
+        return _auth_response(
+            _confirm_page(email=email, error=str(exc)),
+            request,
+            status=400,
         )
-    return _with_session(RedirectResponse("/periods", status_code=303), user)
+    return _auth_response(
+        _confirm_page(email=email, notice="A new code is on its way."),
+        request,
+    )
 
 
 @router.post("/logout")

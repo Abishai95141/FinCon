@@ -433,6 +433,22 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
   font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--n700);
 }
 
+/* ---- auth tabs ----
+   Two destinations, not a toggle: each is a link to its own URL, so the browser
+   remembers which one you were on and the back button behaves. A JS toggle would
+   also have been one screen pretending to be two. */
+.tabs{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.35rem;padding:.3rem;
+  background:var(--n200);border-radius:var(--r12);margin-bottom:1.5rem;
+}
+.tab{
+  text-align:center;padding:.6rem .5rem;border-radius:var(--r8);
+  font-size:13.5px;font-weight:500;color:var(--n600);text-decoration:none;
+  transition:background .15s,color .15s;
+}
+.tab:hover{color:var(--ink)}
+.tab-on{background:var(--surface);color:var(--ink);box-shadow:var(--e1);font-weight:600}
+
 /* ---- code blocks a person is meant to copy ----
    Monospace, a quiet ground, and horizontal scroll rather than wrapping: a
    wrapped JSON config is a config somebody pastes broken. */

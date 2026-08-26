@@ -182,14 +182,24 @@ def test_the_session_cookie_is_not_reachable_from_a_script(tmp_path, monkeypatch
     monkeypatch.setattr(looplib, "RUNS", tmp_path / "runs")
     monkeypatch.setenv("RECON_DEV_USERS", str(tmp_path / "users.json"))
     client = TestClient(app, follow_redirects=False)
-    csrf = re.search(r"name='csrf' value='([^']*)'", client.get("/login").text).group(1)
-    reply = client.post(
-        "/login",
-        data={"email": "c@acme.in", "password": "correct-horse-battery", "csrf": csrf},
-    )
-    header = reply.headers["set-cookie"]
-    assert "httponly" in header.lower(), "the session cookie is readable by a script"
-    assert "samesite=lax" in header.lower(), "the session cookie rides a cross-site post"
+    csrf = re.search(r"name='csrf' value='([^']*)'", client.get("/login?create=1").text).group(1)
+    payload = {"email": "c@acme.in", "password": "correct-horse-battery", "csrf": csrf}
+    client.post("/signup", data=payload)
+    reply = client.post("/login", data=payload)
+
+    # The *session* cookie by name. Reading `headers["set-cookie"]` takes
+    # whichever one came last, and once the auth pages started refreshing the
+    # CSRF cookie that stopped being the one this test is about — it passed or
+    # failed on the wrong header.
+    session = [
+        value
+        for key, value in reply.headers.raw
+        if key.lower() == b"set-cookie" and value.decode().startswith(auth.SESSION_COOKIE)
+    ]
+    assert session, f"no {auth.SESSION_COOKIE} cookie was set at all"
+    header = session[0].decode().lower()
+    assert "httponly" in header, "the session cookie is readable by a script"
+    assert "samesite=lax" in header, "the session cookie rides a cross-site post"
 
 
 # --------------------------------------------------------------- isolation
