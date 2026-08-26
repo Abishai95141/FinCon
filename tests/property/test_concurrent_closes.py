@@ -282,3 +282,62 @@ def test_a_reader_and_a_writer_in_one_process_do_not_deadlock(tmp_path):
     assert order == ["write-in", "write-out", "read"], (
         f"a reader overlapped a writer in one process: {order}"
     )
+
+
+def test_a_lock_held_by_another_process_times_out_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The cross-process half, which two threads cannot reach.
+
+    `test_a_stuck_writer_is_reported_rather_than_waited_on_forever` uses a thread
+    pool, so it exercises the in-process gate and stops there. After the lock
+    moved from `flock` to `lockf` the file-level timeout became a separate branch
+    with its own deadline — and a mutation disabling it survived the whole suite,
+    because nothing in it had ever held the lock from a *different process*.
+
+    That is the branch that fires on a real deployment: two tasks, or a close
+    that died holding the sidecar.
+    """
+    import subprocess
+    import sys
+    import time as _time
+
+    import recon.journal as journal
+
+    log = tmp_path / "run" / "decisions.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("")
+    sidecar = log.parent / f".{log.name}.lock"
+
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import fcntl,sys,time\n"
+                f"h=open({str(sidecar)!r},'a')\n"
+                "fcntl.lockf(h, fcntl.LOCK_EX)\n"
+                "sys.stdout.write('held'); sys.stdout.flush()\n"
+                "time.sleep(30)\n"
+            ),
+        ],
+        stdout=subprocess.PIPE,
+    )
+    try:
+        assert holder.stdout.read(4) == b"held", "the holder never took the lock"
+        monkeypatch.setattr(journal, "LOCK_WAIT_SECONDS", 0.3)
+
+        started = _time.monotonic()
+        with pytest.raises(JournalBusy) as caught, exclusive(log):
+            pass
+        waited = _time.monotonic() - started
+
+        assert "locked by another process" in str(caught.value)
+        assert "stuck writer" in str(caught.value)
+        assert waited < 10, (
+            f"waited {waited:.1f}s for a 0.3s deadline — the file-level timeout "
+            f"is not the one that fired"
+        )
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
