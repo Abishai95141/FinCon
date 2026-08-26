@@ -147,17 +147,22 @@ def signed_in_client(
     return client, user.user_id, (tmp_path / "runs" / user.user_id)
 
 
-def close_and_wait(client, *, loop: str, source_set: str, tries: int = 120):
-    """Post the close form and follow the processing page to its end.
+def close_and_wait(client, *, loop: str, source_set: str, tries: int = 200):
+    """Post the close form, watch the processing page, then click through.
 
-    What a browser does: the close runs on a thread, the browser lands on a page
-    that refreshes itself, and the page redirects to the record when the pipeline
-    finishes. A test that reached past all that into `run_close` would be testing
-    a path no controller has — and would not have noticed the day the processing
-    page stopped redirecting.
+    What a browser does. The close runs on a thread, the browser lands on a page
+    that refreshes itself, and when the pipeline finishes that page shows the
+    completed stages and offers a link to the record — it does *not* redirect,
+    because on this corpus a close takes tens of milliseconds and an automatic
+    redirect meant the work flashed past.
+
+    A test that reached past all this into `run_close` would be testing a path no
+    controller has, and would not notice the day the processing page stopped
+    offering a way onward.
 
     Returns the final response, whose URL carries the run id.
     """
+    import re
     import time
 
     from recon.api import auth
@@ -172,12 +177,14 @@ def close_and_wait(client, *, loop: str, source_set: str, tries: int = 120):
     )
     assert reply.status_code in (200, 303), reply.text[:400]
 
-    url = str(reply.url)
     for _ in range(tries):
+        url = str(reply.url)
         if "/closing/" not in url:
             return reply
         assert "The close stopped" not in reply.text, reply.text[:600]
+        onward = re.search(r"href='(/periods/[^/']+)'>\s*Open the close", reply.text)
+        if onward:
+            return client.get(onward.group(1))
         time.sleep(0.05)
         reply = client.get(url)
-        url = str(reply.url)
-    raise AssertionError(f"the close never left the processing page: {url}")
+    raise AssertionError(f"the close never finished: {reply.url}")

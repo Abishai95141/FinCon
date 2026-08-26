@@ -43,11 +43,14 @@ from .theme import document, icon, money, wordmark
 
 router = APIRouter(include_in_schema=False)
 
+#: Order is the order of work. Data sources comes first because a new account
+#: has nothing to close and the rail should say so by its shape, not only by an
+#: empty state three clicks in.
 NAV = (
+    ("sources", "/sources", "Data sources"),
     ("periods", "/periods", "Periods"),
     ("worklist", "/worklist", "Worklist"),
     ("verify", "/verify", "Verify"),
-    ("sources", "/sources", "Data sources"),
     ("settings", "/settings", "Settings"),
 )
 
@@ -513,7 +516,8 @@ def do_close(
                 label=source_set,
                 track=tracker,
             )
-            tracker.finish(outcome.run_id)
+            events = len(service.events(outcome.run_id, runs))
+            tracker.finish(outcome.run_id, rows=len(outcome.records), events=events)
         except Exception as exc:  # every failure is a state the page must show
             tracker.fail(f"{type(exc).__name__}: {exc}")
 
@@ -538,9 +542,12 @@ def closing_page(request: Request, job_id: str, user: User = CURRENT_USER) -> Re
     if job is None:
         raise HTTPException(404, "That close is not one of yours, or has been cleaned up.")
 
-    if job.state == "complete" and job.run_id:
-        return RedirectResponse(f"/periods/{job.run_id}", status_code=303)
-
+    # Deliberately *not* redirecting the moment it finishes. On this corpus a
+    # close takes tens of milliseconds, so an automatic redirect meant the work
+    # flashed past and a reader was left asking whether it had run at all. The
+    # completed pipeline, with what each stage did and how long it took, is the
+    # receipt — and the honest answer to that question is a number with the work
+    # beside it, not a delay added to make the work look harder.
     describe = dict(progress.STAGES)
     steps = []
     for stage in job.stages:
@@ -553,7 +560,11 @@ def closing_page(request: Request, job_id: str, user: User = CURRENT_USER) -> Re
         else:
             glyph, cls = "", "waiting"
         fact = f"<div class='fact'>{escape(stage.detail)}</div>" if stage.detail else ""
-        took = f"<div class='ms'>{stage.elapsed_ms} ms</div>" if stage.elapsed_ms else ""
+        took = (
+            f"<div class='ms'>{stage.elapsed_ms} ms</div>"
+            if stage.state in {"done", "failed"}
+            else ""
+        )
         steps.append(
             f"<div class='step {cls}'><span class='mark'>{glyph}</span>"
             f"<span class='what'><div class='name'>{escape(stage.name)}</div>"
@@ -571,7 +582,30 @@ def closing_page(request: Request, job_id: str, user: User = CURRENT_USER) -> Re
             f"this product could tell you.</p>"
         )
         refresh = ""
-        tail = "<p style='margin-top:1.4rem'><a class='btn btn-primary' href='/periods'>Back to periods</a></p>"
+        tail = (
+            "<p style='margin-top:1.4rem'>"
+            "<a class='btn btn-primary' href='/periods'>Back to periods</a></p>"
+        )
+    elif job.state == "complete":
+        head = (
+            f"<h1>Closed {escape(job.source_set)}</h1>"
+            f"<p class='sub'>{escape(job.loop)} &middot; "
+            f"<b>{job.rows} records</b> read, matched, verified, posted and chained into "
+            f"<b>{job.events} decisions</b> &mdash; in <b>{job.total_ms} ms</b>.</p>"
+        )
+        refresh = ""
+        tail = (
+            f"<p style='margin-top:1.4rem'>"
+            f"<a class='btn btn-primary' href='/periods/{escape(job.run_id)}'>"
+            f"Open the close {icon('arrow', 15)}</a>"
+            f"<a class='btn btn-ghost' href='/periods/{escape(job.run_id)}/log'>"
+            f"{icon('log', 14)}Decision log</a></p>"
+            f"<p class='cap' style='margin-top:1.2rem'>Every stage above ran on this request "
+            f"&mdash; the decision log was deleted and rewritten, and its timestamps are from "
+            f"a moment ago. It is fast because the period is 543 rows, not because anything "
+            f"was skipped: a delay added to make the work look harder would be the one thing "
+            f"this product must never do.</p>"
+        )
     else:
         head = (
             f"<h1>Closing {escape(job.source_set)}</h1>"

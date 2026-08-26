@@ -116,13 +116,23 @@ def test_a_controller_completes_a_close_through_the_ui(session):
     for name in ("ingest", "match", "verify", "post", "record"):
         assert name in page.text, f"the processing page never names {name}"
 
-    for _ in range(120):
-        if "/closing/" not in str(page.url):
-            break
+    onward = None
+    for _ in range(200):
         assert "The close stopped" not in page.text, page.text[:500]
+        onward = re.search(r"href='(/periods/[^/']+)'>\s*Open the close", page.text)
+        if onward:
+            break
         time.sleep(0.05)
         page = client.get(str(page.url))
-    assert "/closing/" not in str(page.url), "the close never left the processing page"
+    assert onward, "the finished pipeline offers no way onward"
+
+    # The receipt: the completed page states what ran and how long it took, so a
+    # reader can tell a close that happened from one that was skipped.
+    assert "records</b> read, matched, verified, posted" in page.text
+    assert re.search(r"<b>\d+ ms</b>", page.text), "the close does not say how long it took"
+    assert page.text.count("class='ms'") >= 6, "not every stage reports its own time"
+
+    page = client.get(onward.group(1))
     run_id = str(page.url).rsplit("/", 1)[-1]
 
     # A close happened, and it left the record a close is supposed to leave —

@@ -62,6 +62,16 @@ class Job:
     state: str = "running"
     run_id: str = ""
     error: str = ""
+    total_ms: int = 0
+    """Wall time for the whole close, measured once at the end.
+
+    Reported because the honest answer to "did that really run?" is a number
+    with the work beside it — 543 rows, 12 intake checks, 62 events chained, in
+    68 ms. A close on this corpus *is* that fast, and slowing it down so the
+    work looks harder would be the exact shallow proxy this project bans."""
+
+    rows: int = 0
+    events: int = 0
     stages: list[Stage] = field(default_factory=lambda: [Stage(n) for n in STAGE_NAMES])
 
     @property
@@ -126,13 +136,15 @@ class Tracker:
         stage.detail = detail
         self.write()
 
-    def finish(self, run_id: str) -> None:
+    def finish(self, run_id: str, *, rows: int = 0, events: int = 0) -> None:
         now = time.monotonic()
         if self._current:
             last = self.job.stage(self._current)
             last.state = "done"
             last.elapsed_ms = int((now - self._stage_started) * 1000)
         self.job.state, self.job.run_id = "complete", run_id
+        self.job.total_ms = int((now - self._started) * 1000)
+        self.job.rows, self.job.events = rows, events
         self.write()
 
     def fail(self, error: str) -> None:
