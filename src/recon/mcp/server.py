@@ -73,8 +73,46 @@ def _runs() -> Path | None:
     name someone else's, which is the identity version of the rule that keeps
     policy off these schemas.
     """
-    tenant = os.environ.get("RECON_TENANT")
-    return (service.runs_root(None) / tenant) if tenant else None
+    return _tenant_root(_tenant_id())
+
+
+def _tenant_id() -> str | None:
+    """Whose account this call speaks for.
+
+    Two transports, one rule: **identity is never a parameter.**
+
+    Over HTTP the caller arrives with an OAuth access token that Cognito signed
+    and FastMCP verified, and the `sub` claim is the tenant. That claim is the
+    same string the web session resolves to — `CognitoIdentity` stores Cognito's
+    `sub` as `user_id` — so an agent and the person whose account it acts for see
+    exactly one set of records, which is the entire reason for hosting this.
+
+    Over stdio there is no request and no token: the server is a process on
+    somebody's laptop and acts as one account, named by `RECON_TENANT`. Unset
+    means the shared workspace, which is what a single-operator machine wants.
+
+    A tool parameter would be neither. A caller that could name an account could
+    name someone else's, and an MCP caller may be a model.
+    """
+    try:
+        from fastmcp.server.dependencies import get_access_token
+
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is not None and getattr(token, "subject", None):
+        return str(token.subject)
+    return os.environ.get("RECON_TENANT")
+
+
+def _tenant_root(tenant: str | None) -> Path | None:
+    if not tenant:
+        return None
+    # A `sub` is a UUID and a `RECON_TENANT` is whatever somebody typed. Neither
+    # may walk out of the runs directory — a tenant id is data from outside.
+    if "/" in tenant or "\\" in tenant or tenant in {"", ".", ".."}:
+        raise ToolRefusal(f"{tenant!r} is not a usable account id")
+    return service.runs_root(None) / tenant
 
 
 class ToolRefusal(Exception):

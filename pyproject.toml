@@ -36,6 +36,7 @@ dependencies = [
 [project.scripts]
 recon-api = "recon.api.serve:main"
 recon-mcp = "recon.mcp.server:main"
+recon-mcp-http = "recon.mcp.http:main"
 
 [dependency-groups]
 dev = [

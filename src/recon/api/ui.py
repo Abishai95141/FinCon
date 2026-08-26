@@ -2324,13 +2324,15 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
 
 
 def _mcp_config(user: User) -> tuple[str, str, str]:
-    """The three ways a client is told to connect, all naming this account.
+    """The stdio forms, all naming this account.
 
-    `RECON_TENANT` is in every one of them. An MCP server runs over stdio on
-    somebody's laptop, so there is no session to resolve an account from — and
-    it is deliberately not a tool parameter, because a caller that could name a
-    tenant could name someone else's. It is environment, set once, by the person
-    who owns the machine.
+    `RECON_TENANT` is in every one of them. A stdio server runs on somebody's
+    laptop, so there is no request to resolve an account from — and it is
+    deliberately not a tool parameter, because a caller that could name a tenant
+    could name someone else's.
+
+    Over HTTP this is not needed at all: the account comes from the `sub` claim
+    of a token Cognito signed, which is the same string this session resolves to.
     """
     command, args = mcpprobe.serve_command()
     root = str(Path.cwd())
@@ -2358,6 +2360,57 @@ def _mcp_config(user: User) -> tuple[str, str, str]:
     cli = f"claude mcp add-json fincon {shlex.quote(inner)}"
     raw = f"cd {shlex.quote(root)}\nRECON_TENANT={user.user_id} {shlex.quote(command)} {' '.join(args)}"
     return cli, block, raw
+
+
+def _hosted_panel() -> str:
+    """The hosted endpoint, or an honest account of why there is not one.
+
+    This panel is the reason `recon.mcp.http.describe()` exists. A configuration
+    screen that printed `https://fincon.example.com/mcp` because that is what the
+    architecture *will* be would be the purest form of the thing this codebase
+    bans: a surface that looks passed without the capability existing. So the URL
+    is rendered only when a public one is configured, and otherwise the panel
+    names the five variables standing in the way.
+    """
+    from ..mcp import http as mcphttp
+
+    state = mcphttp.describe()
+
+    if not state["authenticated"]:
+        rows = "".join(f"<li><code>{escape(name)}</code></li>" for name in state["missing"])
+        return (
+            "<div class='panel' style='padding:1.3rem 1.4rem'>"
+            "<p class='sec'>Hosted access "
+            "<span class='badge badge-mute'>not deployed</span></p>"
+            "<p class='cap' style='margin:0 0 .8rem'>The same eighteen tools run over "
+            "Streamable HTTP with OAuth in front, so an agent connects to a URL instead of "
+            "starting a process &mdash; and the account comes from the token rather than from "
+            "an environment variable. That is not running yet, and this panel will not print "
+            "a URL nobody can reach.</p>"
+            f"<p class='cap' style='margin:0 0 .4rem'>Set these and it starts:</p>"
+            f"<ul class='cap' style='margin:0 0 .8rem 1.1rem'>{rows}</ul>"
+            "<p class='cap' style='margin:0'>Until then the endpoint refuses to bind to "
+            "anything but loopback. An unauthenticated remote MCP server is not a smaller "
+            "version of this product &mdash; it is every account's decision log on a public "
+            "port.</p></div>"
+        )
+
+    endpoint = state["endpoint"]
+    block = json.dumps({"mcpServers": {"fincon": {"url": endpoint}}}, indent=2)
+    return (
+        "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        "<p class='sec'>Hosted access <span class='badge badge-ok'>live</span></p>"
+        "<p class='cap' style='margin:0 0 .3rem'>One URL, no process to start, and no "
+        "account id to paste. Your client is redirected to Cognito, you approve it once, and "
+        "the token's <code>sub</code> is the account &mdash; the same one this session "
+        "resolves to, so an agent sees exactly the records you see.</p>"
+        "<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
+        f"<div class='snip'>claude mcp add --transport http fincon {escape(endpoint)}</div>"
+        "<div class='sniphead'><b>Claude Desktop, Cursor, Zed</b><span>merge in</span></div>"
+        f"<div class='snip'>{escape(block)}</div>"
+        f"<p class='cap' style='margin:.8rem 0 0'>Issuer <code>{escape(state['issuer'])}</code>. "
+        "Authorization is Cognito's; we verify its tokens and never see a password.</p></div>"
+    )
 
 
 def _probe_panel(result: mcpprobe.Probe | None) -> str:
@@ -2453,9 +2506,11 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
         # ---- the live check
         + _probe_panel(result)
         # ---- connect
+        + _hosted_panel()
         + "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        "<p class='sec'>Connect a client</p>"
-        "<p class='cap' style='margin:0'>All three carry <code>RECON_TENANT</code> set to your "
+        "<p class='sec'>Local access &mdash; stdio</p>"
+        "<p class='cap' style='margin:0'>Runs the server as a process on your own machine. "
+        "All three carry <code>RECON_TENANT</code> set to your "
         "account. It is environment rather than a tool parameter, because a caller that could "
         "name an account could name somebody else's.</p>"
         "<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
@@ -2515,6 +2570,16 @@ def mcp_check(request: Request, user: User = CURRENT_USER, csrf: str = Form(""))
     records are real.
     """
     _check_csrf(request, csrf)
-    result = mcpprobe.probe()
+
+    # Check the transport a client will actually use. On a deployed instance
+    # that is the hosted URL, and probing stdio there would prove the wrong
+    # thing very convincingly — the local process starting says nothing about
+    # whether the endpoint an agent connects to is up.
+    from ..mcp import http as mcphttp
+
+    hosted = mcphttp.describe()
+    result = (
+        mcpprobe.probe_http(hosted["endpoint"]) if hosted["authenticated"] else mcpprobe.probe()
+    )
     body = _mcp_body(user, request, result).replace("{csrf}", _csrf_field(request))
     return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body)

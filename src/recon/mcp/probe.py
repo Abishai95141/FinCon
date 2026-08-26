@@ -83,6 +83,70 @@ def _hint_for(exc: BaseException) -> str:
     return "Run the command in a terminal — the server prints its own reason on stderr."
 
 
+def probe_http(url: str, *, timeout: float = TIMEOUT_SECONDS) -> Probe:
+    """Reach a hosted endpoint the way a client will.
+
+    Separate from `probe()` rather than a branch inside it, because the two
+    diagnose different things and their failures have different remedies: stdio
+    fails on an interpreter or a working directory, HTTP fails on a name, a
+    certificate, or an authorization the caller has not completed. A single
+    function returning one `error` string would blur two problems whose fixes
+    have nothing in common.
+
+    Unauthenticated here on purpose. A 401 is the *right* answer from a
+    configured endpoint and this reports it as reachable-but-protected, which is
+    what an operator wants to know: the URL is live and the OAuth handshake is
+    the client's job, not the server's problem.
+    """
+    started = time.monotonic()
+
+    async def go() -> tuple[tuple[str, ...], str]:
+        from fastmcp import Client
+
+        async with Client(url) as client:
+            names = tuple(sorted(t.name for t in await client.list_tools()))
+            result = await client.call_tool(PROBE_TOOL, {})
+            data = result.data or {}
+            return names, str(data.get("contract_version", ""))
+
+    try:
+        tools, version = asyncio.run(asyncio.wait_for(go(), timeout))
+    except BaseException as exc:
+        text = f"{type(exc).__name__}: {exc}"
+        protected = "401" in text or "Unauthorized" in text or "invalid_token" in text
+        return Probe(
+            ok=protected,
+            command=url,
+            cwd="",
+            tenant=None,
+            handshake_ms=int((time.monotonic() - started) * 1000),
+            called="",
+            error="" if protected else text[:400],
+            hint=(
+                "The endpoint is up and requires authorization, which is correct. "
+                "Your MCP client completes the OAuth handshake; this check does not."
+                if protected
+                else "Check the URL resolves and its certificate is valid, then that "
+                "the service is running behind it."
+            ),
+        )
+
+    return Probe(
+        ok=True,
+        command=url,
+        cwd="",
+        tenant=None,
+        tools=tools,
+        handshake_ms=int((time.monotonic() - started) * 1000),
+        called=PROBE_TOOL,
+        contract_version=version,
+        warnings=(
+            "This endpoint answered without authorization. That is expected on "
+            "loopback and must never be true of a public one.",
+        ),
+    )
+
+
 def probe(*, timeout: float = TIMEOUT_SECONDS) -> Probe:
     """Spawn, handshake, list tools, call one, and report.
 

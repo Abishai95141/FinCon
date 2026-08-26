@@ -203,9 +203,17 @@ src/recon/
                  over it, and a property test compares their bytes
   trust.py       signed authority bundles (Ed25519, key out of band) — OPA's shape
   profiles/settlement.py  the loop's own profile, policy, taxonomy, chart, period
-  mcp/           FastMCP server, 16 tools — `verify_proof` is stateless and
+  mcp/           FastMCP server, 18 tools — `verify_proof` is stateless and
                  public, and no tool schema accepts a policy, a tolerance, a
-                 sign convention or a rule set. `make mcp`
+                 sign convention or a rule set. Two transports: `server.py` is
+                 stdio (`make mcp`) and `http.py` is Streamable HTTP behind
+                 Cognito OAuth (`make mcp-http`), which refuses to bind to
+                 anything but loopback unattended. The account is the token's
+                 `sub` over HTTP and `RECON_TENANT` over stdio — never a
+                 parameter. `probe.py` starts a real server and checks it.
+  disposition.py the four endings — book / carry forward / chase / write off.
+                 Each writes double entry and closes the item; all are
+                 `P2 ATTESTED`, and the two write-off bounds come from policy
   api/           FastAPI + OpenAPI + three server-rendered screens (no JS).
                  `make serve` -> http://127.0.0.1:8000/ui
 bench/
@@ -277,6 +285,7 @@ make status-table    # regenerate the known-broken table from the xfails
 # no offline mode, by rule 1
 make serve        # HTTP API + the screens        -> /ui  and  /docs   [P14]
 make mcp          # MCP server on stdio                               [P13]
+make mcp-http     # the same 18 tools over Streamable HTTP + OAuth     [P22]
 make graph        # refresh the graphify code graph
 ```
 
