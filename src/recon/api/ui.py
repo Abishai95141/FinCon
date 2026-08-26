@@ -1555,7 +1555,7 @@ def _worklist_empty(closes: list, owner: str, owners: dict) -> str:
     # should not have to guess whether they are finished.
     unsigned = [(rid, loop) for rid, loop, signed, _ in closes if not signed]
     matched = sum(n for _, _, _, n in closes)
-    plural = "" if len(closes) == 1 else "es"
+    plural = "" if len(closes) == 1 else "s"
 
     if unsigned:
         run_id, _loop = unsigned[0]

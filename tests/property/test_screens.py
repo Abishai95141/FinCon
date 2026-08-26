@@ -417,3 +417,33 @@ def test_an_empty_desk_is_not_the_same_as_an_empty_worklist(tmp_path, monkeypatc
     assert "Nothing on the nobody-at-all desk" in body
     assert "open on other desks" in body
     assert "done" not in body.lower().split("nothing on the")[1][:200]
+
+
+def test_the_finished_state_can_count(tmp_path, monkeypatch):
+    """It said "2 closees". A screen that congratulates somebody on finishing a
+    month's work and misspells the count in the same sentence undoes itself."""
+    from recon import service
+    from recon.api import auth
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, runs = signed_in_client(monkeypatch, tmp_path)
+    token = client.cookies.get(auth.CSRF_COOKIE, "")
+
+    for source_set in ("A", "B"):
+        page = close_and_wait(client, loop="settlement_3way", source_set=source_set)
+        run_id = str(page.url).rsplit("/", 1)[-1]
+        for item in service.view(run_id, runs).exceptions:
+            client.post(
+                f"/periods/{run_id}/items/{item.exception.exception_id}/dispose",
+                data={
+                    "disposition": "chase",
+                    "rationale": "chasing",
+                    "owner": "meera",
+                    "due_on": "2026-09-30",
+                    "csrf": token,
+                },
+            )
+
+    body = client.get("/worklist").text
+    assert "closees" not in body
+    assert "2 closes" in body, "the finished state does not count the closes correctly"
