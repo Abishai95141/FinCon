@@ -55,8 +55,29 @@ def main(argv: list[str] | None = None) -> int:
     if loaded:
         print(f"loaded {len(loaded)} setting(s) from {DEV_ENV}: {', '.join(sorted(loaded))}")
 
+    # Mount MCP into the same process, so a deployment is one container, one
+    # port and one certificate. It declines when nothing is configured and the
+    # bind address is public — see `recon.mcp.http.build` — and the web app
+    # starts either way, because refusing to serve a site over an MCP endpoint
+    # nobody has set up yet would be the tail wagging the dog.
+    from ..mcp import http as mcphttp
+    from .app import app as fastapi_app
+    from .app import mount_mcp
+
+    mounted = mount_mcp(fastapi_app)
+    state = mcphttp.describe()
+
     print(f"FinCon — screens at http://{args.host}:{args.port}/ui")
     print(f"        API docs at http://{args.host}:{args.port}/docs")
+    if mounted and state["authenticated"]:
+        print(f"        MCP       at {state['endpoint']} (Cognito OAuth)")
+    elif mounted:
+        print(
+            f"        MCP       at http://{args.host}:{args.port}{mcphttp.MOUNT} "
+            f"— NO AUTHORIZATION, loopback only"
+        )
+    else:
+        print(f"        MCP       not served: {', '.join(state['missing'])} unset")
     uvicorn.run("recon.api:app", host=args.host, port=args.port, reload=args.reload)
     return 0
 

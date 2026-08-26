@@ -294,7 +294,7 @@ def test_missing_settings_are_named_not_counted(monkeypatch):
 def test_the_page_prints_no_url_before_there_is_one(tmp_path, unconfigured):
     """The defect this whole module exists to avoid."""
     client, _user_id, _runs = signed_in_client(unconfigured, tmp_path)
-    body = client.get("/mcp").text
+    body = client.get("/agent").text
 
     hosted = body.split("Hosted access")[1].split("Local access")[0]
     assert "not deployed" in hosted
@@ -305,7 +305,7 @@ def test_the_page_prints_no_url_before_there_is_one(tmp_path, unconfigured):
 
 def test_the_page_offers_the_url_once_it_exists(tmp_path, configured):
     client, user_id, _runs = signed_in_client(configured, tmp_path)
-    body = client.get("/mcp").text
+    body = client.get("/agent").text
 
     hosted = body.split("Hosted access")[1].split("Local access")[0]
     assert "live" in hosted
@@ -325,7 +325,7 @@ def test_both_transports_are_offered_and_told_apart(tmp_path, configured):
     """A page showing two ways to connect must make clear which is which — the
     stdio one carries an account id and the hosted one must not."""
     client, _user_id, _runs = signed_in_client(configured, tmp_path)
-    body = client.get("/mcp").text
+    body = client.get("/agent").text
 
     assert body.index("Hosted access") < body.index("Local access"), (
         "the local form is offered before the hosted one on a deployed instance"
@@ -390,8 +390,8 @@ def test_the_check_probes_the_transport_a_client_would_use(tmp_path, configured,
     monkeypatch.setattr(mcpprobe, "probe", fake_stdio)
 
     client, _user_id, _runs = signed_in_client(configured, tmp_path)
-    token = re.search(r"name='csrf' value='([^']*)'", client.get("/mcp").text).group(1)
-    client.post("/mcp/check", data={"csrf": token})
+    token = re.search(r"name='csrf' value='([^']*)'", client.get("/agent").text).group(1)
+    client.post("/agent/check", data={"csrf": token})
 
     assert called.get("url") == f"{CONFIGURED['FINCON_PUBLIC_URL']}{mcphttp.MOUNT}"
     assert "stdio" not in called, "a deployed instance checked the local process instead"
@@ -422,3 +422,86 @@ def test_a_protected_endpoint_reads_as_up_not_as_broken():
     assert result.ok, "a protected endpoint was reported as unreachable"
     assert not result.error
     assert "authorization" in result.hint.lower()
+
+
+def test_the_page_and_the_endpoint_do_not_share_a_path(tmp_path, monkeypatch):
+    """Both were at `/mcp` for one commit and the router resolved it by
+    registration order — a GET reached the HTML page and a client's POST reached
+    whichever happened to be registered first. Routing that works by accident
+    works until somebody reorders an include.
+
+    The endpoint half runs under a context-managed `TestClient` because a mounted
+    MCP app's session manager starts in a lifespan, and a `TestClient` used
+    without `with` never runs one. That is not a test detail: it is the same
+    reason `mount_mcp` has to chain the lifespan into the parent app, and
+    without both halves the deployment serves a page saying the endpoint is live
+    beside an endpoint that answers nothing.
+    """
+    from fastapi.testclient import TestClient
+
+    from recon.api.app import app, mount_mcp
+
+    assert mount_mcp()
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    page = client.get("/agent")
+    assert page.status_code == 200
+    assert "Agent access" in page.text
+    assert page.headers["content-type"].startswith("text/html")
+
+    # Read off the UI router rather than `app.routes`: this FastAPI keeps an
+    # included router as a single opaque `_IncludedRouter` entry, so scanning the
+    # app's own table finds no page paths at all — and an assertion over an empty
+    # set is a test that cannot fail for the reason it was written.
+    from recon.api.ui import router as ui_router
+
+    ui_paths = {r.path for r in ui_router.routes}
+    assert "/agent" in ui_paths and "/agent/check" in ui_paths
+    assert mcphttp.MOUNT not in ui_paths, "the page and the endpoint share a path again"
+
+    with TestClient(app) as live:
+        endpoint = live.get(mcphttp.MOUNT)
+        assert "Agent access" not in endpoint.text
+        assert "<!doctype html>" not in endpoint.text.lower()
+
+
+def test_the_mounted_endpoint_actually_answers_the_protocol(tmp_path):
+    """The mount is the deployment shape — one container, one port, one
+    certificate — so it has to serve MCP, not merely occupy the path.
+
+    This is what caught the lifespan bug: mounting alone gave every request
+    "task group is not initialized", and nothing else in the suite would have
+    noticed until the endpoint was live and useless.
+    """
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from recon.api.app import app, mount_mcp
+
+    assert mount_mcp()
+
+    with TestClient(app) as live:
+        response = live.post(
+            mcphttp.MOUNT,
+            headers={
+                "content-type": "application/json",
+                "accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text[:400]
+    body = response.text
+    assert "task group is not initialized" not in body
+    payload = json.loads(body.split("data:", 1)[1] if "data:" in body else body)
+    assert payload["result"]["serverInfo"]["name"] == "recon"

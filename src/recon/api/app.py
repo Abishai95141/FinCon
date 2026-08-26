@@ -22,6 +22,7 @@ shapes to be fetchable, not just stable.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -105,6 +106,49 @@ def _service_error(_request, exc: service.ServiceError) -> JSONResponse:
 @app.exception_handler(LoopError)
 def _loop_error(_request, exc: LoopError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"refused": str(exc)})
+
+
+def mount_mcp(application: FastAPI = app) -> bool:
+    """Serve MCP from this same process, at `/mcp`.
+
+    One container, one port, one certificate, one thing to deploy. The
+    alternative — a second service beside this one — buys nothing here: both
+    surfaces call the same `recon.service`, `test_one_surface.py` already asserts
+    their answers are byte-identical, and splitting them would mean two of
+    everything for a boundary that is enforced in the tool schemas rather than by
+    the network.
+
+    Returns whether it mounted. Unconfigured and off loopback it does not, and
+    that refusal is `recon.mcp.http.build`'s: an unauthenticated MCP endpoint on
+    a public port is every account's decision log in the open. The web app keeps
+    serving either way, because failing to start a site over an MCP endpoint
+    nobody has configured yet would be the tail wagging the dog.
+    """
+    from ..mcp import http as mcphttp
+
+    settings = mcphttp.Settings.from_env()
+    try:
+        server = mcphttp.build(settings)
+    except mcphttp.TransportError:
+        return False
+
+    mcp_app = server.http_app(path="/")
+
+    # The session manager starts in the MCP app's lifespan, and a mounted ASGI
+    # app does not get one — the parent owns startup. Without this every request
+    # to the endpoint fails with "task group is not initialized", which is a
+    # deployment that serves a page saying the endpoint is live beside an
+    # endpoint that answers nothing. Found by a test, not by a reading.
+    previous = application.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(scope):
+        async with previous(scope), mcp_app.lifespan(scope):
+            yield
+
+    application.router.lifespan_context = lifespan
+    application.mount(mcphttp.MOUNT, mcp_app)
+    return True
 
 
 @app.get("/healthz", tags=["meta"])

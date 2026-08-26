@@ -38,13 +38,13 @@ def test_the_config_names_this_account_and_nobody_else(signed_in, tmp_path, monk
     """Two accounts, two configs. `RECON_TENANT` is the only thing standing
     between an agent and somebody else's closes, so it must not be a constant."""
     client, user_id, _ = signed_in
-    body = client.get("/mcp").text
+    body = client.get("/agent").text
     assert user_id in body
 
     other, other_id, _ = signed_in_client(monkeypatch, tmp_path / "other", email="rival@other.in")
     assert other_id != user_id
     assert other_id not in body
-    assert user_id not in other.get("/mcp").text
+    assert user_id not in other.get("/agent").text
 
 
 def test_the_json_block_is_valid_json_a_client_can_paste(signed_in):
@@ -126,7 +126,7 @@ def test_only_one_tool_writes_and_the_page_names_it(signed_in):
     catalog = mcpprobe.catalog()
     assert catalog.writes == ("run_close",)
 
-    body = client.get("/mcp").text
+    body = client.get("/agent").text
     for tool in catalog.tools:
         assert tool.name in body, f"{tool.name} is exposed and not shown on the page"
 
@@ -150,12 +150,12 @@ def _token_from_the_form(html: str) -> str:
 
 def test_the_check_starts_a_real_process_and_reports_what_happened(signed_in):
     client, _user_id, _ = signed_in
-    page = client.get("/mcp").text
+    page = client.get("/agent").text
     assert client.cookies.get(auth.CSRF_COOKIE, "") == _token_from_the_form(page), (
         "the form does not carry the token the server will check"
     )
 
-    body = client.post("/mcp/check", data={"csrf": _token_from_the_form(page)}).text
+    body = client.post("/agent/check", data={"csrf": _token_from_the_form(page)}).text
 
     assert "server answered" in body
     assert re.search(r"handshake \d+ ms", body)
@@ -178,12 +178,12 @@ def test_a_probe_that_cannot_connect_reports_the_reason_not_a_crash(monkeypatch)
 def test_the_check_needs_a_session_and_a_token(signed_in, tmp_path, monkeypatch):
     """It spawns a process. Anything that spawns a process needs both."""
     client, _user_id, _ = signed_in
-    assert client.post("/mcp/check", data={"csrf": "wrong"}).status_code == 403
+    assert client.post("/agent/check", data={"csrf": "wrong"}).status_code == 403
 
     from fastapi.testclient import TestClient
 
     from recon.api.app import app
 
     with TestClient(app, follow_redirects=False) as anon:
-        assert anon.post("/mcp/check", data={"csrf": "x"}).status_code in (303, 401, 403)
-        assert anon.get("/mcp").status_code in (303, 401)
+        assert anon.post("/agent/check", data={"csrf": "x"}).status_code in (303, 401, 403)
+        assert anon.get("/agent").status_code in (303, 401)

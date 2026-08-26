@@ -54,7 +54,7 @@ NAV = (
     ("periods", "/periods", "Periods"),
     ("worklist", "/worklist", "Worklist"),
     ("verify", "/verify", "Verify"),
-    ("mcp", "/mcp", "Agent access"),
+    ("mcp", "/agent", "Agent access"),
     ("settings", "/settings", "Settings"),
 )
 
@@ -2421,7 +2421,7 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
             "<p class='cap' style='margin:0 0 1rem'>Nothing here is checked until you check it. "
             "This starts the server in a real process, completes an MCP handshake over stdio, "
             "lists its tools and calls one &mdash; the same sequence your client will run.</p>"
-            "<form method='post' action='/mcp/check'>"
+            "<form method='post' action='/agent/check'>"
             "{csrf}"
             f"<button class='btn btn-primary'>{icon('check', 14)}Check the connection</button>"
             "</form></div>"
@@ -2462,7 +2462,7 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
     return (
         "<div class='panel' style='padding:1.3rem 1.4rem'>"
         f"<p class='sec'>Is it working? {head}</p>{detail}{warnings}"
-        "<form method='post' action='/mcp/check' style='margin-top:1rem'>"
+        "<form method='post' action='/agent/check' style='margin-top:1rem'>"
         "{csrf}"
         f"<button class='btn btn-ghost'>{icon('refresh', 14)}Check again</button>"
         "</form></div>"
@@ -2553,14 +2553,20 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
     )
 
 
-@router.get("/mcp", response_class=HTMLResponse)
+@router.get("/agent", response_class=HTMLResponse)
 def mcp_page(request: Request, user: User = CURRENT_USER) -> Response:
-    """Configuration, and a check that is real."""
+    """Configuration, and a check that is real.
+
+    At `/agent` rather than `/mcp` because `/mcp` is the endpoint itself. Both
+    lived there briefly and the router resolved it by registration order, which
+    is a routing table that works by accident — a GET reached the page and a
+    client's POST reached whichever happened to be first.
+    """
     body = _mcp_body(user, request, None).replace("{csrf}", _csrf_field(request))
     return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body)
 
 
-@router.post("/mcp/check", response_class=HTMLResponse)
+@router.post("/agent/check", response_class=HTMLResponse)
 def mcp_check(request: Request, user: User = CURRENT_USER, csrf: str = Form("")) -> Response:
     """Spawn the server, handshake, and render whatever happened.
 
