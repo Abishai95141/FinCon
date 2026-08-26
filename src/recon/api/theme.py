@@ -305,7 +305,7 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
    as a dialog that lost its page — the split *is* the screen. The form column
    is a fixed measure so the inputs stay a comfortable width whatever the
    viewport does, and the art panel takes everything left over. */
-.auth{min-height:100vh;display:grid;grid-template-columns:1fr}
+.auth{min-height:100vh;display:grid;grid-template-columns:minmax(0,1fr)}
 @media(min-width:56rem){.auth{grid-template-columns:minmax(28rem,40rem) 1fr}}
 .split-form{
   background:var(--surface);display:flex;flex-direction:column;justify-content:center;
@@ -407,7 +407,7 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
 .empty p{margin:0 auto;max-width:34ch;color:var(--n500);font-size:13px}
 
 /* ---- key/value ---- */
-.kv{display:grid;grid-template-columns:1fr;gap:.1rem}
+.kv{display:grid;grid-template-columns:minmax(0,1fr);gap:.1rem}
 .kv .row{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--n200)}
 .kv .row:last-child{border-bottom:0}
 .kv .k{font-size:12.5px;color:var(--n500)}
@@ -514,7 +514,7 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
 @media print{
   .rail,.crumb-row,.noprint{display:none!important}
   html{background:#fff!important;background-image:none!important}
-  .shell{grid-template-columns:1fr!important}
+  .shell{grid-template-columns:minmax(0,1fr)!important}
   .stage{padding:0!important}
   .pack{max-width:none}
   .panel,.entry,.fig,.tbl{box-shadow:none!important;break-inside:avoid}

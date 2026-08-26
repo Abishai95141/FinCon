@@ -154,3 +154,34 @@ def _runs(client: TestClient) -> Path:
 
     user = auth.read(client.cookies[auth.SESSION_COOKIE], auth.session_secret())
     return service.runs_root(None) / user.user_id
+
+
+def test_no_grid_lets_a_code_block_widen_the_page():
+    """`1fr` is `minmax(auto, 1fr)`, and the auto minimum is the width of the
+    widest thing inside the track.
+
+    A `<pre>` with `white-space:pre` is therefore free to push its own column
+    past the viewport, taking the whole page with it — which is what the MCP
+    config blocks did on 2026-08-26: the screenshot showed the JSON running off
+    the right edge with no scrollbar anywhere.
+
+    `overflow-x:auto` on the block cannot fix it. The block scrolls only if
+    something above it refuses to grow, and every ancestor grid has to say so.
+    """
+    import importlib
+    import re
+
+    theme = importlib.import_module("recon.api.theme")
+    css = next(
+        v
+        for _k, v in vars(theme).items()
+        if isinstance(v, str) and ".panel{" in v and len(v) > 5000
+    )
+
+    bare = re.findall(r"grid-template-columns:\s*1fr\b[^;}]*", css)
+    assert not bare, f"grids that can be widened from inside: {bare}"
+
+    assert "min-width:0" in css, "no flex/grid child declares a zero minimum"
+    for selector in (".snip", ".tbl"):
+        assert f"{selector}{{" in css or f"{selector} " in css
+    assert "overflow-x:auto" in css
