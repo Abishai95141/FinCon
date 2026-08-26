@@ -136,6 +136,26 @@ The tolerance shows as a figure with what it *does* beside it — "largest gap
 absorbed silently, above this an item is raised, never rounded away" — not as a
 labelled number.
 
+### Let an assistant help — *"can I let an AI work on this, and what could it do?"*
+
+Was "Agent access", opening with *"point an agent at this controller over MCP"* —
+three pieces of jargon before the first full stop, assuming the reader already
+knows what MCP is and why they would want one. Somebody closing books for a
+living does not, and does not have to.
+
+Now: **what it could do for you**, in a controller's words — *"what is blocking
+the October close, biggest first?"* — then how to connect, then the part that is
+actually interesting.
+
+**What it cannot do** is stated as things, not as parameter names. Not "no tool
+accepts a policy", which is true and means nothing to the person deciding, but
+"it cannot sign off a close, because sign-off names a person and it cannot name
+one". Checked against the tool definitions on every render.
+
+The eighteen-tool reference is real and belongs on the page. It does not belong
+between why-you-would and how-to, so it is behind a disclosure, as is the
+run-it-locally case.
+
 ### Sign off — *"I accept this"*
 
 A named person, a note, and the count of what was still open at signature. The
@@ -172,7 +192,6 @@ a posting. An ambiguity names both candidates rather than picking.
 
 ## Still rough
 
-- **Agent access** explains MCP to somebody who already knows what MCP is.
 - There is no empty state on **Worklist** for an account that has closed a period
   and resolved everything — the good ending is unwritten.
 - Nothing on any screen explains *why* a close is worth running to somebody who

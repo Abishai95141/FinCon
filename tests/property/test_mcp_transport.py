@@ -63,6 +63,20 @@ REAL_CLIENT = "4scuq8j5s68siqgnikmnskcir6"
 PUBLIC = "https://fincon.astutecomputer.com"
 
 
+def _panel(html: str, panel_id: str) -> str:
+    """One panel of the agent page, by id.
+
+    Three tests used to slice this page on heading text and every one of them
+    broke on a rewrite — failing for the wording rather than for the behaviour
+    they were written to protect. An id is a thing a test may hold on to; copy
+    is not.
+    """
+    start = html.index(f"id='{panel_id}'")
+    rest = html[start + 1 :]
+    nxt = rest.find("id='")
+    return rest[:nxt] if nxt != -1 else rest
+
+
 @pytest.fixture
 def real_pool(monkeypatch: pytest.MonkeyPatch):
     """Point at the deployed pool, so FastMCP's OIDC discovery succeeds and the
@@ -316,8 +330,8 @@ def test_the_page_prints_no_url_before_there_is_one(tmp_path, unconfigured):
     client, _user_id, _runs = signed_in_client(unconfigured, tmp_path)
     body = client.get("/agent").text
 
-    hosted = body.split("Hosted access")[1].split("Local access")[0]
-    assert "not deployed" in hosted
+    hosted = _panel(body, "connect")
+    assert "not available yet" in hosted
     assert "https://" not in hosted, f"a URL appeared before deployment: {hosted[:200]}"
     for name in CONFIGURED:
         assert name in hosted, f"the panel does not say {name} is needed"
@@ -327,8 +341,8 @@ def test_the_page_offers_the_url_once_it_exists(tmp_path, configured):
     client, user_id, _runs = signed_in_client(configured, tmp_path)
     body = client.get("/agent").text
 
-    hosted = body.split("Hosted access")[1].split("Local access")[0]
-    assert "live" in hosted
+    hosted = _panel(body, "connect")
+    assert "ready" in hosted
     endpoint = f"{CONFIGURED['FINCON_PUBLIC_URL']}{mcphttp.MOUNT}"
     assert endpoint in hosted
     assert f"claude mcp add --transport http fincon {endpoint}" in hosted
@@ -347,7 +361,7 @@ def test_both_transports_are_offered_and_told_apart(tmp_path, configured):
     client, _user_id, _runs = signed_in_client(configured, tmp_path)
     body = client.get("/agent").text
 
-    assert body.index("Hosted access") < body.index("Local access"), (
+    assert body.index("id='connect'") < body.index("id='local'"), (
         "the local form is offered before the hosted one on a deployed instance"
     )
     assert "claude mcp add-json" in body

@@ -2801,14 +2801,13 @@ def _hosted_panel() -> str:
     if not state["authenticated"]:
         rows = "".join(f"<li><code>{escape(name)}</code></li>" for name in state["missing"])
         return (
-            "<div class='panel' style='padding:1.3rem 1.4rem'>"
-            "<p class='sec'>Hosted access "
-            "<span class='badge badge-mute'>not deployed</span></p>"
-            "<p class='cap' style='margin:0 0 .8rem'>The same eighteen tools run over "
-            "Streamable HTTP with OAuth in front, so an agent connects to a URL instead of "
-            "starting a process &mdash; and the account comes from the token rather than from "
-            "an environment variable. That is not running yet, and this panel will not print "
-            "a URL nobody can reach.</p>"
+            "<div class='panel' id='connect' style='padding:1.3rem 1.4rem'>"
+            "<p class='sec'>Connect it "
+            "<span class='badge badge-mute'>not available yet</span></p>"
+            "<p class='cap' style='margin:0 0 .8rem'>Connecting takes one command once "
+            "this is deployed somewhere with a name. It is not, and this panel will not "
+            "print a URL nobody can reach &mdash; you would paste it, your client would "
+            "fail, and neither of you would know why.</p>"
             f"<p class='cap' style='margin:0 0 .4rem'>Set these and it starts:</p>"
             f"<ul class='cap' style='margin:0 0 .8rem 1.1rem'>{rows}</ul>"
             "<p class='cap' style='margin:0'>Until then the endpoint refuses to bind to "
@@ -2820,18 +2819,20 @@ def _hosted_panel() -> str:
     endpoint = state["endpoint"]
     block = json.dumps({"mcpServers": {"fincon": {"url": endpoint}}}, indent=2)
     return (
-        "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        "<p class='sec'>Hosted access <span class='badge badge-ok'>live</span></p>"
-        "<p class='cap' style='margin:0 0 .3rem'>One URL, no process to start, and no "
-        "account id to paste. Your client is redirected to Cognito, you approve it once, and "
-        "the token's <code>sub</code> is the account &mdash; the same one this session "
-        "resolves to, so an agent sees exactly the records you see.</p>"
+        "<div class='panel' id='connect' style='padding:1.3rem 1.4rem'>"
+        "<p class='sec'>Connect it <span class='badge badge-ok'>ready</span></p>"
+        "<p class='lede' style='margin:0 0 .3rem'>Paste one command. Your client opens a "
+        "browser, you sign in the way you did here and approve it once, and it is "
+        "connected &mdash; there is no key to copy and nothing to keep secret.</p>"
+        "<p class='cap' style='margin:.5rem 0 0'>It acts as <b>you</b>: the approval ties "
+        "it to this account, so it reads your closes and nobody else's.</p>"
         "<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
         f"<div class='snip'>claude mcp add --transport http fincon {escape(endpoint)}</div>"
         "<div class='sniphead'><b>Claude Desktop, Cursor, Zed</b><span>merge in</span></div>"
         f"<div class='snip'>{escape(block)}</div>"
-        f"<p class='cap' style='margin:.8rem 0 0'>Issuer <code>{escape(state['issuer'])}</code>. "
-        "Authorization is Cognito's; we verify its tokens and never see a password.</p></div>"
+        f"<p class='cap' style='margin:.8rem 0 0'>Sign-in is handled by Amazon Cognito "
+        f"(<code>{escape(state['issuer'])}</code>). We verify what it issues and never see "
+        f"your password.</p></div>"
     )
 
 
@@ -2839,10 +2840,11 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
     if result is None:
         return (
             "<div class='panel' style='padding:1.3rem 1.4rem'>"
-            "<p class='sec'>Is it working?</p>"
-            "<p class='cap' style='margin:0 0 1rem'>Nothing here is checked until you check it. "
-            "This starts the server in a real process, completes an MCP handshake over stdio, "
-            "lists its tools and calls one &mdash; the same sequence your client will run.</p>"
+            "<p class='sec'>Did that work?</p>"
+            "<p class='cap' style='margin:0 0 1rem'>Nothing above is checked until you "
+            "check it. This runs the same sequence your client will &mdash; connect, ask "
+            "what tools exist, call one &mdash; and reports what actually happened rather "
+            "than that the settings look right.</p>"
             "<form method='post' action='/agent/check'>"
             "{csrf}"
             f"<button class='btn btn-primary'>{icon('check', 14)}Check the connection</button>"
@@ -2851,14 +2853,15 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
 
     if result.ok:
         head = (
-            f"<span class='badge badge-ok'>server answered</span>"
+            f"<span class='badge badge-ok'>it answered</span>"
             f"<span class='cap' style='margin-left:.6rem'>"
             f"{len(result.tools)} tools &middot; handshake {result.handshake_ms} ms</span>"
         )
         detail = (
             "<div class='kv'>"
-            f"<div class='row'><span class='k'>Contract version</span><span class='v num'>"
-            f"{escape(result.contract_version)} &mdash; read off the wire, not imported</span></div>"
+            f"<div class='row'><span class='k'>It reported</span><span class='v num'>"
+            f"version {escape(result.contract_version)}, read back over the connection "
+            f"rather than from our own code</span></div>"
             f"<div class='row'><span class='k'>Called</span><span class='v num'>"
             f"{escape(result.called)}</span></div>"
             f"<div class='row'><span class='k'>Working directory</span>"
@@ -2869,7 +2872,7 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
         )
     else:
         head = (
-            "<span class='badge badge-bad'>did not connect</span>"
+            "<span class='badge badge-bad'>could not connect</span>"
             f"<span class='cap' style='margin-left:.6rem'>after {result.handshake_ms} ms</span>"
         )
         detail = (
@@ -2883,7 +2886,7 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
     )
     return (
         "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec'>Is it working? {head}</p>{detail}{warnings}"
+        f"<p class='sec'>Did that work? {head}</p>{detail}{warnings}"
         "<form method='post' action='/agent/check' style='margin-top:1rem'>"
         "{csrf}"
         f"<button class='btn btn-ghost'>{icon('refresh', 14)}Check again</button>"
@@ -2892,6 +2895,19 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
 
 
 def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> str:
+    """*Can I let an AI assistant work on this, and what could it do?*
+
+    The page used to open with "point an agent at this controller over MCP",
+    which is three pieces of jargon before the first full stop and assumes the
+    reader already knows what MCP is and why they would want one. Somebody
+    closing books for a living does not, and does not have to.
+
+    So: what it would do for you, then how to connect, then the part that is
+    genuinely interesting — an assistant here can read everything and decide
+    nothing, and that is enforced in the tool definitions rather than promised.
+    The eighteen-tool reference is real and belongs on the page; it does not
+    belong in the middle of it.
+    """
     cli, block, raw = _mcp_config(user)
     cat = mcpprobe.catalog()
 
@@ -2903,75 +2919,85 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
         for t in cat.tools
     )
     boundary = (
-        "<span class='badge badge-ok'>holds</span>"
+        "<span class='badge badge-ok'>checked, and it holds</span>"
         if cat.boundary_holds
         else f"<span class='badge badge-bad'>breached: {escape(', '.join(cat.offenders))}</span>"
     )
 
     return (
-        "<div class='pagehead'><div class='lhs'><h1>Agent access</h1>"
-        "<p class='sub'>Point an agent at this controller over MCP. It gets the record, "
-        "and less authority than you have.</p></div></div>"
+        "<div class='pagehead'><div class='lhs'><h1>Let an assistant help</h1>"
+        "<p class='sub'>Connect Claude, or any tool that speaks MCP, to this account. "
+        "It can read everything and decide nothing.</p></div></div>"
         "<div style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
-        # ---- what this is for
+        # ---- why you would ------------------------------------------------
         "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        "<p class='sec'>What an agent gets</p>"
-        "<p class='lede' style='margin:0'>Every screen in this product is a person driving a "
-        "deterministic engine. This is the same engine, exposed to a program &mdash; so an agent "
-        "can run a close, read every proof, page the decision log and re-derive any match, "
-        "without a code path that lets it decide anything.</p>"
-        "<p class='cap' style='margin:.8rem 0 0'>One tool is worth knowing about on its own. "
-        "<b>verify_proof</b> is stateless: hand it a proof and records you ingested yourself from "
-        "the source files, and it re-derives the arithmetic. It reads nothing of ours, so an "
-        "auditor can check our answer without an account and without trusting this process.</p>"
-        "</div>"
-        # ---- the live check
-        + _probe_panel(result)
-        # ---- connect
+        "<p class='sec'>What it can do for you</p>"
+        "<p class='lede' style='margin:0 0 1rem'>MCP is a standard way for an AI "
+        "assistant to use a tool. Connect this one and you can ask, in your own words, "
+        "for things the screens make you click through:</p>"
+        "<ul class='cap' style='margin:0 0 1rem 1.1rem;line-height:1.9'>"
+        "<li>&ldquo;What is blocking the October close, biggest first?&rdquo;</li>"
+        "<li>&ldquo;Close FY2627 and tell me what changed since last time.&rdquo;</li>"
+        "<li>&ldquo;Take this proof and re-derive it from the source files yourself.&rdquo;</li>"
+        "<li>&ldquo;Draft the note I should send the deductor about the missing challan.&rdquo;</li>"
+        "</ul>"
+        "<p class='cap' style='margin:0'>It works on <b>your</b> account only. The "
+        "assistant is identified by the same login you used to get here, so it sees "
+        "your closes and nobody else's.</p></div>"
+        # ---- what it cannot do -------------------------------------------
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>What it cannot do {boundary}</p>"
+        f"<p class='lede' style='margin:0 0 1rem'>An assistant can run a close, read "
+        f"every proof and page the whole decision log. It cannot approve anything, and "
+        f"that is not a policy we are asking you to trust &mdash; there is no tool for it "
+        f"and no field to put your name in.</p>"
+        f"<div class='kv' style='margin-bottom:1rem'>"
+        f"<div class='row'><span class='k'>Sign off a close</span>"
+        f"<span class='v'>No. Sign-off names a person, and it cannot name one</span></div>"
+        f"<div class='row'><span class='k'>Resolve an item</span>"
+        f"<span class='v'>No. Booking, chasing and writing off are yours</span></div>"
+        f"<div class='row'><span class='k'>Loosen a tolerance</span>"
+        f"<span class='v'>No. Those arrive as signed bundles and no tool accepts one</span></div>"
+        f"<div class='row'><span class='k'>Change what it may do</span>"
+        f"<span class='v'>No. The limits are in the tool definitions, not in a prompt</span></div>"
+        f"</div>"
+        f"<p class='cap' style='margin:0'>Checked against the tool definitions every time "
+        f"this page loads, not written down once and hoped for. The one exception is "
+        f"deliberate: <b>verify_proof</b> takes a policy, because it is how somebody "
+        f"outside checks our arithmetic under <i>their</i> rules, and it holds no state "
+        f"and changes nothing.</p></div>"
+        # ---- connect ------------------------------------------------------
         + _hosted_panel()
-        + "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        "<p class='sec'>Local access &mdash; stdio</p>"
-        "<p class='cap' style='margin:0'>Runs the server as a process on your own machine. "
-        "All three carry <code>RECON_TENANT</code> set to your "
-        "account. It is environment rather than a tool parameter, because a caller that could "
-        "name an account could name somebody else's.</p>"
-        "<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
+        + _probe_panel(result)
+        # ---- the reference ------------------------------------------------
+        + f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<details><summary class='sec' style='cursor:pointer'>"
+        f"All {len(cat.tools)} tools, and the one that writes</summary>"
+        f"<div style='padding-top:1rem'>"
+        f"<p class='cap' style='margin:0 0 1rem'>One tool writes anything: "
+        f"<b>{escape(', '.join(cat.writes))}</b>, which runs a close. Re-running the same "
+        f"period is idempotent, so an assistant that calls it twice has not done anything "
+        f"twice. Everything else reads.</p>"
+        f"<div class='tbl'><table><tr><th>Tool</th><th>What it does</th>"
+        f"<th>Parameters</th><th>Effect</th></tr>{rows}</table></div>"
+        f"</div></details></div>"
+        # ---- stdio, for the local case ------------------------------------
+         + f"<div class='panel' id='local' style='padding:1.3rem 1.4rem'>"
+        f"<details><summary class='sec' style='cursor:pointer'>"
+        f"Running it on your own machine instead</summary>"
+        f"<div style='padding-top:1rem'>"
+        f"<p class='cap' style='margin:0 0 .3rem'>For a checkout of the source. All three "
+        f"carry <code>RECON_TENANT</code> set to your account &mdash; it is environment "
+        f"rather than something a caller passes, because anything a caller can name, it "
+        f"can name somebody else's.</p>"
+        f"<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
         f"<div class='snip'>{escape(cli)}</div>"
-        "<div class='sniphead'><b>Claude Desktop, Cursor, Zed</b>"
-        "<span>merge into the client's MCP config</span></div>"
+        f"<div class='sniphead'><b>Claude Desktop, Cursor, Zed</b>"
+        f"<span>merge into the client's config</span></div>"
         f"<div class='snip'>{escape(block)}</div>"
-        "<div class='sniphead'><b>Any other client</b><span>the raw stdio command</span></div>"
+        f"<div class='sniphead'><b>Anything else</b><span>the raw command</span></div>"
         f"<div class='snip'>{escape(raw)}</div>"
-        "</div>"
-        # ---- the boundary
-         + "<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec'>What an agent cannot do &mdash; boundary {boundary}</p>"
-        "<p class='cap' style='margin:0 0 1rem'>Checked against the schemas the server generates, "
-        "every time this page renders &mdash; not against a list somebody maintains. No tool "
-        "accepts a policy, a tolerance, a sign convention, a chart or a rule set, so there is no "
-        "parameter through which a caller supplies its own permission. "
-        "<b>verify_proof</b> is the deliberate exception and is safe for the opposite reason: a "
-        "caller verifying under their own policy learns about their own constraints.</p>"
-        "<div class='kv' style='margin-bottom:1.2rem'>"
-        "<div class='row'><span class='k'>Promote a rule</span>"
-        "<span class='v'>No &mdash; needs a named human and a regression pass</span></div>"
-        "<div class='row'><span class='k'>Attest a decision</span>"
-        "<span class='v'>No &mdash; <code>P2 ATTESTED</code> means a person is accountable</span></div>"
-        "<div class='row'><span class='k'>Write to the ledger</span>"
-        "<span class='v'>No &mdash; postings follow a proof or a promoted code</span></div>"
-        "<div class='row'><span class='k'>Sign off a close</span>"
-        "<span class='v'>No &mdash; there is no tool, and no parameter to name a signer</span></div>"
-        "<div class='row'><span class='k'>Change what it may do</span>"
-        "<span class='v'>No &mdash; authority comes from signed bundles supplied out of band</span></div>"
-        "</div>"
-        f"<p class='sec' style='margin-bottom:.5rem'>The {len(cat.tools)} tools</p>"
-        "<div class='tbl'><table><tr><th>Tool</th><th>What it does</th><th>Parameters</th>"
-        f"<th>Effect</th></tr>{rows}</table></div>"
-        "<p class='cap' style='margin:.9rem 0 0'>One tool writes: "
-        f"<b>{escape(', '.join(cat.writes))}</b>, which runs a close and appends to the decision "
-        "log. Re-running a period is idempotent by <code>doc_hash</code>, so an agent that calls "
-        "it twice has not done anything twice.</p>"
-        "</div></div>"
+        f"</div></details></div></div>"
     )
 
 

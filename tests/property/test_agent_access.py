@@ -157,7 +157,7 @@ def test_the_check_starts_a_real_process_and_reports_what_happened(signed_in):
 
     body = client.post("/agent/check", data={"csrf": _token_from_the_form(page)}).text
 
-    assert "server answered" in body
+    assert "it answered" in body
     assert re.search(r"handshake \d+ ms", body)
     assert "7." in body, "the contract version read off the wire is not shown"
 
@@ -187,3 +187,51 @@ def test_the_check_needs_a_session_and_a_token(signed_in, tmp_path, monkeypatch)
     with TestClient(app, follow_redirects=False) as anon:
         assert anon.post("/agent/check", data={"csrf": "x"}).status_code in (303, 401, 403)
         assert anon.get("/agent").status_code in (303, 401)
+
+
+def test_the_page_explains_itself_to_somebody_who_has_not_heard_of_mcp(signed_in):
+    """It opened with "point an agent at this controller over MCP" — three pieces
+    of jargon before the first full stop, assuming the reader already knows what
+    MCP is and why they would want one. Somebody closing books for a living does
+    not, and does not have to."""
+    client, _user_id, _ = signed_in
+    body = client.get("/agent").text
+
+    assert "standard way for an AI assistant to use a tool" in body, (
+        "the page uses 'MCP' without ever saying what it is"
+    )
+    # Concrete asks, in a controller's words, before any configuration.
+    assert "What is blocking the October close" in body
+    assert body.index("What it can do for you") < body.index("id='connect'"), (
+        "the page explains how to connect before saying why you would"
+    )
+
+
+def test_the_limits_are_stated_as_things_it_cannot_do(signed_in):
+    """The interesting half, and the reason this is safe to switch on.
+
+    Not "no tool accepts a policy parameter", which is true and means nothing to
+    the person deciding — "it cannot sign off a close, because sign-off names a
+    person and it cannot name one".
+    """
+    client, _user_id, _ = signed_in
+    body = client.get("/agent").text
+
+    for cannot in ("Sign off a close", "Resolve an item", "Loosen a tolerance"):
+        assert cannot in body, f"the page does not say it cannot {cannot.lower()}"
+    assert "no tool for it" in body
+    assert "verify_proof" in body, "the one deliberate exception is not explained"
+
+
+def test_the_developer_reference_is_present_but_not_in_the_way(signed_in):
+    """Eighteen tools with parameter lists is real and belongs on the page. It
+    does not belong in the middle of it, between why-you-would and how-to."""
+    client, _user_id, _ = signed_in
+    body = client.get("/agent").text
+
+    assert "<details>" in body, "the tool table is open by default again"
+    for tool in mcpprobe.catalog().tools:
+        assert tool.name in body, f"{tool.name} is exposed and not listed"
+    assert body.index("id='connect'") < body.index("All 18 tools"), (
+        "the reference table sits above the thing a person came here to do"
+    )
