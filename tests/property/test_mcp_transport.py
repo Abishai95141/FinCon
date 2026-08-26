@@ -56,6 +56,25 @@ def unconfigured(monkeypatch: pytest.MonkeyPatch):
     return monkeypatch
 
 
+#: The pool that actually exists. Tests using it need the network and are
+#: marked `live`; `make test` runs offline and deselects them.
+REAL_POOL = "ap-south-1_kNSrctMRo"
+REAL_CLIENT = "4scuq8j5s68siqgnikmnskcir6"
+PUBLIC = "https://fincon.astutecomputer.com"
+
+
+@pytest.fixture
+def real_pool(monkeypatch: pytest.MonkeyPatch):
+    """Point at the deployed pool, so FastMCP's OIDC discovery succeeds and the
+    routes it generates are the ones the deployment actually serves."""
+    monkeypatch.setenv("FINCON_PUBLIC_URL", PUBLIC)
+    monkeypatch.setenv("COGNITO_USER_POOL_ID", REAL_POOL)
+    monkeypatch.setenv("COGNITO_CLIENT_ID", REAL_CLIENT)
+    monkeypatch.setenv("COGNITO_CLIENT_SECRET", "unused-for-discovery")
+    monkeypatch.setenv("AWS_REGION", "ap-south-1")
+    return monkeypatch
+
+
 @pytest.fixture
 def configured(monkeypatch: pytest.MonkeyPatch):
     for name, value in CONFIGURED.items():
@@ -588,3 +607,147 @@ def test_the_app_declines_an_unset_endpoint_and_refuses_a_broken_one(configured,
     monkeypatch.setattr("fastmcp.server.auth.providers.aws.AWSCognitoProvider", explode)
     with pytest.raises(mcphttp.AuthorityUnavailable):
         mount_mcp(app)
+
+
+@pytest.mark.live
+def test_the_oauth_handshake_lives_where_the_metadata_says_it_does(real_pool):
+    """Discovery is resolved against the *origin*, not the resource's path.
+
+    A client handed `https://host/mcp` fetches
+    `https://host/.well-known/oauth-protected-resource`, reads an issuer of
+    `https://host/`, and goes to `https://host/authorize`. Mounted, all of that
+    sat under `/mcp/` while the documents pointed at the root — an endpoint that
+    challenges correctly and a client with no way to find out where to
+    authorize. A 401 with no route forward is worse than a closed door.
+    """
+    from fastapi.testclient import TestClient
+
+    from recon.api.app import app, mount_mcp
+
+    assert mount_mcp(app)
+
+    with TestClient(app) as live:
+        resource = live.get("/.well-known/oauth-protected-resource")
+        assert resource.status_code == 200
+        metadata = resource.json()
+
+        server = live.get("/.well-known/oauth-authorization-server")
+        assert server.status_code == 200
+        issuer = server.json()
+
+        # Every URL the client is told to visit must actually be served here.
+        for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+            url = issuer.get(key)
+            if not url:
+                continue
+            path = url.replace(PUBLIC, "").rstrip("/") or "/"
+            assert live.request("GET", path).status_code != 404, (
+                f"{key} points at {path}, which this server does not serve"
+            )
+
+    assert metadata["resource"].startswith(PUBLIC)
+    assert issuer["issuer"].startswith(PUBLIC)
+
+
+@pytest.mark.live
+def test_hoisting_the_oauth_routes_does_not_shadow_the_app(real_pool, tmp_path, monkeypatch):
+    """Seven routes were copied to the root of the app that serves the product.
+    None of them may take a path the screens or the API already own."""
+    from recon.api.app import app, mount_mcp
+    from recon.api.ui import router as ui_router
+
+    assert mount_mcp(app)
+
+    from recon.mcp import http as mcphttp_
+
+    settings = mcphttp_.Settings.from_env()
+    hoisted = {
+        getattr(r, "path", "")
+        for r in mcphttp_.build(settings).http_app(path="/").routes
+        if getattr(r, "path", "") != "/"
+    }
+    owned = {r.path for r in ui_router.routes} | {
+        getattr(r, "path", "") for r in app.routes if getattr(r, "path", "").startswith("/v1")
+    }
+    assert not (hoisted & owned), f"an OAuth route shadows the product: {hoisted & owned}"
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    assert client.get("/login").status_code == 200
+    assert client.get("/healthz").status_code == 200
+    assert client.get("/agent").status_code == 200
+
+
+def test_the_app_trusts_forwarded_headers_only_from_a_named_proxy():
+    """TLS terminates at the load balancer, so without `proxy_headers` uvicorn
+    believes every request is plain HTTP and Starlette builds absolute redirects
+    that say so — the MCP endpoint's own trailing-slash redirect came back as
+    `http://` on an https:// site, which a client either follows down or loops on.
+
+    `forwarded_allow_ips` defaults to loopback and is widened only by an explicit
+    environment variable, because trusting `X-Forwarded-Proto` from an address
+    that could be anybody lets a caller choose its own scheme and host.
+    """
+    import inspect
+
+    from recon.api import serve
+
+    source = inspect.getsource(serve.main)
+    assert "proxy_headers=True" in source
+    assert "FINCON_TRUSTED_PROXIES" in source
+    assert '"127.0.0.1"' in source, "the default trusts more than loopback"
+
+    dockerfile = pathlib.Path(__file__).resolve().parents[2] / "Dockerfile"
+    assert "FINCON_TRUSTED_PROXIES=*" in dockerfile.read_text(), (
+        "the container is behind an ALB and does not say so, so every redirect "
+        "it builds will be http:// on an https:// site"
+    )
+
+
+def test_every_oauth_route_but_the_endpoint_itself_is_hoisted():
+    """The hoisting rule, offline.
+
+    The live tests above prove the real routes land at the origin; this proves
+    the rule that puts them there, with no network and no provider. `/` is the
+    MCP endpoint and belongs at the mount; everything else is part of a
+    handshake resolved against the origin and must not stay behind it.
+    """
+    import inspect
+
+    from recon.api.app import mount_mcp
+
+    source = inspect.getsource(mount_mcp)
+    assert 'getattr(route, "path", "") != "/"' in source, (
+        "the hoisting predicate changed; check it still leaves only the endpoint"
+    )
+
+    class FakeRoute:
+        def __init__(self, path):
+            self.path = path
+
+    parent, mcp_routes = (
+        [],
+        [
+            FakeRoute(p)
+            for p in (
+                "/.well-known/oauth-authorization-server",
+                "/.well-known/oauth-protected-resource",
+                "/authorize",
+                "/token",
+                "/register",
+                "/revoke",
+                "/auth/callback",
+                "/",
+            )
+        ],
+    )
+    for route in mcp_routes:
+        if route.path != "/":
+            parent.append(route)
+
+    hoisted = {r.path for r in parent}
+    assert "/" not in hoisted, "the MCP endpoint itself was hoisted out of its mount"
+    assert len(hoisted) == 7
+    assert "/auth/callback" in hoisted, (
+        "the callback is a string in Cognito's console; leaving it under the "
+        "mount breaks the redirect after a person approves the client"
+    )

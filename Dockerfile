@@ -51,7 +51,8 @@ USER fincon
 
 ENV PATH="/app/.venv/bin:$PATH" \
     RECON_ENV=prod \
-    FINCON_MCP_HOST=0.0.0.0
+    FINCON_MCP_HOST=0.0.0.0 \
+    FINCON_TRUSTED_PROXIES=*
 
 EXPOSE 8000
 

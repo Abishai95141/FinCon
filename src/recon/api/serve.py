@@ -78,7 +78,24 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print(f"        MCP       not served: {', '.join(state['missing'])} unset")
-    uvicorn.run("recon.api:app", host=args.host, port=args.port, reload=args.reload)
+    # `proxy_headers` is not optional behind an ALB. TLS terminates at the load
+    # balancer, so without it uvicorn believes every request is plain HTTP and
+    # Starlette builds absolute redirects that say so — the MCP endpoint's own
+    # trailing-slash redirect came back as `http://` on an https:// site, which
+    # is a downgrade a client either follows or loops on.
+    #
+    # `forwarded_allow_ips="*"` is safe *only* because nothing but the load
+    # balancer can reach this port: the task security group has one ingress rule
+    # and it names the ALB's group. Trusting X-Forwarded-* from an address that
+    # could be anybody is how a caller sets its own scheme and host.
+    uvicorn.run(
+        "recon.api:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        proxy_headers=True,
+        forwarded_allow_ips=os.environ.get("FINCON_TRUSTED_PROXIES", "127.0.0.1"),
+    )
     return 0
 
 

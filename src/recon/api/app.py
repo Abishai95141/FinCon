@@ -153,6 +153,28 @@ def mount_mcp(application: FastAPI = app) -> bool:
 
     application.router.lifespan_context = lifespan
     application.mount(mcphttp.MOUNT, mcp_app)
+
+    # Everything the OAuth handshake touches has to sit at the *origin*, because
+    # that is where the metadata this server publishes says it is:
+    #
+    #   resource      https://host/mcp        <- the mount
+    #   issuer        https://host/           <- everything below
+    #   /.well-known/oauth-protected-resource   RFC 9728 discovery
+    #   /.well-known/oauth-authorization-server RFC 8414
+    #   /authorize /token /register /revoke     the proxy's own endpoints
+    #   /auth/callback                          the URL Cognito redirects to
+    #
+    # Mounted, they would all be under `/mcp/` while the documents point at the
+    # root — an endpoint that challenges correctly and a client that cannot find
+    # out where to authorize. Only `/` stays behind, which is the MCP endpoint
+    # itself and belongs at the mount.
+    #
+    # The callback path is also what Cognito has registered. That is a string in
+    # somebody's console, so moving it is a two-place change.
+    for route in mcp_app.routes:
+        if getattr(route, "path", "") != "/":
+            application.router.routes.append(route)
+
     return True
 
 
