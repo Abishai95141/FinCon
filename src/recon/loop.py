@@ -203,8 +203,18 @@ def _install() -> None:
     At import time instead would make `recon.loop` unimportable whenever a
     profile is malformed, which is the failure that most needs a legible error.
     """
-    if not REGISTRY:
-        from .profiles import settlement  # noqa: F401
+    # Both shipped loops. A second entry here is the *whole* cost of adding a
+    # reconciliation — nothing in `engine/` knows either of them exists, which is
+    # invariant 7 stated as a diff rather than as a claim.
+    #
+    # No `if not REGISTRY` guard. That version was "install once" keyed on the
+    # registry being *empty*, so anything that imported one profile directly —
+    # a test, a benchmark arm — left it non-empty and the second loop never
+    # loaded at all. `no loop named 'tds_26as'` in a process where the module
+    # exists. Python caches modules, so re-importing costs nothing and
+    # `register` raises on a duplicate, which makes this idempotent by
+    # construction rather than by a flag somebody has to reason about.
+    from .profiles import settlement, tds  # noqa: F401
 
 
 def source_sets(loop: Loop, root: Path) -> list[str]:

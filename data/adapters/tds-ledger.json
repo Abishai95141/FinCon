@@ -1,0 +1,75 @@
+{
+  "spec_id": "tds-ledger",
+  "source": "tds-ledger",
+  "side": "books",
+  "authored_by": "human",
+  "currency": "INR",
+  "reader": {
+    "kind": "csv",
+    "encoding": [
+      "utf-8"
+    ],
+    "header_row": 1
+  },
+  "fields": [
+    {
+      "to": "date",
+      "source": "invoice_date",
+      "parse": "date",
+      "fmt": "YYYY-MM-DD"
+    },
+    {
+      "to": "amount",
+      "source": "tds_receivable",
+      "parse": "decimal"
+    },
+    {
+      "to": "reference",
+      "source": "voucher_id",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "tan",
+      "source": "deductor_tan",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "section",
+      "source": "section",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "quarter",
+      "source": "quarter",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "deductor",
+      "source": "counterparty",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "amount_paid",
+      "source": "amount_billed",
+      "parse": "text"
+    }
+  ],
+  "reject": [
+    {
+      "when": "row_blank",
+      "reason": "blank_row"
+    }
+  ],
+  "natural_key": [
+    "keys.tan",
+    "keys.section",
+    "keys.quarter",
+    "source_row_id",
+    "amount"
+  ]
+}

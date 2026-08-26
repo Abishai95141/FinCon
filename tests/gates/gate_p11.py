@@ -774,7 +774,15 @@ def test_the_registry_ref_travels_with_the_worklist(tmp_path):
     from bench.run import close
 
     result = close("A", journal_dir=tmp_path)
-    assert result.taxonomy.ref == "settlement-taxonomy@v1"
+    # Against the registry's own version rather than a literal. Pinned to `@v1`
+    # this failed the day six tax codes were minted — which is the registry
+    # working: an open registry that never bumps has stopped recording that it
+    # grew. What must hold is that the ref *travelling with the worklist* is the
+    # ref of the registry that produced it.
+    from recon.profiles.settlement import taxonomy as settlement_taxonomy
+
+    assert result.taxonomy.ref == settlement_taxonomy().ref
+    assert result.taxonomy.ref.startswith("settlement-taxonomy@v")
 
 
 # --------------------------------------------------------------------------

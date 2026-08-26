@@ -24,6 +24,9 @@ from .model import ZERO, Batch, money
 
 __all__ = ["FILENAMES", "CheckError", "build", "check_batch", "emit", "verify_manifest"]
 
+from . import tds as tds_module
+from .tds import generate as tds_generate
+
 DEFAULT_OUT = Path("data/batches")
 # Batch A is worked against; B is held out for the P7 lift measurement and must
 # never be used to tune anything.
@@ -123,7 +126,12 @@ def verify_manifest(out: Path = DEFAULT_OUT) -> list[str]:
     problems: list[str] = []
     for name, entry in sorted(manifest.items()):
         for key, digest in sorted(entry["files"].items()):
-            path = out / name / FILENAMES[key]
+            # Settlement batches key their files by a logical name that
+            # `FILENAMES` maps; the TDS batch keys them by the filename itself,
+            # because its loop names files in its own profile rather than here.
+            # Falling back to the key keeps one manifest across both loops
+            # instead of a second file nobody would remember to check.
+            path = out / name / FILENAMES.get(key, key)
             if not path.exists():
                 problems.append(f"{name}/{key}: missing ({path})")
                 continue
@@ -161,6 +169,26 @@ def main(argv: list[str] | None = None) -> int:
         manifest[name] = {
             "seed": seed,
             "files": {k: _sha256(v) for k, v in sorted(written.items())},
+        }
+
+    # The second loop's batch. A directory of its own because a source set is a
+    # period's files for *one* loop — `Loop.missing` lists a period only when
+    # every file it reads is present, so mixing two loops' files in one folder
+    # would make each look permanently half-arrived.
+    tds_batch = args.out / "FY2627"
+    entry = tds_generate(tds_batch) if not args.check_only else {"rows": 0, "planted": 0}
+    print(
+        f"batch FY2627  seed={tds_module.SEED}  loop=tds_26as  "
+        f"rows={entry['rows']}  planted={entry['planted']}"
+    )
+    if not args.check_only:
+        manifest["FY2627"] = {
+            "seed": tds_module.SEED,
+            "files": {
+                f.name: _sha256(f)
+                for f in sorted(tds_batch.iterdir())
+                if f.is_file() and f.name != "MANIFEST.json"
+            },
         }
 
     if not args.check_only:

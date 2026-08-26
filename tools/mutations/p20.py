@@ -95,9 +95,14 @@ MUTATIONS = [
         """    lock = path""",
     ),
     (
+        # Re-anchored when the lock moved from `flock` to `lockf` — flock is
+        # emulated over NFS and every read of a just-written log on EFS timed out
+        # against a writer that had finished. The mutation is the same one: make
+        # the deadline unreachable and a caller waits forever instead of being
+        # told the log is held.
         "a writer waits forever on a stuck lock instead of reporting it",
         "src/recon/journal/__init__.py",
-        """                if time.monotonic() >= deadline:""",
-        """                if False:""",
+        """            if time.monotonic() >= deadline:""",
+        """            if False:""",
     ),
 ]

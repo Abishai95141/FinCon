@@ -200,9 +200,81 @@
       "proposed_by": "meera",
       "status": "promoted",
       "title": "Unexplained"
+    },
+    "X-TDS-NOT-DEPOSITED": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "receivable",
+      "code": "X-TDS-NOT-DEPOSITED",
+      "definition": "The deductor withheld tax from our payment and has not deposited it with the government. Our books carry the receivable and 26AS has no record of it. This is money we have already paid and cannot claim, and it is recovered by chasing the deductor to file a correction return \u2014 not by an adjustment on our side.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "TDS deducted, not deposited"
+    },
+    "X-TDS-PAN-MISMATCH": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "receivable",
+      "code": "X-TDS-PAN-MISMATCH",
+      "definition": "The deposit exists and is credited to somebody else's PAN. Indistinguishable from a missing deposit when looking only at our own 26AS, which is why it is a separate code with a separate remedy: the deductor files a correction naming the right deductee.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "Filed against the wrong PAN"
+    },
+    "X-TDS-QUARTER-ERROR": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "in_transit",
+      "code": "X-TDS-QUARTER-ERROR",
+      "definition": "Both sides hold the deduction and disagree about which quarter it belongs to. A timing difference: the credit is real and arrives, so it carries forward rather than being chased.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "Deposited in the wrong quarter"
+    },
+    "X-TDS-RATE-DIFF": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "fee_variance",
+      "code": "X-TDS-RATE-DIFF",
+      "definition": "The amount paid agrees and the tax does not. The only arithmetic variance in this loop: a statutory rate applied to a known base has one right answer, so a difference above rounding is an error rather than a tolerance.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "Deducted at the wrong rate"
+    },
+    "X-TDS-SECTION-MISMATCH": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "suspense",
+      "code": "X-TDS-SECTION-MISMATCH",
+      "definition": "Same money, same quarter, filed under a different section of the Act than we booked it. The amount usually ties, so this survives an amount-only reconciliation and surfaces at assessment instead.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "Booked under the wrong section"
+    },
+    "X-TDS-UNBOOKED": {
+      "accepted_at": "2026-08-26T00:00:00Z",
+      "accepted_by": "abishai",
+      "books_to": "receivable",
+      "code": "X-TDS-UNBOOKED",
+      "definition": "Somebody deducted tax on a payment we never recorded. The only variance here that is in our favour, and the reason the completeness audit has to walk the government side too rather than only our own.",
+      "owner": "tax",
+      "proposed_at": "2026-08-26T00:00:00Z",
+      "proposed_by": "abishai",
+      "status": "provisional",
+      "title": "In 26AS, not in our books"
     }
   },
   "default_owner": "controller",
   "registry_id": "settlement-taxonomy",
-  "version": 1
+  "version": 2
 }

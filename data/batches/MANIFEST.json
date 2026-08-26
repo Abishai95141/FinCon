@@ -20,5 +20,13 @@
       "settlement_novel": "6a1bea3e104639dd29618746ade59e58b6fa7943c76c8b31cbcd74fea2c9b35d"
     },
     "seed": 20260901
+  },
+  "FY2627": {
+    "files": {
+      "form26as.txt": "97ac60a1b05c5b56054ac60cb38c72d9367c809f0edceed8e6f08c54534a2995",
+      "labels.json": "375127c4213b8eb3af46aa987e9525c70b133ecd89701da4a3d0a6219b85e2a1",
+      "tds_ledger.csv": "a22ff6cb86b7f4276bdab74e464ce36f3312381c458e91a65744b4136d6e510b"
+    },
+    "seed": 262026
   }
 }

@@ -123,3 +123,40 @@ def test_a_partial_payment_is_classified_rather_than_unexplained():
     raised = [e for e in result.exceptions if e.code == "E04"]
     assert len(raised) == 1, f"raised {[e.code for e in result.exceptions]}"
     assert str(raised[0].amount) == planted["unreconciled"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "ReconException.leg is a closed set of settlement's own words — 'bank' and "
+        "'orders' — in the public semver'd contract, so a second loop cannot name "
+        "its own legs. Found by tds_26as, whose exceptions record leg='bank' for a "
+        "reconciliation between the Income Tax Department and a tax ledger where no "
+        "bank appears. The distinction the field actually encodes is semantic — does "
+        "this move the balance-assertion gap (invariant 1) or is it a linkage failure "
+        "— so the fix is 'value'/'linkage' plus a major version bump, touching 30 "
+        "sites. Not rushed at the end of a session."
+    ),
+)
+def test_an_exceptions_leg_can_name_a_side_the_loop_actually_has():
+    """A second loop must be able to say which of *its* sides an exception is on.
+
+    The domain leak is not the word 'bank'. It is that `contracts/exception.py`
+    decides, for every reconciliation anybody ever writes, that there are exactly
+    two legs and what they are called — which is invariant 7 being false in the
+    one module that is hardest to change.
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from recon.contracts import ReconException
+
+    exc = ReconException(
+        exception_id="EXC-00001",
+        code="X-TDS-NOT-DEPOSITED",
+        as_of=date(2026, 8, 26),
+        amount=Decimal("46.31"),
+        leg="government",
+        record_ids=["r1"],
+    )
+    assert exc.leg == "government"

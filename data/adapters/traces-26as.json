@@ -1,0 +1,89 @@
+{
+  "spec_id": "traces-26as",
+  "source": "traces-26as",
+  "side": "government",
+  "authored_by": "human",
+  "currency": "INR",
+  "reader": {
+    "kind": "csv",
+    "encoding": [
+      "utf-8",
+      "latin-1"
+    ],
+    "header_row": 1,
+    "delimiter": "^"
+  },
+  "fields": [
+    {
+      "to": "date",
+      "source": "transaction_date",
+      "parse": "date",
+      "fmt": "YYYY-MM-DD"
+    },
+    {
+      "to": "amount",
+      "source": "tax_deducted",
+      "parse": "decimal"
+    },
+    {
+      "to": "reference",
+      "source": "certificate_no",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "tan",
+      "source": "deductor_tan",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "section",
+      "source": "section",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "quarter",
+      "source": "quarter",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "deductee_pan",
+      "source": "deductee_pan",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "deductor",
+      "source": "deductor_name",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "amount_paid",
+      "source": "amount_paid",
+      "parse": "text"
+    },
+    {
+      "to": "key",
+      "as_key": "status",
+      "source": "status",
+      "parse": "text"
+    }
+  ],
+  "reject": [
+    {
+      "when": "row_blank",
+      "reason": "blank_row"
+    }
+  ],
+  "natural_key": [
+    "keys.tan",
+    "keys.section",
+    "keys.quarter",
+    "source_row_id",
+    "amount"
+  ]
+}

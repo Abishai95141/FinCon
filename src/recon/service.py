@@ -1044,6 +1044,26 @@ class JournalExport(BaseModel):
     to be visible as *absent*, not missing."""
 
 
+def _account_for(accounts: dict[str, str], role: str, loop_name: str) -> str:
+    """Resolve a role through the loop's chart, or refuse.
+
+    The first version invented `Equity:Unmapped:{role}` for a role the chart did
+    not carry — an account name written into kernel code, which invariant 7
+    forbids and a guard in `tests/known_broken.py` caught. It was also a plug:
+    `ChartOfAccounts` already requires every role, so an unresolvable one means
+    the log names a role this chart has never had, and quietly parking the money
+    in an invented account is how a journal balances while being wrong.
+    """
+    account = accounts.get(role)
+    if account is None:
+        raise ServiceError(
+            f"the decision log posts to role {role!r} and the {loop_name} chart has "
+            f"no account for it. The chart changed after this close was recorded; "
+            f"the export refuses rather than inventing a line to hold the money."
+        )
+    return account
+
+
 def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
     """Reconstruct the journal from the record, in CSV and in beancount.
 
@@ -1103,7 +1123,7 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
         if origin:
             lines.append(f'  origin: "{origin}"')
         for line in payload.postings:
-            account = accounts.get(line["role"], f"Equity:Unmapped:{line['role']}")
+            account = _account_for(accounts, line["role"], lp.name)
             writer.writerow(
                 [
                     payload.entry_id,
@@ -1133,8 +1153,8 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
     disposed = 0
     for event in reviewlib.dispositions(run_id, runs_dir or runs_root()):
         payload = event.payload
-        debit = accounts.get(payload.debit_account, f"Equity:Unmapped:{payload.debit_account}")
-        credit = accounts.get(payload.credit_account, f"Equity:Unmapped:{payload.credit_account}")
+        debit = _account_for(accounts, payload.debit_account, lp.name)
+        credit = _account_for(accounts, payload.credit_account, lp.name)
         narration = f"{payload.disposition.replace('_', ' ')} {payload.exception_id}"
         on = event.at.date().isoformat()
         disposed += 1

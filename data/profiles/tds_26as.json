@@ -1,0 +1,21 @@
+{
+  "accounts": {
+    "bank": "Assets:Bank:HDFC",
+    "clearing": "Assets:Tax:TDS:Unreconciled",
+    "disputes": "Expenses:Tax:TDS:Disputed",
+    "fee_variance": "Expenses:Tax:TDS:RateVariance",
+    "fees": "Expenses:Tax:TDS:Deducted",
+    "in_transit": "Assets:Tax:TDS:AwaitingDeposit",
+    "income": "Income:Sales",
+    "receivable": "Assets:Tax:TDS:Recoverable",
+    "refunds": "Income:Sales:Refunds",
+    "rounding": "Expenses:Rounding",
+    "suspense": "Assets:Tax:TDS:Unidentified",
+    "write_off": "Expenses:Tax:TDS:WrittenOff"
+  },
+  "approved_at": "2026-08-26T00:00:00Z",
+  "approved_by": "meera",
+  "currency": "INR",
+  "notes": "The TDS loop's chart. Nothing here is a gateway account: a TDS credit is an asset against the government, and the roles the engine knows by name (clearing, suspense, receivable) point at tax accounts rather than at cash. That the same role names fit a completely different ledger is the strongest evidence available that AccountRole is domain-agnostic.",
+  "profile": "tds_26as"
+}

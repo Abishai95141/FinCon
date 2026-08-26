@@ -1,8 +1,9 @@
 {
   "files": {
-    "settlement_3way.json": "cf3e2980f2926a575d647de42d41efccd3d90dbfd3bb22ed71be98e812efe0d6"
+    "settlement_3way.json": "cf3e2980f2926a575d647de42d41efccd3d90dbfd3bb22ed71be98e812efe0d6",
+    "tds_26as.json": "4eb63e5d4c614c8c92e79c2bdd445a09de2830b72456922f3b7f77928df1e308"
   },
   "key_id": "db20830383e351ba",
-  "signature": "7b23cc363caec067d0b79f91e3e59580b8b9829f984fbe1056a1e853915b00f8f872e86cd11ac675282c46aa78231cad9994f5bb13717a5e7ca362815b0c9e0a",
+  "signature": "d78b1ae502e0203555c8e040f5e7e8cb03a99fc3ea2d3e158ebcebc3fcad556d02294184e8da7e8364bcdfd221efda696b893fb34de749cef46d446971ce1f0e",
   "signed_by": "meera"
 }
