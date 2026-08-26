@@ -22,17 +22,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from .contracts import (
     ClassificationAcceptedPayload,
     CloseSignedOffPayload,
+    DispositionRecordedPayload,
     EventKind,
     ExceptionAcknowledgedPayload,
+    Money,
     ReconException,
 )
 from .contracts.event import Event
 from .journal import Journal, exclusive, read, shared, verify_chain
+
+ZERO = Decimal("0.00")
 
 FILENAME = "review.jsonl"
 
@@ -84,6 +89,18 @@ class Review:
     a code with no history — a reclassification with no before and no name is
     exactly the anonymous relabel this project refuses."""
 
+    disposed: dict[str, str] = field(default_factory=dict)
+    """exception id -> the disposition a human made. An item in here is *finished*:
+    it has an entry behind it and it no longer blocks. Everything else in this
+    dataclass records that somebody looked; this one records what was done."""
+
+    disposed_by: dict[str, str] = field(default_factory=dict)
+    written_off: Money = ZERO
+    """Value that left this close through write-off, running. Read back out of the
+    log rather than tracked beside it, because the budget check needs a total the
+    next write-off cannot inflate — and computing the same fact twice is how a
+    control over one copy goes quietly dead."""
+
     still_open: int = 0
     """Items left open at sign-off, from the signature's own payload. A signature
     that did not record how much was still outstanding would be a signature on an
@@ -119,6 +136,9 @@ def fold(stream: list[Event]) -> Review:
     accepted: dict[str, str] = {}
     accepted_by: dict[str, str] = {}
     accepted_from: dict[str, str] = {}
+    disposed: dict[str, str] = {}
+    disposed_by: dict[str, str] = {}
+    written_off = ZERO
     still_open = 0
     by = at = note = ""
     for event in stream:
@@ -131,11 +151,27 @@ def fold(stream: list[Event]) -> Review:
             accepted[payload.exception_id] = payload.to_code
             accepted_by[payload.exception_id] = payload.accepted_by
             accepted_from[payload.exception_id] = payload.from_code
+        elif event.kind is EventKind.DISPOSITION_RECORDED:
+            disposed[payload.exception_id] = payload.disposition
+            disposed_by[payload.exception_id] = payload.decided_by
+            if payload.disposition == "write_off":
+                written_off += abs(payload.amount)
         elif event.kind is EventKind.CLOSE_SIGNED_OFF:
             by, at, note = payload.signed_off_by, event.at.isoformat(), payload.note
             still_open = payload.exceptions_open
     return Review(
-        acknowledged, notes, accepted, accepted_by, accepted_from, still_open, by, at, note
+        acknowledged,
+        notes,
+        accepted,
+        accepted_by,
+        accepted_from,
+        disposed,
+        disposed_by,
+        written_off,
+        still_open,
+        by,
+        at,
+        note,
     )
 
 
@@ -256,11 +292,18 @@ def blockers(exceptions: list[ReconException], review: Review) -> list[str]:
     Only the ones the engine marked `blocks_close`. An ordinary exception is the
     normal state of a real close and holding sign-off on all of them would make
     the control theatre nobody could satisfy.
+
+    A **disposed** item clears too, and for a stronger reason than an
+    acknowledged one: acknowledgement says a person looked, and a disposition
+    says a person acted and an entry followed. Requiring an acknowledgement on
+    top of a disposition would make the weaker act gate the stronger one.
     """
     return sorted(
         exc.exception_id
         for exc in exceptions
-        if exc.blocks_close and exc.exception_id not in review.acknowledged
+        if exc.blocks_close
+        and exc.exception_id not in review.acknowledged
+        and exc.exception_id not in review.disposed
     )
 
 
@@ -320,3 +363,83 @@ def sign_off(
 def as_of(run_id: str, runs_dir: Path) -> date | None:
     stream = events(run_id, runs_dir)
     return stream[-1].at.date() if stream else None
+
+
+def dispose(
+    run_id: str,
+    runs_dir: Path,
+    *,
+    decision,
+    rationale: str,
+    decided_by: str,
+    policy_ref: str,
+) -> Event:
+    """Record a checked disposition. The entry is already built; this is where
+    it becomes durable and stops being a thing that happened in a process.
+
+    `decision` is a `recon.disposition.Decision`, which cannot be constructed
+    unless it passed every ceiling — so there is no admissibility check here and
+    no way to reach this function around one. A second check in this module
+    would be the same fact computed twice, and the copy nobody reads is the one
+    that rots.
+
+    Refuses a second disposition on the same item: an exception that ends twice
+    has had its value removed twice, and the second entry balances just as
+    neatly as the first.
+    """
+    exception = decision.exception
+    state = (
+        fold(read(path_for(run_id, runs_dir), verify=False))
+        if path_for(run_id, runs_dir).exists()
+        else None
+    )
+    if state and exception.exception_id in state.disposed:
+        raise ReviewError(
+            f"{exception.exception_id} was already {state.disposed[exception.exception_id]} "
+            f"by {state.disposed_by.get(exception.exception_id, 'somebody')}. Disposing of it "
+            f"again would take its value out of the close a second time."
+        )
+
+    entry = decision.entry
+    debit = next(p for p in entry.postings if p.amount > ZERO)
+    credit = next(p for p in entry.postings if p.amount < ZERO)
+    return _append(
+        run_id,
+        runs_dir,
+        EventKind.DISPOSITION_RECORDED,
+        actor=decided_by,
+        outcome=decision.disposition.value,
+        input_hash=exception.fingerprint or exception.exception_id,
+        payload=DispositionRecordedPayload(
+            exception_id=exception.exception_id,
+            fingerprint=exception.fingerprint or "",
+            disposition=decision.disposition.value,
+            from_code=exception.code,
+            amount=abs(exception.amount),
+            debit_account=debit.role.value,
+            credit_account=credit.role.value,
+            entry_id=entry.entry_id,
+            decided_by=decided_by,
+            rationale=rationale,
+            policy_ref=policy_ref,
+            ceiling_applied=decision.ceiling,
+            budget_remaining=decision.budget_left,
+            due_on=decision.due_on,
+            owner=decision.owner,
+        ),
+        policy_ref=policy_ref,
+    )
+
+
+def dispositions(run_id: str, runs_dir: Path) -> list[Event]:
+    """Every recorded disposition, oldest first.
+
+    A reader rather than a fold, because the journal needs each event's own
+    timestamp and payload and a folded summary would have thrown both away.
+    """
+    path = path_for(run_id, runs_dir)
+    if not path.exists():
+        return []
+    with shared(path):
+        stream = read(path, verify=False)
+    return [e for e in stream if e.kind is EventKind.DISPOSITION_RECORDED]

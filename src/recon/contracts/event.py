@@ -22,7 +22,7 @@ marketing document; in a governed system the refusal is the interesting part.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
@@ -54,6 +54,7 @@ class EventKind(StrEnum):
     CODE_PROMOTED = "CodePromoted"
     EXCEPTION_ACKNOWLEDGED = "ExceptionAcknowledged"
     CLASSIFICATION_ACCEPTED = "ClassificationAccepted"
+    DISPOSITION_RECORDED = "DispositionRecorded"
     CLOSE_SIGNED_OFF = "CloseSignedOff"
     RULE_INDUCED = "RuleInduced"
     ADAPTER_AUTHORED = "AdapterAuthored"
@@ -82,6 +83,7 @@ PRODUCERS: dict[EventKind, str] = {
     EventKind.CODE_PROMOTED: "recon.engine.taxonomy.promote",
     EventKind.EXCEPTION_ACKNOWLEDGED: "recon.review.acknowledge",
     EventKind.CLASSIFICATION_ACCEPTED: "recon.review.accept_classification",
+    EventKind.DISPOSITION_RECORDED: "recon.disposition.dispose",
     EventKind.CLOSE_SIGNED_OFF: "recon.review.sign_off",
     EventKind.RULE_INDUCED: "recon.triage.induce.induce",
     EventKind.ADAPTER_AUTHORED: "recon.triage.normalize.author_spec",
@@ -397,6 +399,57 @@ class ClassificationAcceptedPayload(_Payload):
     model: str = ""
 
 
+class DispositionRecordedPayload(_Payload):
+    """A person decided what happens to an exception, and an entry followed.
+
+    This is the event the product existed without for thirteen phases. Before
+    it, a close could name a break, price it, route it and record who agreed —
+    and the money stayed exactly where it was. An attestation with no entry
+    behind it tells an auditor that somebody looked; it does not tell them what
+    was done.
+
+    The payload carries its own journal entry rather than a pointer to one, for
+    the reason `MatchProven` carries its proof: a record that cites evidence it
+    does not contain asks a reader to fetch a document only we can produce.
+    """
+
+    exception_id: str
+    fingerprint: str
+    """The break's content-derived identity, so the same item is recognisable in
+    the next close even though this decision does not travel to it yet."""
+
+    disposition: str
+    """One of `Disposition`. Stored as its value so an old log stays readable
+    after the enum grows — the same reason exception codes are data."""
+
+    from_code: str
+    amount: Money
+    debit_account: str
+    credit_account: str
+    entry_id: str
+    decided_by: str
+    """A named person. `P2 ATTESTED` means somebody is accountable, and an empty
+    string here is a disposition nobody made."""
+
+    rationale: str
+    policy_ref: str
+    """Which policy's ceilings this was checked against — recorded because an
+    approval nobody re-examines is a permission with no expiry."""
+
+    ceiling_applied: Money | None = None
+    """The write-off ceiling in force, when one applied. A bound that was
+    *checked* is worth recording; a bound that was hit is a finding."""
+
+    budget_remaining: Money | None = None
+    """What was left of the close's write-off budget after this one."""
+
+    due_on: date | None = None
+    """Chase only — when somebody expects the money."""
+
+    owner: str = ""
+    """Chase only — who is chasing. A receivable with no owner is a note."""
+
+
 class CloseSignedOffPayload(_Payload):
     """A named human accepts the close.
 
@@ -493,6 +546,7 @@ PAYLOADS: dict[EventKind, type[_Payload]] = {
     EventKind.CLASSIFICATION_PROPOSED: ClassificationProposedPayload,
     EventKind.EXCEPTION_ACKNOWLEDGED: ExceptionAcknowledgedPayload,
     EventKind.CLASSIFICATION_ACCEPTED: ClassificationAcceptedPayload,
+    EventKind.DISPOSITION_RECORDED: DispositionRecordedPayload,
     EventKind.CLOSE_SIGNED_OFF: CloseSignedOffPayload,
     EventKind.CODE_PROPOSED: CodeProposedPayload,
     EventKind.CODE_ACCEPTED: CodeAcceptedPayload,

@@ -117,6 +117,31 @@ class Policy(BaseModel):
     than by luck. Like the rest of policy, the reference is supplied by the
     caller alongside it and never by the proposer."""
 
+    # ---- what a human may do to an exception -------------------------------
+    # Both ceilings govern *dispositions*, which is the only place value leaves
+    # a close on a person's say-so. They live in policy rather than on the
+    # screen for the reason every finding in the control-plane audit reduces to:
+    # a threshold supplied by the person acting under it is not a threshold.
+
+    write_off_ceiling: Money = Decimal("500.00")
+    """The largest single item a person may write off.
+
+    Above it, the item escalates — there is no override field, and adding one
+    would make the ceiling advisory. Chosen to match the figure the profession
+    already uses as its documentation trigger: any reconciling difference over
+    ₹500 needs a written memo, so anything larger than that is not a
+    housekeeping decision."""
+
+    write_off_budget_ratio: Ratio = Decimal("0.1000")
+    """The share of the tail's total value that may leave one close through
+    write-off, all items together.
+
+    The per-item ceiling alone is trivially defeated: ninety items at ₹499 pass
+    it one at a time and take ₹44,910 out of the close between them. This is
+    audit finding `F4` in its general form — a reason makes a write-off legible,
+    and only a budget makes it bounded. Measured against the tail at the moment
+    of the close, not against a running total the next write-off could inflate."""
+
     approved_by: str
     approved_at: datetime
     notes: str | None = None

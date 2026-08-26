@@ -27,6 +27,7 @@ import os
 import shlex
 import shutil
 import threading
+from datetime import date
 from decimal import Decimal
 from html import escape
 from pathlib import Path
@@ -1477,7 +1478,7 @@ def sources_page(
                 )
                 + "<div style='height:1.4rem'></div>"
             )
-            + f"<div class='grid' style='display:grid;gap:1.4rem;grid-template-columns:1fr'>"
+            + f"<div class='grid' style='display:grid;gap:1.4rem;grid-template-columns:minmax(0,1fr)'>"
             f"<div><p class='sec' style='margin-bottom:.5rem'>Upload a period</p>"
             f"<form method='post' action='/sources/upload' enctype='multipart/form-data'>{csrf}"
             f"<div class='field'><label for='period'>Period name</label>"
@@ -1617,6 +1618,7 @@ def close_pack(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         )
 
     export = service.journal(run_id, runs_dir)
+    endings = _pack_dispositions(run_id, runs_dir)
     unposted_note = (
         f"<p class='lede' style='margin-top:1rem'><b>{len(export.unposted)} exception(s) "
         f"raised no entry</b> and are listed in the tail below. Money that never reached "
@@ -1705,6 +1707,8 @@ def close_pack(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
     {"".join(entries)}
     {unposted_note}
   </section>
+
+  {endings}
 
   <section>
     <h2>The tail &mdash; {len(view.exceptions)} items</h2>
@@ -1875,6 +1879,8 @@ def item_page(
         else ""
     )
 
+    ending = _disposition_panel(run_id, exception_id, exc, state, csrf, runs_dir)
+
     body = (
         f"<div class='pagehead'><div class='lhs'>"
         f"<h1>{escape(exc.code)} &middot; {escape(item.code_title)}</h1>"
@@ -1894,8 +1900,9 @@ def item_page(
         f"{'&hellip;' if len(exc.record_ids) > 10 else ''}</p></div>"
         f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
         f"<p class='sec' style='margin-bottom:.5rem'>Ask the model</p>{ai}</div>"
-        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.2rem'>"
         f"<p class='sec' style='margin-bottom:.5rem'>Your decision</p>{ack}</div>"
+        f"{ending}"
     )
     crumb = (
         f"<a href='/periods'>Periods</a><span>/</span>"
@@ -1903,6 +1910,164 @@ def item_page(
         f"<b>{escape(exception_id)}</b>"
     )
     return shell(user, active="worklist", crumb=crumb, body=body)
+
+
+def _pack_dispositions(run_id: str, runs_dir) -> str:
+    """What a person decided, and under which bounds.
+
+    The two policy figures are on the page because they were *checked*. A
+    write-off ceiling that only appears when it refuses somebody is a control an
+    auditor cannot see was in force, and `ceiling_applied` would be a field the
+    record carries and nothing reads — which is the shape of every
+    declared-but-unenforced defect this codebase has found.
+    """
+    from .. import review as reviewlib
+
+    events = reviewlib.dispositions(run_id, runs_dir or service.runs_root())
+    if not events:
+        return ""
+
+    rows = []
+    for event in events:
+        payload = event.payload
+        bounds = []
+        if payload.ceiling_applied is not None:
+            bounds.append(f"ceiling {money(payload.ceiling_applied)}")
+        if payload.budget_remaining is not None:
+            bounds.append(f"{money(payload.budget_remaining)} of budget left after")
+        if payload.owner:
+            bounds.append(f"owner {escape(payload.owner)}")
+        if payload.due_on:
+            bounds.append(f"due {payload.due_on.isoformat()}")
+        rows.append(
+            f"<tr><td class='num'><b>{escape(payload.exception_id)}</b></td>"
+            f"<td>{escape(payload.disposition.replace('_', ' '))}</td>"
+            f"<td class='right num'>{money(payload.amount)}</td>"
+            f"<td>{escape(payload.rationale)}</td>"
+            f"<td>{escape(payload.decided_by)}</td>"
+            f"<td class='cap num'>{escape(payload.policy_ref)}"
+            + (f"<br>{' &middot; '.join(bounds)}" if bounds else "")
+            + "</td></tr>"
+        )
+
+    return (
+        f"<section><h2>Decided by a person &mdash; {len(events)} item(s)</h2>"
+        f"<p class='lede'>Each of these ended in a journal entry above, tagged "
+        f"<code>P2</code>. The policy each was checked against is named beside it, because "
+        f"an approval nobody re-examines is a permission with no expiry.</p>"
+        f"<div class='tbl'><table><tr><th>Item</th><th>Ending</th><th class='right'>Value</th>"
+        f"<th>Why</th><th>Who</th><th>Under</th></tr>{''.join(rows)}</table></div></section>"
+    )
+
+
+def _disposition_panel(run_id, exception_id, exc, state, csrf, runs_dir) -> str:
+    """How this item ends, and what it costs.
+
+    The four buttons are the half of the product that did not exist until
+    2026-08-26. Everything above this panel on the page tells a person what is
+    wrong; this is where they say what happens about it, and an entry follows.
+
+    The write-off control shows its ceiling and the close's remaining budget
+    *before* it is pressed. A limit a person discovers by being refused is a
+    limit they experience as an obstacle; a limit they can see is a policy.
+    """
+    from ..disposition import Disposition, budget_for
+
+    done = state.disposed.get(exception_id)
+    if done:
+        who = state.disposed_by.get(exception_id, "somebody")
+        return (
+            f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+            f"<p class='sec' style='margin-bottom:.5rem'>How this ended</p>"
+            f"<div class='note note-ok'><b>{escape(done.replace('_', ' ').title())}</b> by "
+            f"{escape(who)}. A journal entry was written and this item no longer blocks "
+            f"sign-off &mdash; it is in <code>journal.csv</code> at "
+            f"<code>JE-D-{escape(exception_id)}</code>, tagged <code>P2</code> so a reader "
+            f"can tell what a person decided from what the engine proved.</div></div>"
+        )
+
+    view_ = service.view(run_id, runs_dir)
+    policy = looplib.get(view_.loop).policy()
+    tail = [e.exception for e in view_.exceptions]
+    budget = budget_for(tail, policy)
+    left = budget - state.written_off
+    value = abs(exc.amount)
+    too_big = value > policy.write_off_ceiling
+    over_budget = value > left
+
+    def form(kind: Disposition, label: str, blurb: str, extra: str = "", disabled: str = "") -> str:
+        button = (
+            f"<button class='btn btn-secondary' type='submit'>{escape(label)}</button>"
+            if not disabled
+            else f"<button class='btn btn-secondary' disabled>{escape(label)}</button>"
+            f"<p class='cap' style='margin:.4rem 0 0;color:var(--warning)'>{disabled}</p>"
+        )
+        return (
+            f"<div style='padding:.95rem 0;border-bottom:1px solid var(--n200)'>"
+            f"<form method='post' action='/periods/{escape(run_id)}/items/"
+            f"{escape(exception_id)}/dispose'>{csrf}"
+            f"<input type='hidden' name='disposition' value='{kind.value}'>"
+            f"<div class='field' style='margin-bottom:.6rem'>"
+            f"<input class='input' name='rationale' required "
+            f"placeholder='why &mdash; this goes in the books beside the number'></div>"
+            f"{extra}{button}</form>"
+            f"<p class='cap' style='margin:.5rem 0 0'>{blurb}</p></div>"
+        )
+
+    rows = (
+        form(
+            Disposition.BOOK,
+            "Book it",
+            "The difference is real and explained. It becomes an expense in the account "
+            f"<code>{escape(exc.code)}</code> books to &mdash; and is refused if that code has "
+            "not been promoted with a written definition.",
+        )
+        + form(
+            Disposition.CARRY_FORWARD,
+            "Carry forward",
+            "Timing. The money is real and has not landed &mdash; the T+1..T+3 settlement lag. "
+            "It moves to cash in transit, which is an asset, because a timing difference is "
+            "not a loss.",
+        )
+        + form(
+            Disposition.CHASE,
+            "Chase it",
+            "Somebody owes us. It becomes a receivable with a named owner and a date, because "
+            "an item that is never late is never chased.",
+            extra=(
+                "<div class='field' style='margin-bottom:.6rem;display:grid;gap:.6rem;"
+                "grid-template-columns:minmax(0,1fr) minmax(0,1fr)'>"
+                "<input class='input' name='owner' placeholder='who is chasing'>"
+                "<input class='input' name='due_on' type='date'></div>"
+            ),
+        )
+        + form(
+            Disposition.WRITE_OFF,
+            "Write it off",
+            f"Value leaving the close for good. Ceiling {money(policy.write_off_ceiling)} an "
+            f"item under <code>{escape(policy.ref)}</code>; this close may write off "
+            f"{money(budget)} in total and has {money(left)} left. Both come from the signed "
+            f"policy, not from this screen.",
+            disabled=(
+                f"{money(value)} is over the {money(policy.write_off_ceiling)} ceiling. "
+                f"This item escalates &mdash; there is no override."
+                if too_big
+                else f"{money(value)} is more than the {money(left)} left in this close's "
+                f"write-off budget."
+                if over_budget
+                else ""
+            ),
+        )
+    )
+
+    return (
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec' style='margin-bottom:.5rem'>How this ends</p>"
+        f"<p class='cap' style='margin:0 0 .3rem'>Four endings, and each one writes a journal "
+        f"entry and closes the item. All four are <code>P2 ATTESTED</code>: raw records cannot "
+        f"prove a row is spurious &mdash; they contain it &mdash; so a rule may propose an "
+        f"ending and only a person may make one.</p>{rows}</div>"
+    )
 
 
 @router.post("/periods/{run_id}/items/{exception_id}/classify")
@@ -1944,6 +2109,56 @@ def classify_item(
     verdict = "; ".join(result.refusals) if result.refusals else (result.hypothesis or "")
     query = urlencode({"proposal": result.code, "verdict": verdict[:400], "model": edge.model})
     return RedirectResponse(f"/periods/{run_id}/items/{exception_id}?{query}", status_code=303)
+
+
+@router.post("/periods/{run_id}/items/{exception_id}/dispose")
+def dispose_item(
+    request: Request,
+    run_id: str,
+    exception_id: str,
+    disposition: str = Form(...),
+    rationale: str = Form(""),
+    owner: str = Form(""),
+    due_on: str = Form(""),
+    csrf: str = Form(""),
+    user: User = CURRENT_USER,
+) -> Response:
+    """End an exception. The one route in this product where value leaves a close.
+
+    It takes no ceiling, no budget, no account and no policy. Those are read from
+    the loop's signed bundle inside the service, which is the difference between
+    a control and a suggestion — every finding in the control-plane audit reduces
+    to a caller having supplied its own permission, and a form field is exactly
+    how a caller supplies one.
+
+    `decided_by` is the session's identity, never a form field, for the same
+    reason. A person cannot attest in somebody else's name here because there is
+    nowhere to type one.
+    """
+    _check_csrf(request, csrf)
+    runs_dir = tenant_runs(user, request)
+    parsed = None
+    if due_on.strip():
+        try:
+            parsed = date.fromisoformat(due_on.strip())
+        except ValueError as exc:
+            raise HTTPException(422, f"{due_on!r} is not a date") from exc
+
+    try:
+        service.dispose(
+            run_id,
+            exception_id,
+            disposition,
+            decided_by=user.email,
+            rationale=rationale,
+            owner=owner,
+            due_on=parsed,
+            runs_dir=runs_dir,
+        )
+    except service.ServiceError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    return RedirectResponse(f"/periods/{run_id}/items/{exception_id}", status_code=303)
 
 
 @router.post("/periods/{run_id}/items/{exception_id}/accept")
@@ -2058,7 +2273,7 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Settings</h1>"
         f"<p class='sub'>Your account, and the authority every close runs under.</p></div></div>"
-        f"<div class='grid' style='display:grid;gap:1.2rem;grid-template-columns:1fr'>"
+        f"<div class='grid' style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
         f"<div class='panel' style='padding:1.3rem 1.4rem'>"
         f"<p class='sec'>Account</p><div class='kv'>"
         f"<div class='row'><span class='k'>Email</span><span class='v'>{escape(user.email)}</span></div>"
@@ -2222,7 +2437,7 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
         "<div class='pagehead'><div class='lhs'><h1>Agent access</h1>"
         "<p class='sub'>Point an agent at this controller over MCP. It gets the record, "
         "and less authority than you have.</p></div></div>"
-        "<div style='display:grid;gap:1.2rem;grid-template-columns:1fr'>"
+        "<div style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
         # ---- what this is for
         "<div class='panel' style='padding:1.3rem 1.4rem'>"
         "<p class='sec'>What an agent gets</p>"

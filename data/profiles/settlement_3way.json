@@ -5,14 +5,17 @@
     "disputes": "Expenses:Disputes:Reserve",
     "fee_variance": "Expenses:GatewayFees:Variance",
     "fees": "Expenses:GatewayFees",
+    "in_transit": "Assets:Cash:InTransit",
     "income": "Income:Sales",
+    "receivable": "Assets:Receivable:Gateway",
     "refunds": "Income:Sales:Refunds",
     "rounding": "Expenses:Rounding",
-    "suspense": "Liabilities:UnappliedCash"
+    "suspense": "Liabilities:UnappliedCash",
+    "write_off": "Expenses:WriteOff:Reconciliation"
   },
   "approved_at": "2026-08-01T00:00:00Z",
   "approved_by": "meera",
   "currency": "INR",
-  "notes": "The chart of accounts for one company's settlement loop. Domain data: invariant 7 says it belongs in a profile, not in the engine. It lived in src/recon/ledger/accounts.py from P1 until 2026-08-24.",
+  "notes": "The chart of accounts for one company's settlement loop. Domain data: invariant 7 says it belongs in a profile, not in the engine. It lived in src/recon/ledger/accounts.py from P1 until 2026-08-24. Gained in_transit/receivable/write_off on 2026-08-26 when dispositions landed \u2014 an exception now ends in an entry rather than in an attestation.",
   "profile": "settlement_3way"
 }

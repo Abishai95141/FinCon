@@ -45,10 +45,12 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import loop as looplib
+from . import review as reviewlib
 from . import trust
 from .contracts import (
     CONTRACT_VERSION,
     CodeStatus,
+    Money,
     Policy,
     Proof,
     ReconException,
@@ -1028,6 +1030,11 @@ class JournalExport(BaseModel):
     period: list[str]
     currency: str
     entries: int
+    decided: int = 0
+    """How many of `entries` a person decided rather than the engine derived.
+    Reported beside the total rather than folded into it: a close where half the
+    journal is human judgement is a different close, and a single number would
+    hide which one this is."""
     balanced: bool
     csv: str
     beancount: str
@@ -1055,7 +1062,13 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
 
     rows = io.StringIO()
     writer = _csv.writer(rows)
-    writer.writerow(["entry_id", "date", "narration", "account", "amount", "currency", "origin"])
+    # `tier` is a column rather than a footnote. A controller importing this into
+    # their books is entitled to know which lines the engine proved and which
+    # lines a colleague decided — they carry the same weight in the ledger and
+    # very different weight in an audit.
+    writer.writerow(
+        ["entry_id", "date", "narration", "account", "amount", "currency", "origin", "tier"]
+    )
 
     lines: list[str] = [
         f'option "operating_currency" "{chart.currency}"',
@@ -1068,6 +1081,17 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
         lines.append(f"{lp.opened_on.isoformat()} open {account} {chart.currency}")
     lines.append("")
 
+    # Proof tier per posting, derived from the events that already carry it
+    # rather than stamped onto `PostingWritten` as a second copy. The copy
+    # nobody reads is the one that rots, and a posting that disagreed with its
+    # own proof about how well proven it was would be worse than no column.
+    tier_of: dict[str, str] = {}
+    for event in stream:
+        if event.kind is EventKind.MATCH_PROVEN and event.payload.proof:
+            tier_of[event.payload.proof_id] = event.payload.proof.provenance.value
+        elif event.kind is EventKind.EXCEPTION_RAISED:
+            tier_of[event.payload.exception_id] = str(event.payload.code_provenance)
+
     posted = 0
     for event in stream:
         if event.kind is not EventKind.POSTING_WRITTEN:
@@ -1077,7 +1101,7 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
         posted += 1
         lines.append(f'{payload.entry_date} * "{payload.narration}"')
         if origin:
-            lines.append(f"  origin: {origin}")
+            lines.append(f'  origin: "{origin}"')
         for line in payload.postings:
             account = accounts.get(line["role"], f"Equity:Unmapped:{line['role']}")
             writer.writerow(
@@ -1089,16 +1113,57 @@ def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
                     line["amount"],
                     chart.currency,
                     origin,
+                    tier_of.get(origin, "unrecorded"),
                 ]
             )
             lines.append(f"  {account}  {line['amount']} {chart.currency}")
+        lines.append("")
+
+    # ---- what a person decided ------------------------------------------
+    #
+    # The close's postings come off the decision log; dispositions come off the
+    # review log, because they are human acts and the decision log is what a
+    # third party replays without us. Merging them here rather than in either
+    # log keeps `make replay` re-deriving exactly what the engine did, and still
+    # hands the controller one file with everything in it.
+    #
+    # An export that carried only the P0 half would be the same defect this
+    # module was built to fix, one layer up: the work is done, correct, and
+    # nobody can get at it.
+    disposed = 0
+    for event in reviewlib.dispositions(run_id, runs_dir or runs_root()):
+        payload = event.payload
+        debit = accounts.get(payload.debit_account, f"Equity:Unmapped:{payload.debit_account}")
+        credit = accounts.get(payload.credit_account, f"Equity:Unmapped:{payload.credit_account}")
+        narration = f"{payload.disposition.replace('_', ' ')} {payload.exception_id}"
+        on = event.at.date().isoformat()
+        disposed += 1
+        lines.append(f'{on} * "{narration}"')
+        lines.append(f'  origin: "{payload.exception_id}"')
+        lines.append(f'  decided_by: "{payload.decided_by}"')
+        lines.append('  tier: "P2"')
+        for account, amount in ((debit, payload.amount), (credit, -payload.amount)):
+            writer.writerow(
+                [
+                    payload.entry_id,
+                    on,
+                    narration,
+                    account,
+                    f"{amount:.2f}",
+                    chart.currency,
+                    payload.exception_id,
+                    "P2",
+                ]
+            )
+            lines.append(f"  {account}  {amount:.2f} {chart.currency}")
         lines.append("")
 
     return JournalExport(
         run_id=run_id,
         period=[d.isoformat() for d in lp.period],
         currency=chart.currency,
-        entries=posted,
+        entries=posted + disposed,
+        decided=disposed,
         # The *hard* blockers, not the sign-off queue. A close with seven items
         # waiting for a human still balances; conflating "somebody must look at
         # this" with "the books do not tie" would put a false alarm on the one
@@ -1564,3 +1629,146 @@ def contracts() -> dict:
         "version bump, not an edit.",
         "schemas": {name: model.model_json_schema() for name, model in models.items()},
     }
+
+
+# --------------------------------------------------------------------------
+# dispositions
+# --------------------------------------------------------------------------
+
+
+class DispositionView(BaseModel):
+    """What a disposition did, as a surface needs to render it."""
+
+    exception_id: str
+    disposition: str
+    amount: Money
+    entry_id: str
+    debit: str
+    credit: str
+    decided_by: str
+    rationale: str
+    tier: str = "P2"
+    budget_remaining: Money | None = None
+    blockers_left: list[str] = Field(default_factory=list)
+
+
+def dispose(
+    run_id: str,
+    exception_id: str,
+    disposition: str,
+    *,
+    decided_by: str,
+    rationale: str,
+    owner: str = "",
+    due_on: date | None = None,
+    runs_dir: Path | None = None,
+) -> DispositionView:
+    """End an exception in a journal entry.
+
+    Everything that decides *whether* this is allowed comes from the record and
+    from the loop's signed policy — never from the arguments. The caller names
+    the item, the ending, and themselves; the ceilings, the chart, the tail and
+    the running write-off total are all read here.
+
+    That split is the whole rule the control-plane audit produced. A `ceiling`
+    or `chart` parameter on this function would be finding `F2` at the one place
+    in the product where value leaves a close.
+    """
+    from .disposition import Disposition, DispositionError, decide
+
+    root = runs_dir or runs_root()
+    view_ = view(run_id, runs_dir)
+    lp = looplib.get(view_.loop)
+    policy = lp.policy()
+
+    try:
+        chosen = Disposition(disposition)
+    except ValueError as exc:
+        raise ServiceError(
+            f"{disposition!r} is not a disposition. The four are: "
+            f"{', '.join(d.value for d in Disposition)}."
+        ) from exc
+
+    found = [e.exception for e in view_.exceptions if e.exception.exception_id == exception_id]
+    if not found:
+        raise ServiceError(f"{exception_id} is not an exception in {run_id}")
+    exception = found[0]
+    tail = [e.exception for e in view_.exceptions]
+
+    books_to = None
+    if chosen is Disposition.BOOK:
+        books_to = _books_to(exception, lp)
+
+    state = reviewlib.state(run_id, root)
+    try:
+        decision = decide(
+            exception=exception,
+            disposition=chosen,
+            chart=lp.chart(),
+            policy=policy,
+            decided_by=decided_by,
+            rationale=rationale,
+            tail=tail,
+            already_written_off=state.written_off,
+            books_to=books_to,
+            due_on=due_on,
+            owner=owner,
+        )
+    except DispositionError as exc:
+        raise ServiceError(str(exc)) from exc
+
+    try:
+        reviewlib.dispose(
+            run_id,
+            root,
+            decision=decision,
+            rationale=rationale,
+            decided_by=decided_by,
+            policy_ref=policy.ref,
+        )
+    except reviewlib.ReviewError as exc:
+        raise ServiceError(str(exc)) from exc
+
+    after = reviewlib.state(run_id, root)
+    entry = decision.entry
+    debit = next(p for p in entry.postings if p.amount > 0)
+    credit = next(p for p in entry.postings if p.amount < 0)
+    chart = lp.chart()
+    return DispositionView(
+        exception_id=exception_id,
+        disposition=chosen.value,
+        amount=abs(exception.amount),
+        entry_id=entry.entry_id,
+        debit=chart[debit.role],
+        credit=chart[credit.role],
+        decided_by=decided_by,
+        rationale=rationale,
+        budget_remaining=decision.budget_left,
+        blockers_left=reviewlib.blockers(tail, after),
+    )
+
+
+def _books_to(exception, lp):
+    """Which account a `book` disposition debits, from the taxonomy.
+
+    `None` when the code names no account or has not been promoted — and the
+    refusal that follows is the point. A code minted this morning cannot move
+    money into an expense account by being clicked, for the same reason
+    `posting_rules` will not consult a `PROPOSED` code's `books_to`: naming
+    grants nothing.
+    """
+    from .ledger.accounts import AccountRole
+
+    registry = lp.taxonomy()
+    entry = registry.get(exception.code) if hasattr(registry, "get") else None
+    if entry is None or getattr(entry, "status", None) is None:
+        return None
+    if str(getattr(entry.status, "value", entry.status)) != "promoted":
+        return None
+    role = getattr(entry, "books_to", None)
+    if role is None:
+        return None
+    try:
+        return AccountRole(str(getattr(role, "value", role)))
+    except ValueError:
+        return None

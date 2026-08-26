@@ -169,7 +169,7 @@ h3{font-size:20px;line-height:1.3;font-weight:600;letter-spacing:-.012em;margin:
   position:relative;border-radius:var(--r24);background:var(--g-fill);
   border:1px solid var(--g-line);box-shadow:var(--e3);
 }
-.panel{
+.panel{min-width:0;
   position:relative;border-radius:var(--r16);background:rgba(255,255,255,.76);
   border:1px solid var(--g-line);box-shadow:var(--e2);
 }
@@ -186,8 +186,8 @@ h3{font-size:20px;line-height:1.3;font-weight:600;letter-spacing:-.012em;margin:
 }
 
 /* ---- shell ---- */
-.shell{display:grid;grid-template-columns:1fr;min-height:100vh}
-@media(min-width:60rem){.shell{grid-template-columns:15.5rem 1fr}}
+.shell{display:grid;grid-template-columns:minmax(0,1fr);min-height:100vh}
+@media(min-width:60rem){.shell{grid-template-columns:15.5rem minmax(0,1fr)}}
 .rail{
   padding:1.4rem 1rem;background:var(--g-strong);border-right:1px solid var(--g-line);
   display:flex;flex-direction:column;gap:1.2rem;
@@ -437,7 +437,7 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
    Monospace, a quiet ground, and horizontal scroll rather than wrapping: a
    wrapped JSON config is a config somebody pastes broken. */
 .snip{
-  position:relative;margin:.55rem 0 0;padding:.85rem 1rem;border-radius:var(--r12);
+  position:relative;max-width:100%;margin:.55rem 0 0;padding:.85rem 1rem;border-radius:var(--r12);
   background:var(--raised);border:1px solid var(--n300);
   font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   font-size:11.5px;line-height:1.7;color:var(--ink);

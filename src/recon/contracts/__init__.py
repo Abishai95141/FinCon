@@ -19,7 +19,7 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.5.0"
+CONTRACT_VERSION = "7.6.0"
 # 7.5.0 — The human half of a close. ExceptionAcknowledged, ClassificationAccepted
 #         and CloseSignedOff, with their payloads. Until now a close ended at
 #         `CloseCompleted` and the product presented that as approval — the engine
@@ -216,6 +216,7 @@ from .event import (  # noqa: E402
     CodeAcceptedPayload,
     CodePromotedPayload,
     CodeProposedPayload,
+    DispositionRecordedPayload,
     Event,
     EventKind,
     ExceptionAcknowledgedPayload,
@@ -278,6 +279,7 @@ __all__ = [
     "CodePromotedPayload",
     "CodeProposedPayload",
     "CodeStatus",
+    "DispositionRecordedPayload",
     "Event",
     "EventKind",
     "ExceptionAcknowledgedPayload",

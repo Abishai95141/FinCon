@@ -40,6 +40,26 @@ class AccountRole(StrEnum):
     """Unapplied cash: a credit with nothing behind it (E08) parks here rather
     than being guessed into revenue."""
 
+    # ---- disposition destinations ------------------------------------------
+    # Three roles that exist because a human decided something, never because
+    # the engine derived it. Each is the debit side of one disposition; the
+    # credit side is the loop's own source role, so this stays domain-agnostic.
+    IN_TRANSIT = "in_transit"
+    """Carry forward. The T+1..T+3 settlement lag is not a break — the money is
+    real and has not landed yet, so it moves out of clearing and waits. It is an
+    asset, not an expense, which is the whole difference between a timing
+    difference and a loss."""
+
+    RECEIVABLE = "receivable"
+    """Chase. Money somebody owes us and has not sent. Distinct from
+    `SUSPENSE`, which is cash we hold and cannot attribute — the two are
+    opposite problems and putting them in one account loses both."""
+
+    WRITE_OFF = "write_off"
+    """Write off. Value leaving the close for good. Bounded twice by policy: a
+    per-item ceiling and a whole-close budget, because a reason makes a
+    write-off legible and only a budget makes it bounded — audit finding `F4`."""
+
 
 class ChartOfAccounts(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
