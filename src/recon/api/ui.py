@@ -1517,6 +1517,71 @@ def _reading(exc) -> str:
     return escape(text if len(text) <= 150 else text[:147] + "…")
 
 
+def _worklist_empty(closes: list, owner: str, owners: dict) -> str:
+    """An empty worklist means one of three opposite things.
+
+    It said the same sentence for all of them: "either no close has been run yet,
+    or every item has been cleared". That is a screen shrugging at the person
+    reading it — and one of those three is somebody having just finished a
+    month's work, which is the moment the product should be clearest and was
+    instead at its vaguest.
+    """
+    # A desk filter that is empty while other desks are not. Not an achievement,
+    # just a filter — and the counts belong to somebody else.
+    if owner:
+        elsewhere = sum(count for desk, count in owners.items() if desk != owner)
+        return _empty(
+            "inbox",
+            f"Nothing on the {owner} desk",
+            (
+                f"{elsewhere} item(s) are open on other desks."
+                if elsewhere
+                else "And nothing anywhere else either."
+            ),
+            "<a class='btn btn-secondary' href='/worklist'>See every desk</a>",
+        )
+
+    if not closes:
+        return _empty(
+            "inbox",
+            "Nothing here yet",
+            "The worklist fills up when a close raises something it cannot prove. "
+            "Run one and see what it finds.",
+            "<a class='btn btn-primary' href='/periods'>Close a period</a>",
+        )
+
+    # The good ending. Everything raised has been resolved, so say what that is
+    # worth and what is left to do with it — a person who has cleared a month
+    # should not have to guess whether they are finished.
+    unsigned = [(rid, loop) for rid, loop, signed, _ in closes if not signed]
+    matched = sum(n for _, _, _, n in closes)
+    plural = "" if len(closes) == 1 else "es"
+
+    if unsigned:
+        run_id, _loop = unsigned[0]
+        rest = f" ({len(unsigned)} close(s) still unsigned)" if len(unsigned) > 1 else ""
+        return _empty(
+            "check",
+            "Nothing left to work",
+            f"{len(closes)} close{plural}, {matched} matches proven, and every item "
+            f"raised has been resolved. What remains is your signature{rest} — "
+            f"a close nobody has signed is not finished, and the pack will say so.",
+            f"<a class='btn btn-primary' href='/periods/{escape(run_id)}'>Review and sign off</a>",
+        )
+
+    run_id, _loop = closes[0][0], closes[0][1]
+    return _empty(
+        "check",
+        "This month is done",
+        f"{len(closes)} close{plural}, {matched} matches proven, every item resolved "
+        f"and signed. The pack is what you hand an auditor — it carries the "
+        f"figures, the source hashes, the journal and how to check the lot without us.",
+        f"<a class='btn btn-primary' href='/periods/{escape(run_id)}/pack'>"
+        f"Open the close pack</a>"
+        f"<a class='btn btn-ghost' href='/periods'>Close another period</a>",
+    )
+
+
 @router.get("/worklist", response_class=HTMLResponse)
 def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) -> Response:
     """Every open item across every close, ranked and routed.
@@ -1528,12 +1593,28 @@ def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) 
     """
     runs_dir = tenant_runs(user, request)
     rows, owners, total_paise = [], {}, 0
+    # What the *good* ending needs to know. An empty worklist means one of three
+    # opposite things — nothing has run, this desk is clear while others are not,
+    # or the work is genuinely done — and one message for all three told a person
+    # who had just finished the same thing it told a person who had not started.
+    closes: list[tuple[str, str, bool, int]] = []
     for run_id in service.stored_runs(runs_dir):
         try:
             view = service.view(run_id, runs_dir)
         except Exception:
             continue
+        state = review.state(run_id, runs_dir)
+        closes.append((run_id, view.loop, bool(state.signed_off_by), view.tiers.matched))
         for item in view.exceptions:
+            # A resolved item is off this desk. The disposition panel promises
+            # exactly that — "takes the item off your desk" — and the worklist
+            # read the close's record, which is where an exception is *raised*,
+            # and never the review log, which is where it is *ended*. So a person
+            # could book, chase and write off every item in a close and watch the
+            # worklist stay at twenty-seven, which makes the whole ending
+            # pointless and unreachable.
+            if item.exception.exception_id in state.disposed:
+                continue
             owners[item.owner] = owners.get(item.owner, 0) + 1
             if owner and item.owner != owner:
                 continue
@@ -1576,13 +1657,7 @@ def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) 
         f"<th class='right'>Amount</th><th class='right'>Age</th><th>Break</th>"
         f"<th>Owner</th></tr>{''.join(html for _, html in rows)}</table></div>"
         if rows
-        else _empty(
-            "inbox",
-            "Nothing on this desk",
-            "Either no close has been run yet, or every item has been cleared. "
-            "The worklist only ever shows what a close actually raised.",
-            "<a class='btn btn-primary' href='/periods'>Go to periods</a>",
-        )
+        else _worklist_empty(closes, owner, owners)
     )
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Worklist</h1>"

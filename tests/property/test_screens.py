@@ -67,9 +67,12 @@ def test_the_worklist_gathers_every_close(closed):
 
 
 def test_an_empty_worklist_says_so_rather_than_rendering_a_blank_table(session):
+    """The structural half. *Which* kind of empty is
+    `test_the_worklist_says_which_kind_of_empty_it_is`; this one only asks that
+    an empty state is a message and not a table with no rows in it."""
     client, _, _ = session
     page = client.get("/worklist").text
-    assert "Nothing on this desk" in page
+    assert "class='empty'" in page, "an empty worklist renders no empty state at all"
     assert "<table>" not in page, "an empty state that is still a table is not an empty state"
 
 
@@ -319,3 +322,98 @@ def test_settings_explains_why_it_is_read_only_rather_than_looking_unfinished(se
     # Each table says what it is *for*, not just what is in it.
     for phrase in ("Naming grants nothing", "regression"):
         assert phrase in body, f"a table on settings is unexplained: {phrase!r} missing"
+
+
+def test_resolving_an_item_takes_it_off_the_worklist(tmp_path, monkeypatch):
+    """The disposition panel promises exactly this and the worklist did not do it.
+
+    An exception is *raised* in the close's record and *ended* in the review log.
+    The worklist read the first and never the second, so a person could book,
+    chase and write off every item in a close and watch the count stay where it
+    was — which makes resolving pointless and the good ending unreachable.
+    """
+    from recon import service
+    from recon.api import auth
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, runs = signed_in_client(monkeypatch, tmp_path)
+    page = close_and_wait(client, loop="settlement_3way", source_set="A")
+    run_id = str(page.url).rsplit("/", 1)[-1]
+
+    before = service.view(run_id, runs).exceptions
+    assert before, "batch A raised nothing, so this test has no subject"
+    assert str(len(before)) in client.get("/worklist").text
+
+    token = client.cookies.get(auth.CSRF_COOKIE, "")
+    first = before[0].exception
+    client.post(
+        f"/periods/{run_id}/items/{first.exception_id}/dispose",
+        data={
+            "disposition": "chase",
+            "rationale": "gateway says sent, bank never received",
+            "owner": "meera",
+            "due_on": "2026-09-30",
+            "csrf": token,
+        },
+    )
+
+    body = client.get("/worklist").text
+    assert f"items/{first.exception_id}" not in body, "a resolved item is still on the worklist"
+    # And the record still holds it — resolving ends an item, it does not erase it.
+    assert len(service.view(run_id, runs).exceptions) == len(before)
+
+
+def test_the_worklist_says_which_kind_of_empty_it_is(tmp_path, monkeypatch):
+    """Three opposite situations shared one sentence: "either no close has been
+    run yet, or every item has been cleared". That is a screen shrugging — and
+    one of the three is somebody having just finished a month's work, which is
+    the moment the product should be clearest and was instead at its vaguest."""
+    from recon import service
+    from recon.api import auth
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, runs = signed_in_client(monkeypatch, tmp_path)
+
+    fresh = client.get("/worklist").text
+    assert "Nothing here yet" in fresh
+    assert "Close a period" in fresh, "a new account is not told what to do next"
+
+    page = close_and_wait(client, loop="settlement_3way", source_set="A")
+    run_id = str(page.url).rsplit("/", 1)[-1]
+    token = client.cookies.get(auth.CSRF_COOKIE, "")
+    for item in service.view(run_id, runs).exceptions:
+        client.post(
+            f"/periods/{run_id}/items/{item.exception.exception_id}/dispose",
+            data={
+                "disposition": "chase",
+                "rationale": "chasing the gateway",
+                "owner": "meera",
+                "due_on": "2026-09-30",
+                "csrf": token,
+            },
+        )
+
+    worked = client.get("/worklist").text
+    assert "Nothing left to work" in worked
+    assert "matches proven" in worked, "the good ending does not say what was achieved"
+    assert "your signature" in worked, "it does not say what is left to do"
+    assert "&amp;mdash;" not in worked, "an html entity is rendering as literal text"
+
+    client.post(f"/periods/{run_id}/signoff", data={"csrf": token, "note": "October"})
+    done = client.get("/worklist").text
+    assert "This month is done" in done
+    assert f"/periods/{run_id}/pack" in done, "the finished state does not offer the pack"
+
+
+def test_an_empty_desk_is_not_the_same_as_an_empty_worklist(tmp_path, monkeypatch):
+    """A filter with nothing behind it is a filter, not an achievement — and the
+    items are somebody else's, so it must not congratulate anybody."""
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    close_and_wait(client, loop="settlement_3way", source_set="A")
+
+    body = client.get("/worklist?owner=nobody-at-all").text
+    assert "Nothing on the nobody-at-all desk" in body
+    assert "open on other desks" in body
+    assert "done" not in body.lower().split("nothing on the")[1][:200]

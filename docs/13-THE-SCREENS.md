@@ -84,6 +84,23 @@ describes.
 **One error is one row.** A two-sided break used to appear twice, once per
 unmatched record.
 
+**Empty means three different things**, and they shared one sentence — *"either
+no close has been run yet, or every item has been cleared"*, which is a screen
+shrugging at whoever is reading it:
+
+| | |
+|---|---|
+| nothing run | *"Nothing here yet"* → close a period |
+| a desk filter with nothing behind it | *"Nothing on the tax desk"*, and how many are open elsewhere — a filter, not an achievement |
+| **everything resolved** | what was proven, and that your signature is what remains |
+| resolved **and** signed | *"This month is done"* → open the close pack |
+
+Reaching the last two needed a fix, not just copy: **a resolved item stayed on
+the worklist.** An exception is *raised* in the close's record and *ended* in the
+review log, and this page read the first and never the second — so a person could
+book, chase and write off every item and watch the count stay where it was, which
+makes resolving pointless and the good ending unreachable.
+
 ### Item — *"resolve this one"*
 
 The only screen that asks for judgement. What the engine says, the near misses it
@@ -192,7 +209,5 @@ a posting. An ambiguity names both candidates rather than picking.
 
 ## Still rough
 
-- There is no empty state on **Worklist** for an account that has closed a period
-  and resolved everything — the good ending is unwritten.
 - Nothing on any screen explains *why* a close is worth running to somebody who
   has not already decided to run one. That is a landing page, and there is none.
