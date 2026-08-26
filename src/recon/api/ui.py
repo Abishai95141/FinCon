@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import threading
 from decimal import Decimal
@@ -36,6 +37,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import loop as looplib
 from .. import progress, review, service
+from ..mcp import probe as mcpprobe
 from ..triage import classify as classify_mod
 from . import auth
 from .auth import AuthError, User
@@ -51,6 +53,7 @@ NAV = (
     ("periods", "/periods", "Periods"),
     ("worklist", "/worklist", "Worklist"),
     ("verify", "/verify", "Verify"),
+    ("mcp", "/mcp", "Agent access"),
     ("settings", "/settings", "Settings"),
 )
 
@@ -2087,3 +2090,216 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
         f"<th>May direct a posting</th></tr>{codes}</table></div></div></div>"
     )
     return shell(user, active="settings", crumb="<b>Settings</b>", body=body)
+
+
+# --------------------------------------------------------------------------
+# agent access
+#
+# The substrate argument, made operable. Everything else in this product is a
+# person driving a deterministic engine; this page is where an agent is handed
+# the same engine and *less* authority than the person has.
+#
+# The page checks rather than claims. A configuration screen that renders JSON
+# and says "you're all set" has verified nothing — the entire failure surface of
+# an MCP integration lives between processes, and none of it is visible from
+# inside the process that wrote the config. So the check spawns the real server
+# over stdio and speaks the protocol to it, and the boundary table is computed
+# from the schemas FastMCP generates rather than from a list kept by hand.
+# --------------------------------------------------------------------------
+
+
+def _mcp_config(user: User) -> tuple[str, str, str]:
+    """The three ways a client is told to connect, all naming this account.
+
+    `RECON_TENANT` is in every one of them. An MCP server runs over stdio on
+    somebody's laptop, so there is no session to resolve an account from — and
+    it is deliberately not a tool parameter, because a caller that could name a
+    tenant could name someone else's. It is environment, set once, by the person
+    who owns the machine.
+    """
+    command, args = mcpprobe.serve_command()
+    root = str(Path.cwd())
+    block = json.dumps(
+        {
+            "mcpServers": {
+                "fincon": {
+                    "command": command,
+                    "args": list(args),
+                    "cwd": root,
+                    "env": {"RECON_TENANT": user.user_id},
+                }
+            }
+        },
+        indent=2,
+    )
+    inner = json.dumps(
+        {
+            "command": command,
+            "args": list(args),
+            "cwd": root,
+            "env": {"RECON_TENANT": user.user_id},
+        }
+    )
+    cli = f"claude mcp add-json fincon {shlex.quote(inner)}"
+    raw = f"cd {shlex.quote(root)}\nRECON_TENANT={user.user_id} {shlex.quote(command)} {' '.join(args)}"
+    return cli, block, raw
+
+
+def _probe_panel(result: mcpprobe.Probe | None) -> str:
+    if result is None:
+        return (
+            "<div class='panel' style='padding:1.3rem 1.4rem'>"
+            "<p class='sec'>Is it working?</p>"
+            "<p class='cap' style='margin:0 0 1rem'>Nothing here is checked until you check it. "
+            "This starts the server in a real process, completes an MCP handshake over stdio, "
+            "lists its tools and calls one &mdash; the same sequence your client will run.</p>"
+            "<form method='post' action='/mcp/check'>"
+            f"<input type='hidden' name='csrf' value='{{csrf}}'>"
+            f"<button class='btn btn-primary'>{icon('check', 14)}Check the connection</button>"
+            "</form></div>"
+        )
+
+    if result.ok:
+        head = (
+            f"<span class='badge badge-ok'>server answered</span>"
+            f"<span class='cap' style='margin-left:.6rem'>"
+            f"{len(result.tools)} tools &middot; handshake {result.handshake_ms} ms</span>"
+        )
+        detail = (
+            "<div class='kv'>"
+            f"<div class='row'><span class='k'>Contract version</span><span class='v num'>"
+            f"{escape(result.contract_version)} &mdash; read off the wire, not imported</span></div>"
+            f"<div class='row'><span class='k'>Called</span><span class='v num'>"
+            f"{escape(result.called)}</span></div>"
+            f"<div class='row'><span class='k'>Working directory</span>"
+            f"<span class='v num'>{escape(result.cwd)}</span></div>"
+            f"<div class='row'><span class='k'>Account</span><span class='v num'>"
+            f"{escape(result.tenant or 'shared workspace (RECON_TENANT unset)')}</span></div>"
+            "</div>"
+        )
+    else:
+        head = (
+            "<span class='badge badge-bad'>did not connect</span>"
+            f"<span class='cap' style='margin-left:.6rem'>after {result.handshake_ms} ms</span>"
+        )
+        detail = (
+            f"<div class='snip'>{escape(result.error)}</div>"
+            f"<p class='cap' style='margin:.7rem 0 0'>{escape(result.hint)}</p>"
+        )
+
+    warnings = "".join(
+        f"<p class='cap' style='margin:.7rem 0 0;color:var(--warning)'>{escape(w)}</p>"
+        for w in result.warnings
+    )
+    return (
+        "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>Is it working? {head}</p>{detail}{warnings}"
+        "<form method='post' action='/mcp/check' style='margin-top:1rem'>"
+        "{csrf}"
+        f"<button class='btn btn-ghost'>{icon('refresh', 14)}Check again</button>"
+        "</form></div>"
+    )
+
+
+def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> str:
+    cli, block, raw = _mcp_config(user)
+    cat = mcpprobe.catalog()
+
+    rows = "".join(
+        f"<tr><td class='num'><b>{escape(t.name)}</b></td>"
+        f"<td>{escape(t.summary)}</td>"
+        f"<td class='num'>{escape(', '.join(t.params) or '&mdash;')}</td>"
+        f"<td>{"<span class='badge badge-declared'>writes</span>" if t.writes else "<span class='badge badge-mute'>reads</span>"}</td></tr>"
+        for t in cat.tools
+    )
+    boundary = (
+        "<span class='badge badge-ok'>holds</span>"
+        if cat.boundary_holds
+        else f"<span class='badge badge-bad'>breached: {escape(', '.join(cat.offenders))}</span>"
+    )
+
+    return (
+        "<div class='pagehead'><div class='lhs'><h1>Agent access</h1>"
+        "<p class='sub'>Point an agent at this controller over MCP. It gets the record, "
+        "and less authority than you have.</p></div></div>"
+        "<div style='display:grid;gap:1.2rem;grid-template-columns:1fr'>"
+        # ---- what this is for
+        "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        "<p class='sec'>What an agent gets</p>"
+        "<p class='lede' style='margin:0'>Every screen in this product is a person driving a "
+        "deterministic engine. This is the same engine, exposed to a program &mdash; so an agent "
+        "can run a close, read every proof, page the decision log and re-derive any match, "
+        "without a code path that lets it decide anything.</p>"
+        "<p class='cap' style='margin:.8rem 0 0'>One tool is worth knowing about on its own. "
+        "<b>verify_proof</b> is stateless: hand it a proof and records you ingested yourself from "
+        "the source files, and it re-derives the arithmetic. It reads nothing of ours, so an "
+        "auditor can check our answer without an account and without trusting this process.</p>"
+        "</div>"
+        # ---- the live check
+        + _probe_panel(result)
+        # ---- connect
+        + "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        "<p class='sec'>Connect a client</p>"
+        "<p class='cap' style='margin:0'>All three carry <code>RECON_TENANT</code> set to your "
+        "account. It is environment rather than a tool parameter, because a caller that could "
+        "name an account could name somebody else's.</p>"
+        "<div class='sniphead'><b>Claude Code</b><span>one command</span></div>"
+        f"<div class='snip'>{escape(cli)}</div>"
+        "<div class='sniphead'><b>Claude Desktop, Cursor, Zed</b>"
+        "<span>merge into the client's MCP config</span></div>"
+        f"<div class='snip'>{escape(block)}</div>"
+        "<div class='sniphead'><b>Any other client</b><span>the raw stdio command</span></div>"
+        f"<div class='snip'>{escape(raw)}</div>"
+        "</div>"
+        # ---- the boundary
+         + "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>What an agent cannot do &mdash; boundary {boundary}</p>"
+        "<p class='cap' style='margin:0 0 1rem'>Checked against the schemas the server generates, "
+        "every time this page renders &mdash; not against a list somebody maintains. No tool "
+        "accepts a policy, a tolerance, a sign convention, a chart or a rule set, so there is no "
+        "parameter through which a caller supplies its own permission. "
+        "<b>verify_proof</b> is the deliberate exception and is safe for the opposite reason: a "
+        "caller verifying under their own policy learns about their own constraints.</p>"
+        "<div class='kv' style='margin-bottom:1.2rem'>"
+        "<div class='row'><span class='k'>Promote a rule</span>"
+        "<span class='v'>No &mdash; needs a named human and a regression pass</span></div>"
+        "<div class='row'><span class='k'>Attest a decision</span>"
+        "<span class='v'>No &mdash; <code>P2 ATTESTED</code> means a person is accountable</span></div>"
+        "<div class='row'><span class='k'>Write to the ledger</span>"
+        "<span class='v'>No &mdash; postings follow a proof or a promoted code</span></div>"
+        "<div class='row'><span class='k'>Sign off a close</span>"
+        "<span class='v'>No &mdash; there is no tool, and no parameter to name a signer</span></div>"
+        "<div class='row'><span class='k'>Change what it may do</span>"
+        "<span class='v'>No &mdash; authority comes from signed bundles supplied out of band</span></div>"
+        "</div>"
+        f"<p class='sec' style='margin-bottom:.5rem'>The {len(cat.tools)} tools</p>"
+        "<div class='tbl'><table><tr><th>Tool</th><th>What it does</th><th>Parameters</th>"
+        f"<th>Effect</th></tr>{rows}</table></div>"
+        "<p class='cap' style='margin:.9rem 0 0'>One tool writes: "
+        f"<b>{escape(', '.join(cat.writes))}</b>, which runs a close and appends to the decision "
+        "log. Re-running a period is idempotent by <code>doc_hash</code>, so an agent that calls "
+        "it twice has not done anything twice.</p>"
+        "</div></div>"
+    )
+
+
+@router.get("/mcp", response_class=HTMLResponse)
+def mcp_page(request: Request, user: User = CURRENT_USER) -> Response:
+    """Configuration, and a check that is real."""
+    body = _mcp_body(user, request, None).replace("{csrf}", _csrf_field(request))
+    return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body)
+
+
+@router.post("/mcp/check", response_class=HTMLResponse)
+def mcp_check(request: Request, user: User = CURRENT_USER, csrf: str = Form("")) -> Response:
+    """Spawn the server, handshake, and render whatever happened.
+
+    Rendered directly rather than redirected through a job: the probe is a
+    diagnostic with no durable result, and inventing a job id for it would put a
+    fabricated record of a check into a product whose whole argument is that its
+    records are real.
+    """
+    _check_csrf(request, csrf)
+    result = mcpprobe.probe()
+    body = _mcp_body(user, request, result).replace("{csrf}", _csrf_field(request))
+    return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body)

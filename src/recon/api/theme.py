@@ -76,6 +76,11 @@ _ICONS: dict[str, str] = {
     "inbox": '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.4 5.1L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.4-6.9A2 2 0 0016.8 4H7.2a2 2 0 00-1.8 1.1z"/>',
     "file": '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>',
     "key": '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2"/><path d="M17 6l3 3"/>',
+    "mcp": (
+        '<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/>'
+        '<circle cx="19" cy="18" r="2.4"/><path d="M7.1 10.9l9.8-3.6"/>'
+        '<path d="M7.1 13.1l9.8 3.6"/>'
+    ),
     "refresh": '<path d="M21 12a9 9 0 11-2.6-6.4"/><path d="M21 3v6h-6"/>',
     "check": '<path d="M20 6L9 17l-5-5"/>',
     "x": '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
@@ -427,6 +432,24 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
   margin:.5rem 0 0;padding:.7rem .85rem;border-radius:var(--r8);background:var(--n200);
   font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--n700);
 }
+
+/* ---- code blocks a person is meant to copy ----
+   Monospace, a quiet ground, and horizontal scroll rather than wrapping: a
+   wrapped JSON config is a config somebody pastes broken. */
+.snip{
+  position:relative;margin:.55rem 0 0;padding:.85rem 1rem;border-radius:var(--r12);
+  background:var(--raised);border:1px solid var(--n300);
+  font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  font-size:11.5px;line-height:1.7;color:var(--ink);
+  overflow-x:auto;white-space:pre;
+}
+.snip .cmt{color:var(--n500)}
+.sniphead{
+  display:flex;align-items:baseline;justify-content:space-between;gap:1rem;
+  margin:1.15rem 0 0;
+}
+.sniphead b{font-size:12.5px;letter-spacing:-.005em;color:var(--ink)}
+.sniphead span{font-size:11.5px;color:var(--n500)}
 
 /* ---- processing ---- */
 .run{max-width:44rem;margin:0 auto}
