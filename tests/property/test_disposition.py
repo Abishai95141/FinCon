@@ -23,7 +23,7 @@ from __future__ import annotations
 import csv
 import io
 import pathlib
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -185,23 +185,47 @@ def test_beancount_accepts_a_journal_with_dispositions_in_it(closed, tmp_path):
 
 
 def test_a_large_item_cannot_be_written_off(closed):
-    """The per-item ceiling, seen refusing. There is no override parameter, and
-    a test that only asserted its absence would not show it in force."""
-    _client, run_id, runs = closed
-    biggest = _tail(run_id, runs)[-1]
-    policy = looplib.get(LOOP).policy()
-    assert abs(biggest.amount) > policy.write_off_ceiling
+    """The per-item ceiling, seen refusing *on its own*.
 
-    with pytest.raises(service.ServiceError) as caught:
+    The first version of this test asserted `"ceiling" in message` against the
+    biggest item in the tail — and survived a mutant that disabled the ceiling
+    entirely, because that item is also over the budget and the budget's own
+    refusal says the word "ceiling" in passing. So the subject here is sized to
+    sit over the ceiling and comfortably under the budget: nothing but the
+    per-item check can decline it.
+    """
+    _client, run_id, runs = closed
+    policy = looplib.get(LOOP).policy()
+    tail = _tail(run_id, runs)
+    budget = budget_for(tail, policy)
+
+    over = policy.write_off_ceiling + Decimal("1.00")
+    assert over < budget, "the corpus no longer separates the two bounds"
+    item = tail[0].model_copy(update={"amount": over})
+
+    with pytest.raises(DispositionError) as caught:
+        decide(
+            exception=item,
+            disposition=Disposition.WRITE_OFF,
+            chart=looplib.get(LOOP).chart(),
+            policy=policy,
+            decided_by="abishai",
+            rationale="I would like this to go away",
+            tail=tail,
+        )
+    assert "escalates" in str(caught.value), f"the refusal is not the ceiling's: {caught.value}"
+    assert "budget" not in str(caught.value)
+
+    biggest = tail[-1]
+    with pytest.raises(service.ServiceError):
         service.dispose(
             run_id,
             biggest.exception_id,
             "write_off",
             decided_by="abishai",
-            rationale="I would like this to go away",
+            rationale="nor this",
             runs_dir=runs,
         )
-    assert "ceiling" in str(caught.value)
     assert service.journal(run_id, runs).decided == 0, "a refusal still wrote an entry"
 
 
@@ -490,3 +514,147 @@ def test_the_pack_names_who_decided_what_and_under_which_policy(closed):
     assert "abishai@acme.in" in body
     assert "four months old and under materiality" in body
     assert looplib.get(LOOP).policy().ref in body
+
+
+def test_the_budget_is_the_stated_share_of_the_tail(closed):
+    """Pinned to its definition, not only to its stability.
+
+    A relation that compares the budget before and against after cannot see a
+    budget that is uniformly wrong — a mutant doubling the denominator passed
+    it, because doubled-then and doubled-now are still equal. The share is
+    policy, so assert the arithmetic.
+    """
+    _client, run_id, runs = closed
+    policy = looplib.get(LOOP).policy()
+    tail = _tail(run_id, runs)
+
+    expected = (
+        sum((abs(e.amount) for e in tail), start=ZERO) * policy.write_off_budget_ratio
+    ).quantize(Decimal("0.01"))
+    assert budget_for(tail, policy) == expected
+    assert budget_for([], policy) == ZERO, "an empty tail affords a write-off budget"
+
+
+def test_the_running_write_off_total_comes_off_the_log(closed):
+    """The bound is only a bound if the total behind it accumulates.
+
+    `test_many_small_write_offs_are_bounded_in_total` passes
+    `already_written_off` itself, so it never touches
+    `review.state().written_off` — and a mutant that reset the running total on
+    every fold survived it, leaving every item a full budget.
+
+    Batch A holds exactly one item under the ceiling, so this asserts on one
+    write-off rather than pretending otherwise: a total that resets reads as
+    ₹0.00 after it, which is the mutant.
+    """
+    _client, run_id, runs = closed
+    policy = looplib.get(LOOP).policy()
+    tail = _tail(run_id, runs)
+
+    assert review.state(run_id, runs).written_off == ZERO
+    small = next(e for e in tail if abs(e.amount) <= policy.write_off_ceiling)
+    service.dispose(
+        run_id,
+        small.exception_id,
+        "write_off",
+        decided_by="abishai",
+        rationale="under materiality",
+        runs_dir=runs,
+    )
+
+    after = review.state(run_id, runs).written_off
+    assert after == abs(small.amount) > ZERO, (
+        f"the close's running write-off total reads {after} after writing off "
+        f"{abs(small.amount)} — the next item would see an untouched budget"
+    )
+
+    # A different ending must not touch the write-off total, or the budget would
+    # be consumed by decisions that take nothing out of the books.
+    other = next(e for e in tail if e.exception_id != small.exception_id)
+    service.dispose(
+        run_id,
+        other.exception_id,
+        "carry_forward",
+        decided_by="abishai",
+        rationale="T+2 lag",
+        runs_dir=runs,
+    )
+    assert review.state(run_id, runs).written_off == after
+
+
+def test_the_fold_sums_many_write_offs_rather_than_keeping_the_last(closed):
+    """The accumulation itself, over more items than the corpus supplies.
+
+    Folded from constructed events rather than driven through the service,
+    because batch A holds one item under the ceiling and a bound tested against
+    a single item has not been seen to add.
+    """
+    from recon.contracts import DispositionRecordedPayload, EventKind
+    from recon.contracts.event import Event
+    from recon.review import fold
+
+    def written(amount: str, index: int) -> Event:
+        return Event(
+            seq=index,
+            kind=EventKind.DISPOSITION_RECORDED,
+            at=datetime(2026, 8, 26, 12, index, tzinfo=UTC),
+            actor="abishai",
+            outcome="write_off",
+            input_hash=f"h{index}",
+            prev_hash="",
+            event_hash="",
+            payload=DispositionRecordedPayload(
+                exception_id=f"EXC-{index:05d}",
+                fingerprint=f"f{index}",
+                disposition="write_off",
+                from_code="E02",
+                amount=Decimal(amount),
+                debit_account="write_off",
+                credit_account="clearing",
+                entry_id=f"JE-D-EXC-{index:05d}",
+                decided_by="abishai",
+                rationale="small",
+                policy_ref="settlement-in@v1",
+            ),
+        )
+
+    stream = [written("100.00", i) for i in range(1, 6)]
+    state = fold(stream)
+    assert state.written_off == Decimal("500.00"), (
+        f"five ₹100 write-offs folded to {state.written_off}"
+    )
+    assert len(state.disposed) == 5
+
+
+def test_the_signer_is_the_session_and_no_form_field_can_change_it(closed):
+    """Checked through the route, not by reading its signature.
+
+    The signature check survived a mutant that fed the `owner` field into
+    `decided_by` — the parameter list was still clean, and the value was coming
+    from the request anyway. `P2 ATTESTED` names a person; a person able to name
+    a different one has attested in somebody else's name.
+    """
+    client, run_id, runs = closed
+    target = _tail(run_id, runs)[0]
+    token = client.cookies.get("fincon_csrf", "")
+
+    response = client.post(
+        f"/periods/{run_id}/items/{target.exception_id}/dispose",
+        data={
+            "disposition": "chase",
+            "rationale": "owed to us",
+            "owner": "somebody-else@evil.in",
+            "due_on": "2026-09-15",
+            "csrf": token,
+        },
+    )
+    assert response.status_code in (200, 303)
+
+    events = review.dispositions(run_id, runs)
+    assert len(events) == 1
+    assert events[0].payload.decided_by == "controller@acme.in", (
+        f"the form chose the signer: {events[0].payload.decided_by}"
+    )
+    assert events[0].payload.owner == "somebody-else@evil.in", (
+        "the owner field stopped being carried, so this test proves nothing"
+    )

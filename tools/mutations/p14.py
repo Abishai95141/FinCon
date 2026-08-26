@@ -45,12 +45,12 @@ MUTATIONS = [
     (
         "a rule acting stops reaching the decision log",
         "src/recon/close.py",
-        """    for eff in effects:
-        journal.append(
-            EventKind.RULE_APPLIED,""",
-        """    for eff in []:
-        journal.append(
-            EventKind.RULE_APPLIED,""",
+        """        for eff in effects:
+            journal.append(
+                EventKind.RULE_APPLIED,""",
+        """        for eff in []:
+            journal.append(
+                EventKind.RULE_APPLIED,""",
     ),
     (
         "which advisory wins goes back to depending on list order",
