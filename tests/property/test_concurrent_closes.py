@@ -212,3 +212,73 @@ def test_a_close_still_writes_a_whole_record_under_the_lock(tmp_path: Path):
     assert view.tiers == reference.tiers
     assert view.events == reference.events
     assert looplib.RUNS  # untouched by this test
+
+
+def test_the_lock_is_the_one_nfs_implements():
+    """`flock` over NFS is emulated and the emulation is not dependable.
+
+    This is not a style preference. Locally `flock` worked and every test in this
+    file passed; on EFS the first close wrote its log and every read afterwards
+    timed out at thirty seconds reporting "a stuck writer" about a writer that
+    had finished. The whole reason this deployment is Fargate with a filesystem
+    rather than something serverless was "NFSv4 supports that lock" — and the
+    claim was about the wrong call.
+
+    Asserted structurally because nothing in CI runs on NFS. The next person to
+    reach for `flock` here will not have an EFS mount to find out on either.
+    """
+    import inspect
+
+    from recon import journal
+
+    source = inspect.getsource(journal._locked) + inspect.getsource(journal._take_file_lock)
+    assert "fcntl.lockf" in source
+    assert "fcntl.flock" not in source, (
+        "flock is back. It works everywhere except the filesystem this is "
+        "deployed on, which is the worst possible place for it to work."
+    )
+
+
+def test_a_reader_and_a_writer_in_one_process_do_not_deadlock(tmp_path):
+    """`lockf` holds a POSIX record lock per *process*, so two threads here
+    cannot block each other with it at all — the in-process half has to be a real
+    lock or a writer and a reader would both proceed at once.
+
+    The close runs on a background thread while requests are served on others,
+    which is exactly this shape.
+    """
+    import threading
+
+    from recon.journal import exclusive, shared
+
+    log = tmp_path / "decisions.jsonl"
+    log.write_text("")
+    order, errors = [], []
+
+    def writer():
+        try:
+            with exclusive(log):
+                order.append("write-in")
+                time.sleep(0.25)
+                order.append("write-out")
+        except Exception as exc:
+            errors.append(exc)
+
+    def reader():
+        try:
+            time.sleep(0.05)
+            with shared(log):
+                order.append("read")
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    assert not errors, errors
+    assert order == ["write-in", "write-out", "read"], (
+        f"a reader overlapped a writer in one process: {order}"
+    )

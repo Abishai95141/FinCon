@@ -23,9 +23,11 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -77,36 +79,118 @@ class JournalBusy(Exception):
     """
 
 
-def _locked(path: Path, mode: int, label: str) -> Iterator[None]:
+@dataclass
+class _Gate:
+    """Reader-writer state for one log, shared by every thread in this process.
+
+    Two halves, because the two problems are different.
+
+    **In-process**, readers must overlap. A page load reads the log and so does
+    the poller beside it; serialising them would make a close look slow for no
+    reason, and `test_concurrent_closes` asserts the overlap on purpose.
+
+    **Across processes**, the only lock NFSv4 implements properly is a POSIX
+    byte-range lock, and `fcntl.lockf` has no shared mode — a record lock is
+    exclusive or it is nothing. So the first reader in takes it and the last
+    reader out drops it, which is the standard refcount, and readers inside one
+    process never see it.
+    """
+
+    guard: threading.Condition = field(default_factory=threading.Condition)
+    readers: int = 0
+    writing: bool = False
+    handle: object = None
+
+
+_GATES: dict[str, _Gate] = {}
+_REGISTRY_GUARD = threading.Lock()
+
+
+def _gate(key: str) -> _Gate:
+    with _REGISTRY_GUARD:
+        return _GATES.setdefault(key, _Gate())
+
+
+def _take_file_lock(lock: Path, deadline: float, label: str):
+    """The cross-process half. Always exclusive — see `_Gate`."""
+    handle = lock.open("a")
+    while True:
+        try:
+            fcntl.lockf(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except OSError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise JournalBusy(
+                    f"{lock} is locked by another process ({label} wait exceeded "
+                    f"{LOCK_WAIT_SECONDS:g}s). A close takes milliseconds, so this "
+                    f"is a stuck writer rather than a queue."
+                ) from None
+            time.sleep(_POLL)
+
+
+def _locked(path: Path, exclusive_lock: bool, label: str) -> Iterator[None]:
+    """Serialise on this log: writers alone, readers together.
+
+    **`lockf`, not `flock`, and the difference is why this is worth reading.**
+    Locally `flock` worked and every test passed. On EFS the first close wrote
+    its log and every read of it afterwards timed out at thirty seconds with "a
+    stuck writer rather than a queue" — about a writer that had finished. Linux
+    emulates `flock` over NFS and the emulation is not dependable; `fcntl.lockf`
+    is the byte-range lock NFSv4 actually implements.
+
+    The whole reason this deployment is Fargate with a filesystem rather than
+    something serverless was "NFSv4 supports that lock". The claim was about the
+    wrong call, and nothing but running it on EFS was ever going to say so.
+    """
     lock = path.parent / f".{path.name}.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    # Opened "a" rather than "w": a writer truncating the lock file out from
-    # under a waiter is a second race inside the fix for the first.
-    with lock.open("a") as handle:
-        deadline = time.monotonic() + LOCK_WAIT_SECONDS
-        while True:
-            try:
-                fcntl.flock(handle, mode | fcntl.LOCK_NB)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise JournalBusy(
-                        f"{path} is locked by another process ({label} wait exceeded "
-                        f"{LOCK_WAIT_SECONDS:g}s). A close takes milliseconds, so this "
-                        f"is a stuck writer rather than a queue."
-                    ) from None
-                time.sleep(_POLL)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+    gate = _gate(str(lock))
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+
+    def wait_for(predicate) -> None:
+        while not predicate():
+            remaining = deadline - time.monotonic()
+            timed_out = remaining <= 0 or not gate.guard.wait(timeout=remaining)
+            if timed_out and not predicate():
+                raise JournalBusy(
+                    f"{path} is locked by another process ({label} wait exceeded "
+                    f"{LOCK_WAIT_SECONDS:g}s). A close takes milliseconds, so this "
+                    f"is a stuck writer rather than a queue."
+                )
+
+    with gate.guard:
+        if exclusive_lock:
+            wait_for(lambda: not gate.writing and gate.readers == 0)
+            gate.handle = _take_file_lock(lock, deadline, label)
+            gate.writing = True
+        else:
+            wait_for(lambda: not gate.writing)
+            if gate.readers == 0:
+                gate.handle = _take_file_lock(lock, deadline, label)
+            gate.readers += 1
+
+    try:
+        yield
+    finally:
+        with gate.guard:
+            if exclusive_lock:
+                gate.writing = False
+            else:
+                gate.readers -= 1
+            if not gate.writing and gate.readers == 0 and gate.handle is not None:
+                fcntl.lockf(gate.handle, fcntl.LOCK_UN)
+                gate.handle.close()
+                gate.handle = None
+            gate.guard.notify_all()
 
 
 @contextmanager
 def exclusive(path: Path) -> Iterator[None]:
     """One writer at a time for one decision log.
 
-    `flock` on a sidecar file rather than on the log itself, because the writer
+    A POSIX record lock on a sidecar file rather than on the log itself, because
+    the writer
     *deletes* the log (`fresh=True`) and a lock held on a deleted inode
     protects nothing.
 
@@ -114,7 +198,7 @@ def exclusive(path: Path) -> Iterator[None]:
     nothing about one that does not. Everything in this repo asks. It is not a
     substitute for the durable store this build does not have — see STATUS.
     """
-    yield from _locked(path, fcntl.LOCK_EX, "write")
+    yield from _locked(path, True, "write")
 
 
 @contextmanager
@@ -125,7 +209,7 @@ def shared(path: Path) -> Iterator[None]:
     caught a close mid-write got a partial file, and `read()` correctly
     reported the chain as broken. Correctly, and misleadingly.
     """
-    yield from _locked(path, fcntl.LOCK_SH, "read")
+    yield from _locked(path, False, "read")
 
 
 def _canonical(event: Event) -> str:
