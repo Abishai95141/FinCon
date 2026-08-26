@@ -134,10 +134,28 @@ def test_only_one_tool_writes_and_the_page_names_it(signed_in):
 # ------------------------------------------------------------------ the check
 
 
+def _token_from_the_form(html: str) -> str:
+    """Read the token the way a browser does — out of the rendered form.
+
+    Taking it from the cookie jar instead is how the first version of this test
+    passed against a form whose hidden field rendered as
+    `value='<input ... value='REAL''`. The token was fine; the form was broken;
+    nothing exercised the form. A test that fetches its own input around the
+    thing under test has removed the thing under test.
+    """
+    match = re.search(r"name='csrf' value='([^']*)'", html)
+    assert match, "the page rendered no csrf field at all"
+    return match.group(1)
+
+
 def test_the_check_starts_a_real_process_and_reports_what_happened(signed_in):
     client, _user_id, _ = signed_in
-    token = client.cookies.get(auth.CSRF_COOKIE, "")
-    body = client.post("/mcp/check", data={"csrf": token}).text
+    page = client.get("/mcp").text
+    assert client.cookies.get(auth.CSRF_COOKIE, "") == _token_from_the_form(page), (
+        "the form does not carry the token the server will check"
+    )
+
+    body = client.post("/mcp/check", data={"csrf": _token_from_the_form(page)}).text
 
     assert "server answered" in body
     assert re.search(r"handshake \d+ ms", body)

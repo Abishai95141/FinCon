@@ -2154,7 +2154,7 @@ def _probe_panel(result: mcpprobe.Probe | None) -> str:
             "This starts the server in a real process, completes an MCP handshake over stdio, "
             "lists its tools and calls one &mdash; the same sequence your client will run.</p>"
             "<form method='post' action='/mcp/check'>"
-            f"<input type='hidden' name='csrf' value='{{csrf}}'>"
+            "{csrf}"
             f"<button class='btn btn-primary'>{icon('check', 14)}Check the connection</button>"
             "</form></div>"
         )
