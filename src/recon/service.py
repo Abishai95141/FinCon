@@ -55,7 +55,7 @@ from .contracts import (
     Record,
     TaxonomyRegistry,
 )
-from .contracts.event import Event
+from .contracts.event import Event, EventKind
 from .engine.verifier import verify as verify_proof
 from .journal import read as read_journal
 from .journal import shared as journal_lock
@@ -1006,6 +1006,115 @@ class Reverification(BaseModel):
     refuted: list[dict] = Field(default_factory=list)
     missing_proofs: list[str] = Field(default_factory=list)
     holds: bool
+
+
+class JournalExport(BaseModel):
+    """The journal, in the two forms somebody can actually use.
+
+    This is the product's *work product* and until now it was computed and
+    dropped: `post_and_assert` renders a full beancount ledger into
+    `CloseResult.text` and nothing ever read it. A controller could see that the
+    books balanced and still had to hand-type the entries into Tally, which is
+    most of the work the tool was supposed to remove.
+
+    Rebuilt from the decision log, like every other surface — so the entries a
+    controller posts are the entries an auditor can re-derive, rather than a
+    second copy made by the process that happened to run the close.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    period: list[str]
+    currency: str
+    entries: int
+    balanced: bool
+    csv: str
+    beancount: str
+    unposted: list[str] = Field(default_factory=list)
+    """Exceptions that raised no entry, with the reason. A journal that silently
+    omitted them would balance and be wrong — the money that never arrived has
+    to be visible as *absent*, not missing."""
+
+
+def journal(run_id: str, runs_dir: Path | None = None) -> JournalExport:
+    """Reconstruct the journal from the record, in CSV and in beancount.
+
+    CSV because every accounting system imports one; beancount because it is
+    plain text a person can read and a machine can check, and because the ledger
+    that asserted the balance was already written in it.
+    """
+    import csv as _csv
+    import io
+
+    stream = events(run_id, runs_dir)
+    replayed = replay(stream)
+    lp = looplib.get(replayed.profile)
+    chart = lp.chart()
+    accounts = {role.value: account for role, account in chart.accounts.items()}
+
+    rows = io.StringIO()
+    writer = _csv.writer(rows)
+    writer.writerow(["entry_id", "date", "narration", "account", "amount", "currency", "origin"])
+
+    lines: list[str] = [
+        f'option "operating_currency" "{chart.currency}"',
+        "",
+        f"; FinCon close {run_id} · {lp.name} · rebuilt from the decision log",
+        f"; policy {replayed.policy_ref or '—'}",
+        "",
+    ]
+    for account in chart.all_accounts():
+        lines.append(f"{lp.opened_on.isoformat()} open {account} {chart.currency}")
+    lines.append("")
+
+    posted = 0
+    for event in stream:
+        if event.kind is not EventKind.POSTING_WRITTEN:
+            continue
+        payload = event.payload
+        origin = payload.proof_id or payload.exception_id or ""
+        posted += 1
+        lines.append(f'{payload.entry_date} * "{payload.narration}"')
+        if origin:
+            lines.append(f"  origin: {origin}")
+        for line in payload.postings:
+            account = accounts.get(line["role"], f"Equity:Unmapped:{line['role']}")
+            writer.writerow(
+                [
+                    payload.entry_id,
+                    payload.entry_date,
+                    payload.narration,
+                    account,
+                    line["amount"],
+                    chart.currency,
+                    origin,
+                ]
+            )
+            lines.append(f"  {account}  {line['amount']} {chart.currency}")
+        lines.append("")
+
+    return JournalExport(
+        run_id=run_id,
+        period=[d.isoformat() for d in lp.period],
+        currency=chart.currency,
+        entries=posted,
+        # The *hard* blockers, not the sign-off queue. A close with seven items
+        # waiting for a human still balances; conflating "somebody must look at
+        # this" with "the books do not tie" would put a false alarm on the one
+        # line an accountant reads first.
+        balanced=not _hard_blockers(replayed),
+        csv=rows.getvalue(),
+        beancount="\n".join(lines),
+        unposted=[
+            f"{e.exception_id} ({e.code}, {e.amount})"
+            for e in replayed.exceptions
+            if not any(
+                ev.kind is EventKind.POSTING_WRITTEN and ev.payload.exception_id == e.exception_id
+                for ev in stream
+            )
+        ],
+    )
 
 
 def source_set_of(run_id: str, runs_dir: Path | None = None, *, root: Path | None = None) -> str:

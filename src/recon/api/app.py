@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .. import service
 from ..contracts import CONTRACT_VERSION, Policy, Proof, Record
@@ -259,6 +259,34 @@ def run_events(
     start of one.
     """
     return service.event_page(run_id, offset=offset, limit=limit, runs_dir=runs_dir)
+
+
+@app.get("/v1/runs/{run_id}/journal.csv", tags=["record"], response_class=PlainTextResponse)
+def journal_csv(run_id: str, runs_dir: Path = WORKSPACE) -> PlainTextResponse:
+    """The journal as CSV — the file a controller imports into their books.
+
+    This is the product's work product, and it was computed and dropped until
+    now: the ledger that asserted the balance was rendered and never read, so a
+    controller could see the books tie and still had to hand-type every entry.
+    """
+    export = service.journal(run_id, runs_dir)
+    return PlainTextResponse(
+        export.csv,
+        media_type="text/csv",
+        headers={"content-disposition": f'attachment; filename="{run_id}-journal.csv"'},
+    )
+
+
+@app.get("/v1/runs/{run_id}/journal.beancount", tags=["record"], response_class=PlainTextResponse)
+def journal_beancount(run_id: str, runs_dir: Path = WORKSPACE) -> PlainTextResponse:
+    """The same journal as plain-text double entry — readable by a person and
+    checkable by a machine, and the format the balance assertion was written in."""
+    export = service.journal(run_id, runs_dir)
+    return PlainTextResponse(
+        export.beancount,
+        media_type="text/plain",
+        headers={"content-disposition": f'attachment; filename="{run_id}.beancount"'},
+    )
 
 
 @app.get("/v1/runs/{run_id}/export", tags=["record"], response_model=service.AuditBundle)

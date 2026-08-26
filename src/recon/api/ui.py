@@ -600,11 +600,16 @@ def closing_page(request: Request, job_id: str, user: User = CURRENT_USER) -> Re
             f"Open the close {icon('arrow', 15)}</a>"
             f"<a class='btn btn-ghost' href='/periods/{escape(job.run_id)}/log'>"
             f"{icon('log', 14)}Decision log</a></p>"
-            f"<p class='cap' style='margin-top:1.2rem'>Every stage above ran on this request "
+            f"<div class='note' style='margin-top:1.4rem'><b>No model was involved.</b> "
+            f"Every stage above is deterministic &mdash; the same files produce the same "
+            f"answer, and a third party holding them re-derives it without us. A model is "
+            f"only ever asked to <i>read</i> an exception a human is already looking at, on "
+            f"that item's own page, and what it says is inert until somebody accepts it.</div>"
+            f"<p class='cap' style='margin-top:1rem'>Every stage above ran on this request "
             f"&mdash; the decision log was deleted and rewritten, and its timestamps are from "
-            f"a moment ago. It is fast because the period is 543 rows, not because anything "
-            f"was skipped: a delay added to make the work look harder would be the one thing "
-            f"this product must never do.</p>"
+            f"a moment ago. It is fast because the period is {job.rows} rows, not because "
+            f"anything was skipped: a delay added to make the work look harder would be the "
+            f"one thing this product must never do.</p>"
         )
     else:
         head = (
@@ -901,8 +906,8 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         f"<div class='rhs'><span class='chip-select'>{icon('calendar', 16)}"
         f"<span><span class='k'>Period</span><br><span class='v num'>{period}</span></span>"
         f"</span>"
-        f"<a class='btn btn-primary' href='/periods/{escape(run_id)}/log'>"
-        f"Decision log {icon('arrow', 14)}</a></div></div>"
+        f"<a class='btn btn-primary' href='/periods/{escape(run_id)}/pack'>"
+        f"Close pack {icon('arrow', 14)}</a></div></div>"
         f"<div class='stages'>{stages}</div>{problems}{metrics}"
         f"<p class='sec'>Check this close</p>"
         f"<div class='panel' style='padding:1.2rem 1.3rem;margin-bottom:1.6rem'>"
@@ -913,7 +918,9 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         f"<a class='btn btn-ghost' href='/v1/runs/{escape(run_id)}/export'>{icon('download', 14)}"
         f"Audit export</a>"
         f"<a class='btn btn-ghost' href='/periods/{escape(run_id)}/log'>{icon('log', 14)}"
-        f"Decision log</a></div></div>"
+        f"Decision log</a>"
+        f"<a class='btn btn-ghost' href='/periods/{escape(run_id)}/pack'>{icon('file', 14)}"
+        f"Close pack</a></div></div>"
         f"{signoff}"
         f"<p class='sec'>Worklist &mdash; {len(view.exceptions)} items, ranked by cash impact "
         f"&times; age</p>{worklist}"
@@ -1496,6 +1503,238 @@ def sources_page(
         f"{banner}{''.join(cards)}"
     )
     return shell(user, active="sources", crumb="<b>Data sources</b>", body=body)
+
+
+@router.get("/periods/{run_id}/pack", response_class=HTMLResponse)
+def close_pack(request: Request, run_id: str, user: User = CURRENT_USER) -> Response:
+    """The close pack — what a controller hands to an auditor.
+
+    Everything in one place and everything from the record: the figures, who
+    signed it and what was still open when they did, the source documents with
+    the hashes that pin them, the journal that was written, the tail that was
+    not closed, the authority it all ran under, and four steps to check the lot
+    without us.
+
+    Two things it is careful about.
+
+    **It states what is missing.** The ledger is asserted in memory and never
+    written as a beancount file, and `data/runs/` has no retention. A pack that
+    listed its journal entries without saying that would imply a durability this
+    build does not have.
+
+    **It does not claim approval it does not have.** An unsigned close says so at
+    the top, in the place a reader looks first.
+    """
+    runs_dir = tenant_runs(user, request)
+    try:
+        view = service.view(run_id, runs_dir, detail=service.Detail.FULL)
+        bundle = service.audit(run_id, runs_dir, limit=10_000)
+    except service.ServiceError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    state = review.state(run_id, runs_dir)
+    tiers = view.tiers
+
+    # ---- the seal -------------------------------------------------------
+    if state.signed_off:
+        seal = (
+            f"<div class='seal'><span class='ico'>{icon('check', 20, 2.6)}</span><div>"
+            f"<b>Signed off by {escape(state.signed_off_by)}</b>"
+            f"<span>{escape(state.signed_off_at[:19].replace('T', ' '))} UTC &middot; "
+            f"{state.still_open} item(s) still open at signature"
+            + (f" &middot; &ldquo;{escape(state.note)}&rdquo;" if state.note else "")
+            + "</span></div></div>"
+        )
+    else:
+        seal = (
+            f"<div class='seal unsealed'><span class='ico'>{icon('alert', 20, 2.4)}</span><div>"
+            f"<b>Not signed off</b><span>The engine finished this close; nobody has "
+            f"approved it. {len(view.blocking_exceptions)} item(s) still need a human. "
+            f"<a href='/periods/{escape(run_id)}'>Review it</a>.</span></div></div>"
+        )
+
+    # ---- figures --------------------------------------------------------
+    figs = "".join(
+        f"<div class='fig'><div class='k'>{escape(k)}</div><div class='v'>{v}</div>"
+        f"<div class='n'>{escape(n)}</div></div>"
+        for k, v, n in [
+            (
+                "Auto-matched",
+                escape(tiers.rate),
+                " ".join(f"{a}={b}" for a, b in sorted(tiers.by_match_tier.items())),
+            ),
+            (
+                "Proof tiers",
+                " ".join(f"{a}={b}" for a, b in sorted(tiers.by_proof_tier.items())),
+                f"{tiers.declared} on a declared gap",
+            ),
+            (
+                "Open items",
+                str(len(view.exceptions)),
+                f"{len(view.blocking_exceptions)} block sign-off",
+            ),
+            ("Postings", str(view.postings), "balanced" if not view.blocked else "BLOCKED"),
+            ("Decisions", str(view.events), "hash-chained"),
+        ]
+    )
+
+    # ---- sources: the evidence chain ------------------------------------
+    def _strength(src: dict) -> str:
+        if src["strength"] == "verified":
+            return "<span class='badge badge-ok'>verified</span>"
+        return f"<span class='badge badge-declared'>{escape(src['strength'])}</span>"
+
+    sources = "".join(
+        f"<tr><td><b>{escape(src['source'])}</b>"
+        f"<span class='sub'>read by {escape(src['spec_id'])}</span></td>"
+        f"<td class='num'>{escape(src['doc_hash'][:24])}&hellip;</td>"
+        f"<td class='right num'>{src['rows_parsed']}/{src['rows_in_file']}</td>"
+        f"<td>{_strength(src)}</td></tr>"
+        for src in bundle.sources
+    )
+    gaps = "".join(
+        f"<li>{escape(src['source'])}: {escape(src['gap'])}</li>"
+        for src in bundle.sources
+        if src.get("gap")
+    )
+
+    # ---- the journal ----------------------------------------------------
+    entries = []
+    for posting in bundle.postings:
+        lines = "".join(
+            f"<tr><td>{escape(line['role'])}</td>"
+            f"<td class='right num'>{money(Decimal(line['amount']))}</td></tr>"
+            for line in posting["postings"]
+        )
+        origin = posting.get("proof_id") or posting.get("exception_id") or "—"
+        entries.append(
+            f"<div class='entry'><div class='top'><b>{escape(posting['entry_date'])} "
+            f"{escape(posting['narration'])}</b>"
+            f"<span class='num'>{escape(origin)}</span></div>"
+            f"<table>{lines}</table></div>"
+        )
+
+    export = service.journal(run_id, runs_dir)
+    unposted_note = (
+        f"<p class='lede' style='margin-top:1rem'><b>{len(export.unposted)} exception(s) "
+        f"raised no entry</b> and are listed in the tail below. Money that never reached "
+        f"the account is a receivable, not cash &mdash; booking it would put a figure in the "
+        f"books the bank does not have.</p>"
+        if export.unposted
+        else ""
+    )
+
+    # ---- the tail -------------------------------------------------------
+    def _taken(item) -> str:
+        who = state.acknowledged.get(item.exception.exception_id)
+        if not who:
+            return "<span class='badge badge-mute'>open</span>"
+        return f"<span class='badge badge-ok'>taken by {escape(who.split('@')[0])}</span>"
+
+    tail_rows = "".join(
+        f"<tr><td><b>{escape(item.exception.code)}</b> {escape(item.code_title)}</td>"
+        f"<td class='right num'>{money(item.exception.amount)}</td>"
+        f"<td>{escape(item.owner)}</td>"
+        f"<td>{_taken(item)}</td></tr>"
+        for item in view.exceptions
+    )
+
+    # ---- authority ------------------------------------------------------
+    def _trusted(entry: dict) -> str:
+        if entry["trusted"]:
+            return "<span class='badge badge-ok'>trusted</span>"
+        return "<span class='badge badge-mute'>unverified</span>"
+
+    authority = "".join(
+        f"<tr><td class='num'>{escape(a['bundle'])}</td>"
+        f"<td>{escape(a['signed_by'] or '&mdash;')}</td>"
+        f"<td class='num'>{escape((a['digest'] or '')[:16])}</td>"
+        f"<td>{"<span class='badge badge-ok'>trusted</span>" if a['trusted'] else "<span class='badge badge-mute'>unverified</span>"}</td></tr>"
+        for a in bundle.authority
+    )
+
+    how = "".join(f"<li>{escape(step)}</li>" for step in bundle.how_to_verify)
+
+    body = f"""
+<div class='pack'>
+  <div class='pagehead noprint'><div class='lhs'>
+    <h1>Close pack</h1>
+    <p class='sub'>{escape(run_id)} &middot; {escape(view.loop)} &middot;
+      {escape(" to ".join(bundle.period))}</p></div>
+    <div class='rhs'>
+      <a class='btn btn-secondary' href='/v1/runs/{escape(run_id)}/export'>
+        {icon("download", 14)}Audit export (JSON)</a>
+      <a class='btn btn-ghost' href='/periods/{escape(run_id)}/log'>
+        {icon("log", 14)}Decision log</a></div></div>
+
+  <div style='display:none' class='printonly'></div>
+  {seal}
+
+  <section style='margin-top:2rem'>
+    <h2>What this close decided</h2>
+    <div class='figs'>{figs}</div>
+    <p class='lede'>Policy <span class='num'>{escape(bundle.policy_ref or "&mdash;")}</span>,
+      approved by <b>{escape(bundle.policy_approved_by)}</b>. Vocabulary
+      <span class='num'>{escape(bundle.taxonomy_ref)}</span>.
+      Blocking recall is <b>absent</b> rather than zero &mdash; it is measured against
+      labelled true pairs, and production has none.</p>
+  </section>
+
+  <section>
+    <h2>Source documents</h2>
+    <p class='lede'>The evidence this close rests on. Each hash pins the exact bytes;
+      re-ingesting the same files with the named spec reproduces every record id.</p>
+    <div class='tbl'><table><tr><th>Source</th><th>sha256</th>
+      <th class='right'>Rows</th><th>Intake</th></tr>{sources}</table></div>
+    {f"<p class='lede' style='margin-top:.7rem'><b>Declared gaps:</b></p><ul class='cap'>{gaps}</ul>" if gaps else ""}
+  </section>
+
+  <section>
+    <h2>Journal &mdash; {len(bundle.postings)} entries</h2>
+    <p class='lede'>Double-entry, and the balance assertion held against the bank's own
+      closing figure. <b>This is the file you post into your books</b> &mdash; it was
+      computed and thrown away until 2026-08-26, which meant a controller could see the
+      books tie and still had to hand-type every line.</p>
+    <p class='noprint' style='margin:0 0 1rem'>
+      <a class='btn btn-secondary' href='/v1/runs/{escape(run_id)}/journal.csv'>
+        {icon("download", 14)}journal.csv</a>
+      <a class='btn btn-ghost' href='/v1/runs/{escape(run_id)}/journal.beancount'>
+        {icon("download", 14)}beancount</a></p>
+    {"".join(entries)}
+    {unposted_note}
+  </section>
+
+  <section>
+    <h2>The tail &mdash; {len(view.exceptions)} items</h2>
+    <p class='lede'>What this close could not prove, each named, priced and routed.
+      An item taken by a person is accounted for; it is not resolved.</p>
+    <div class='tbl'><table><tr><th>Exception</th><th class='right'>Amount</th>
+      <th>Owner</th><th>Status</th></tr>{tail_rows}</table></div>
+  </section>
+
+  <section>
+    <h2>Authority</h2>
+    <p class='lede'>Which policy, vocabulary and rules governed this close, and who put
+      their name to them. A digest proves what ran; a signature proves who approved it.</p>
+    <div class='tbl'><table><tr><th>Bundle</th><th>Signed by</th><th>Digest</th>
+      <th>State</th></tr>{authority}</table></div>
+  </section>
+
+  <section>
+    <h2>Check this without us</h2>
+    <ol class='steps-num'>{how}</ol>
+    <p class='lede' style='margin-top:1rem'>The decision log's own chain
+      {"<b>holds</b>" if bundle.chain.holds else "<b>DOES NOT HOLD</b>"}
+      over {bundle.chain.events} events. {escape(bundle.chain.caveat)}</p>
+  </section>
+
+  <p class='cap noprint'>Contract {escape(bundle.contract_version)} &middot;
+    generated from the record, not from the run that produced it.</p>
+</div>"""
+    crumb = (
+        f"<a href='/periods'>Periods</a><span>/</span>"
+        f"<a href='/periods/{escape(run_id)}'>{escape(run_id)}</a><span>/</span><b>Close pack</b>"
+    )
+    return shell(user, active="periods", crumb=crumb, body=body)
 
 
 # --------------------------------------------------------------------------
