@@ -236,11 +236,19 @@ def test_every_input_has_a_disposition(closed, batch):
     # Counted rather than filtered by `leg`, because `leg` is a closed set of
     # settlement's own words and reads "bank" on this loop — see the strict xfail
     # in tests/known_broken.py.
+    # **Records**, not exceptions. Since the two sides of one break are paired
+    # into a single item, the tail is shorter than the number of unmatched rows
+    # by design — and counting items here would have made this test fail for the
+    # fix rather than for a lost input, which is the failure it exists to catch.
     ledger_rows = sum(1 for _ in (batch / "tds_ledger.csv").read_text().splitlines()[1:])
     both_sides = (anchors - view.tiers.matched) + (ledger_rows - view.tiers.matched)
-    assert len(view.exceptions) == both_sides, (
-        f"{len(view.exceptions)} exceptions against {both_sides} unmatched rows "
+    carried = {rid for e in view.exceptions for rid in e.exception.record_ids}
+    assert len(carried) == both_sides, (
+        f"the tail names {len(carried)} records against {both_sides} unmatched rows "
         f"across the two sides — something left with no disposition"
+    )
+    assert len(view.exceptions) < both_sides, (
+        "no two-sided break was paired, so every row is still its own item"
     )
 
     planted = len(labels["planted"])
@@ -455,7 +463,9 @@ def test_the_arithmetic_names_most_of_the_tail_and_is_never_wrong(closed, record
         for e in view.exceptions
         if e.exception.code != "E14" and e.exception.code_provenance.value == "P0"
     ]
-    assert len(derived) >= 18, f"only {len(derived)} of the tail was named arithmetically"
+    # Eleven *breaks*: three section, three quarter and three rate errors, each
+    # paired across two rows, plus two one-sided unbooked deductions.
+    assert len(derived) >= 11, f"only {len(derived)} of the tail was named arithmetically"
 
     wrong = []
     for exception in derived:
@@ -674,3 +684,96 @@ def test_a_transient_failure_is_retried_and_a_bad_request_is_not():
     body = inspect.getsource(client.ModelEdge._post)
     assert "for attempt in range(RETRIES)" in body, "there is no retry loop to speak of"
     assert "TRANSIENT_STATUS" in body, "the loop retries every status, including a 400"
+
+
+def test_a_two_sided_break_is_one_item(closed):
+    """One error, one row on the worklist.
+
+    A wrong section leaves *both* rows unmatched, so raising one exception per
+    unmatched row reported twenty items over eleven breaks — the same error
+    twice, at the same amount, with the two record ids swapped. A controller
+    works each twice, or notices and stops trusting the count, which is the
+    number they plan a week from.
+
+    The rule is mutual and agreeing: X's closest counterpart is Y, Y's closest
+    is X, and both readings name the same code. One-directional closeness is not
+    enough — three rows can each be closest to the same fourth, and folding
+    unrelated breaks together is a worse error than counting one twice.
+    """
+    view, labels, _runs = closed
+
+    derived = [e.exception for e in view.exceptions if e.exception.code != "E14"]
+    two_sided = [e for e in derived if len(e.record_ids) == 2]
+
+    # Section, quarter and rate errors leave a row on each side. Unbooked
+    # deductions are genuinely one-sided and must *not* be paired with anything.
+    expected_pairs = sum(
+        labels["by_code"].get(code, 0)
+        for code in ("X-TDS-SECTION-MISMATCH", "X-TDS-QUARTER-ERROR", "X-TDS-RATE-DIFF")
+    )
+    assert len(two_sided) == expected_pairs, (
+        f"{len(two_sided)} paired breaks against {expected_pairs} planted two-sided ones"
+    )
+
+    for exception in two_sided:
+        sides = {rid.split(":")[0] for rid in exception.record_ids}
+        assert len(sides) == 2, (
+            f"{exception.exception_id} pairs two rows from the same file: {exception.record_ids}"
+        )
+
+    unbooked = [e for e in derived if e.code == "X-TDS-UNBOOKED"]
+    assert unbooked and all(len(e.record_ids) == 1 for e in unbooked), (
+        "a one-sided break was paired with something"
+    )
+
+
+def test_pairing_loses_no_record(closed, batch):
+    """Invariant 8 does not get to bend for a presentation fix.
+
+    Merging two exceptions into one is exactly the shape of change that drops an
+    input: the second row is no longer its own item, so if it is not carried in
+    the surviving one it has silently left the close.
+    """
+    _summary, _labels, runs = closed
+    source = looplib.get(LOOP).load(batch)
+    every = {rec.record_id for _, rec in [*source.anchor_rows, *source.group_rows]}
+
+    # Full detail, because the default view is a projection: it omits proofs and
+    # group ids to keep a payload bounded, so every matched group row reads as
+    # undisposed. Asserting invariant 8 off a summary would have failed for the
+    # projection rather than for a lost record.
+    run_id = _summary.run_id
+    view = service.view(run_id, runs, detail=service.Detail.FULL)
+
+    in_tail = {rid for e in view.exceptions for rid in e.exception.record_ids}
+    in_matches = {m.anchor_id for m in view.matches}
+    for match in view.matches:
+        in_matches.update(match.group_ids or [])
+
+    missing = every - in_tail - in_matches - set(view.out_of_scope)
+    assert not missing, f"{len(missing)} record(s) have no disposition: {sorted(missing)[:4]}"
+    assert view.ok
+
+
+def test_a_paired_break_reports_the_larger_side_and_names_the_difference(closed):
+    """A rate error has two amounts and the item needs one.
+
+    The larger: a wrong section or quarter puts the whole deduction at risk of
+    being disallowed, and a wrong rate puts the amount we *claimed* at risk of
+    being restated. Ranking by the delta instead would put a rate error of a few
+    rupees below a filing error worth hundreds, when the filing error is the one
+    that can be disallowed entirely. The delta is stated in the evidence rather
+    than hidden.
+    """
+    view, _labels, _runs = closed
+    rate_errors = [
+        e.exception
+        for e in view.exceptions
+        if e.exception.code == "X-TDS-RATE-DIFF" and len(e.exception.record_ids) == 2
+    ]
+    assert rate_errors, "no paired rate error in this batch"
+
+    for exception in rate_errors:
+        assert any("sides differ by" in line for line in exception.evidence), (
+            f"{exception.exception_id} pairs two different amounts and does not say so"
+        )

@@ -586,6 +586,7 @@ def _disposition_pass(
     # way round; comparing against *matched* rows would offer a candidate that
     # is already somebody else's, which is a suggestion nobody can act on.
     leftover_groups = [r for ref in unclaimed_groups for r in grouped[ref]]
+    leftover_side = leftover_groups[0].side if leftover_groups else ""
 
     def read(row: Record, others: list[Record]) -> tuple[str, ProofTier, str, list[str], list[str]]:
         """Which key component this row failed on, and what that means.
@@ -633,48 +634,119 @@ def _disposition_pass(
             )
         return (ExceptionCode.E14_UNEXPLAINED, undecided, verdict.reason, evidence, [])
 
-    for anchor in unmatched:
-        if anchor.record_id in seen:
+    # ---- pair the two sides of one break --------------------------------
+    #
+    # A wrong section leaves *both* rows unmatched, so raising one exception per
+    # unmatched row reported twenty items over eleven breaks — the same error
+    # twice, at the same amount, with the two record ids swapped. A controller
+    # works each of them twice, or notices the duplication and stops trusting
+    # the count, which is the number they plan a week from.
+    #
+    # The pairing rule is **mutual and agreeing**: X's closest counterpart is Y,
+    # Y's closest is X, and both readings name the same code. One-directional
+    # closeness is not enough — three rows can each be closest to the same
+    # fourth, and merging on that would fold unrelated breaks together, which is
+    # a worse error than counting one twice.
+    singles: dict[str, Record] = {r.record_id: r for r in unmatched if r.record_id not in seen}
+    for group_ref in unclaimed_groups:
+        rows = grouped[group_ref]
+        if len(rows) == 1 and rows[0].record_id not in seen:
+            singles[rows[0].record_id] = rows[0]
+
+    readings: dict[str, tuple] = {}
+    closest: dict[str, str | None] = {}
+    for record_id, row in singles.items():
+        others = leftover_groups if row.side != leftover_side else unmatched
+        readings[record_id] = read(row, others)
+        miss = nearmiss.compare(row, others, key_parts) if others else None
+        top = miss.candidates[0] if (miss and miss.candidates) else None
+        closest[record_id] = top.record_id if top and len(top.differs_on) == 1 else None
+
+    paired: dict[str, str] = {}
+    for record_id, partner in closest.items():
+        if partner is None or partner not in singles or record_id in paired:
             continue
-        code, provenance, why, evidence, ambiguous = read(anchor, leftover_groups)
+        if closest.get(partner) != record_id:
+            continue  # not mutual
+        if readings[record_id][0] != readings[partner][0]:
+            continue  # the two sides disagree about what went wrong
+        paired[record_id] = partner
+        paired[partner] = record_id
+
+    emitted: set[str] = set()
+    for record_id, row in singles.items():
+        if record_id in emitted:
+            continue
+        partner_id = paired.get(record_id)
+        code, provenance, why, evidence, ambiguous = readings[record_id]
+
+        if partner_id is None:
+            members = [row]
+            emitted.add(record_id)
+        else:
+            partner = singles[partner_id]
+            members = sorted([row, partner], key=lambda r: r.record_id)
+            emitted.update({record_id, partner_id})
+            # Both readings, because each side says the same thing from its own
+            # end and a reader should not have to take our word for the pairing.
+            evidence = [*evidence, *readings[partner_id][3]]
+
+        amounts = [abs(m.amount) for m in members]
+        # The larger side. A wrong section or quarter puts the whole deduction at
+        # risk of being disallowed, and a wrong rate puts the amount we *claimed*
+        # at risk of being restated — in both cases the bigger number is the
+        # exposure. The difference is stated below rather than used as the
+        # headline, because ranking a break by its delta would put a rate error
+        # of a few rupees below a filing error worth hundreds when the filing
+        # error is the one that can be disallowed entirely.
+        value = max(amounts)
+        if len(members) == 2 and amounts[0] != amounts[1]:
+            evidence = [
+                *evidence,
+                f"sides differ by {abs(amounts[0] - amounts[1])}: "
+                f"{members[0].side} {amounts[0]} vs {members[1].side} {amounts[1]}",
+            ]
+
         exceptions.append(
             ReconException(
                 exception_id=f"EXC-{len(exceptions) + 1:05d}",
                 code=code,
                 code_provenance=provenance,
-                as_of=anchor.posted_on,
-                amount=abs(anchor.amount),
-                record_ids=[anchor.record_id],
+                as_of=max(m.posted_on for m in members),
+                amount=value,
+                record_ids=sorted(m.record_id for m in members),
                 ambiguous_codes=ambiguous,
                 hypothesis=why or "no strategy produced a match and the engine cannot say why",
-                evidence=[anchor.lineage, f"amount {anchor.amount}", *evidence],
+                evidence=[
+                    *(m.lineage for m in members),
+                    f"amount {value}",
+                    *evidence,
+                ],
                 blocks_close=True,
             )
         )
 
+    # ---- groups of more than one row ------------------------------------
+    #
+    # Not pairable: a group is already several rows, and which of them the other
+    # side's single row is the counterpart *of* is the subset-sum question the
+    # tiers already declined to answer.
     for group_ref in unclaimed_groups:
         rows = grouped[group_ref]
         row_ids = sorted(r.record_id for r in rows)
-        if all(rid in seen for rid in row_ids):
+        if len(rows) == 1 or all(rid in seen or rid in emitted for rid in row_ids):
             continue
         total = sum((r.amount for r in rows), ZERO)
-        code, provenance, why, evidence, ambiguous = (
-            read(rows[0], unmatched)
-            if len(rows) == 1
-            else (ExceptionCode.E14_UNEXPLAINED, ProofTier.P3_DECLARED, "", [], [])
-        )
         exceptions.append(
             ReconException(
                 exception_id=f"EXC-{len(exceptions) + 1:05d}",
-                code=code,
-                code_provenance=provenance,
+                code=ExceptionCode.E14_UNEXPLAINED,
+                code_provenance=ProofTier.P3_DECLARED,
                 as_of=max(r.posted_on for r in rows),
                 amount=abs(total),
                 record_ids=row_ids,
-                ambiguous_codes=ambiguous,
-                hypothesis=why
-                or f"group {group_ref!r} was not claimed by any anchor in this period",
-                evidence=[f"{len(rows)} row(s)", f"total {total}", *evidence],
+                hypothesis=f"group {group_ref!r} was not claimed by any anchor in this period",
+                evidence=[f"{len(rows)} row(s)", f"total {total}"],
                 blocks_close=True,
             )
         )

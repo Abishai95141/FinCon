@@ -224,7 +224,9 @@ def test_every_worklist_row_opens_the_item_it_describes(tmp_path, monkeypatch):
 
     body = client.get("/worklist").text
     links = set(re.findall(r"/periods/[^/']+/items/(EXC-\d+)", body))
-    assert len(links) >= 20, f"only {len(links)} of the worklist rows link to an item"
+    # Eleven derived breaks plus seven ambiguities. Fewer than the number of
+    # unmatched rows, because the two sides of one break are one item.
+    assert len(links) >= 18, f"only {len(links)} of the worklist rows link to an item"
 
     opened = client.get(f"/periods/{run_id}/items/{sorted(links)[0]}")
     assert opened.status_code == 200

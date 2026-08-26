@@ -2546,19 +2546,6 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 Priorities, with the reasons — because the reasons are what stop this being
 re-litigated every session.
 
-**0a. A two-sided break is two worklist items.** *(new, 2026-08-26)* The TDS
-loop raises one exception per unmatched row, so a wrong section shows up twice —
-once for the 26AS row and once for the ledger voucher — and the worklist reports
-**20 items over 11 breaks**. Each carries its own fingerprint, so the identity
-mechanism built for exactly this does not pair them. The engine is right that
-both rows are unmatched (invariant 8 requires every input to have a disposition,
-and each of these *is* an input); what is wrong is the presentation treating "an
-unmatched record" and "a break" as the same thing, and the tail's count is the
-number a controller plans a week from. Reproducer:
-`test_a_two_sided_break_is_one_item_on_the_worklist`. Pairing is a design
-decision — which id survives, whose amount is the item's value, and what a
-disposition on one does to the other.
-
 **0. The disposition of an exception.** *(new, 2026-08-26 — and it is the
 largest gap in the product, not in the engine.)* "Take this item" writes a real
 hash-chained attestation and **moves no money**. Measured, not suspected:
