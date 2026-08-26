@@ -160,3 +160,46 @@ def test_an_exceptions_leg_can_name_a_side_the_loop_actually_has():
         record_ids=["r1"],
     )
     assert exc.leg == "government"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "A two-sided break is raised as two exceptions, one per unmatched row, so "
+        "the worklist shows 20 items where there are 11 breaks. Each carries its own "
+        "fingerprint, so the identity mechanism that exists for exactly this does not "
+        "pair them. Visible on the deployed site: X-TDS-SECTION-MISMATCH appears twice "
+        "at Rs 284.23, and X-TDS-RATE-DIFF twice at Rs 8.29 and Rs 6.63 — the two "
+        "sides of one wrong rate. Pairing them is a design decision (which id "
+        "survives, which side's amount is the item's value, what a disposition on one "
+        "does to the other) and deserves its own pass rather than a rushed fix at the "
+        "end of a session."
+    ),
+)
+def test_a_two_sided_break_is_one_item_on_the_worklist():
+    """A controller works each of these twice, or notices and stops trusting the count.
+
+    The engine is right that both rows are unmatched — invariant 8 requires every
+    input to have a disposition, and each of these *is* an input. What is wrong is
+    the presentation treating "an unmatched record" and "a break" as the same
+    thing, and the tail's headline count is the number a controller plans their
+    week from.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from bench.generator.tds import generate
+
+    from recon import loop as looplib
+    from recon import service
+
+    batch = Path(tempfile.mkdtemp()) / "FY2627"
+    generate(batch)
+    runs = Path(tempfile.mkdtemp()) / "runs"
+    result = looplib.run(looplib.get("tds_26as"), batch, runs_dir=runs, label="FY2627")
+    view = service.view(result.run_id, runs)
+
+    derived = [e.exception for e in view.exceptions if e.exception.code != "E14"]
+    # Three section, three quarter and three rate errors are two-sided; two
+    # unbooked deductions are genuinely one-sided. Eleven breaks, not twenty.
+    assert len(derived) == 11
