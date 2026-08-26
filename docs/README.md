@@ -15,6 +15,7 @@ document below answers the question in front of you.
 | 07 | [Architecture audit](07-ARCHITECTURE-AUDIT.md) | The root cause: the certifying-algorithm discipline is applied to one decision type out of five. Graph + runtime tracing + five experiments. |
 | 08 | [As built](08-AS-BUILT.md) | The flow that **runs today** — input, processing, output — what a customer gets, and what is missing. Read beside 01's §4, which is the flow we intend. Revised when P13/P14 landed a product surface. |
 | 09 | [Product direction](09-PRODUCT-DIRECTION.md) | **PROPOSED, not approved.** The user journey, screen map, design system, auth and AWS deployment for the product surface. Nothing in §§2–6 is built. |
+| 10 | [The user flow](10-THE-USER-FLOW.md) | What a controller actually does with this, with the real numbers from batch A — and the four things missing, the largest being that an attested exception leads to no disposition. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Running it

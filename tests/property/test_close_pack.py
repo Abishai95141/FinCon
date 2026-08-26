@@ -237,3 +237,27 @@ def test_the_journal_belongs_to_the_account_that_closed_it(closed, tmp_path, mon
     response = other.get(f"/v1/runs/{run_id}/journal.csv")
     assert response.status_code != 200
     assert "Assets:Bank" not in response.text, "the journal crossed an account boundary"
+
+
+def test_beancount_itself_parses_what_we_export(closed, tmp_path):
+    """The strongest check available on an export: hand it to the parser we do
+    not control and see whether it objects.
+
+    Our own assertion that the books balance is our arithmetic checking our
+    arithmetic. `beancount.loader` is a third party, it knows nothing about this
+    project, and if the account names, dates, syntax or amounts are wrong it says
+    so. Zero errors here is the difference between "we think this imports" and
+    "this imports".
+    """
+    loader = pytest.importorskip("beancount.loader")
+    _client, run_id, runs_root = closed
+
+    ledger = tmp_path / f"{run_id}.beancount"
+    ledger.write_text(service.journal(run_id, runs_root).beancount)
+    entries, errors, _options = loader.load_file(str(ledger))
+
+    assert not errors, f"beancount rejected our own export: {errors[:3]}"
+    txns = [e for e in entries if type(e).__name__ == "Transaction"]
+    assert txns, "the export parsed but contains no transactions"
+    for txn in txns:
+        assert sum((p.units.number for p in txn.postings), start=0) == 0

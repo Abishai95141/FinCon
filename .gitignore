@@ -16,3 +16,4 @@ htmlcov/
 # decision logs from local runs — the record is per-run, not a repo artifact
 data/runs/
 data/dev/
+.scratch/

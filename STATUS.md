@@ -2546,6 +2546,32 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 Priorities, with the reasons — because the reasons are what stop this being
 re-litigated every session.
 
+**0. The disposition of an exception.** *(new, 2026-08-26 — and it is the
+largest gap in the product, not in the engine.)* "Take this item" writes a real
+hash-chained attestation and **moves no money**. Measured, not suspected:
+accepting `EXC-00005` from `E14` to `E08` left the journal at 23 entries and
+4,994 bytes, left the decision-log code at `E14`, and changed nothing about what
+blocks the close. In a real close an exception ends one of four ways and each
+one produces an entry — *book it* (`E02` fee variance → `Expenses:GatewayFees:Variance`),
+*carry it forward* (`E01` in-transit, expect it in next month's bank file),
+*chase it* (`E08` → a receivable and an email), *write it off* (below a
+materiality threshold that must be named). None of the four exist. The product
+says what is wrong and records who agreed, then stops one step short of the
+entry that makes the break go away. See [docs/10-THE-USER-FLOW.md](docs/10-THE-USER-FLOW.md) §5.1.
+
+Note the proof-tier consequence before building it: value *leaving* a close is
+`P2 ATTESTED`, never `P1 RULE` — raw records cannot prove a row is spurious,
+they contain it. A write-off is an attestation with a threshold, and the
+threshold comes from policy, not from the person clicking.
+
+**0b. The loop named `settlement_3way` matches two legs.**
+`bank_icici_camt053.xml` (anchor) and `settlement.csv` (group). `orders.csv`
+sits in every generated batch and is bound by nothing, so order register ↔
+gateway is unbuilt — which is exactly where revenue leakage hides, because a
+payout can tie to the bank perfectly while containing an order that was never
+invoiced. **The name is a claim the code does not honour.** Either bind the
+third leg or rename it; leaving both is how a file map rots.
+
 **1. `P15c` — the second loop.** GSTR-2B exists nowhere: no profile, no
 generator, no adapters, no data. It is the only remaining item that tests the
 claim rather than extending it — "the engine is domain-agnostic" is still
