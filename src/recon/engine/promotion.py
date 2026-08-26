@@ -106,6 +106,17 @@ class MatchHistory:
     `book_to` rule acts on exceptions, so without them there is nothing to
     reroute and the delta is reported *absent* rather than zero."""
 
+    anchor_side: str = ""
+    """Which side of *this* history the anchors are.
+
+    Carried rather than assumed. The replay hardcoded `"bank"`, so a rule
+    promoted against any loop but settlement was regression-tested against a side
+    that loop does not have: every posting fell through the "no anchor line"
+    branch and the gate measured nothing while reporting a clean pass. Empty is
+    inert in the same way — `entries_for` finds no anchor and declines — but it
+    is inert *visibly*, because a history that forgot to say is not a history
+    that quietly claims to be a bank."""
+
     def matched_anchor_ids(self) -> set[str]:
         return {m.anchor_id for m in self.matches}
 
@@ -226,7 +237,12 @@ def _posting_delta(rule: Rule, history: MatchHistory, taxonomy) -> PostingDelta 
             matches=[],
             exceptions=list(history.exceptions),
             records=history.records,
-            anchor_side="bank",
+            # The *history's* anchor side, not a constant. `"bank"` was written
+            # here, so a rule promoted against any loop but settlement was
+            # regression-tested against a side that loop does not have — every
+            # posting fell through the "no anchor line" branch and the gate
+            # measured nothing.
+            anchor_side=history.anchor_side,
             taxonomy=taxonomy,
             overrides=overrides,
         )

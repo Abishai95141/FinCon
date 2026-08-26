@@ -73,6 +73,12 @@ def history():
         records={r.record_id: r for _, r in sides.bank + sides.settlement},
         matches=[type("M", (), {"anchor_id": m.anchor_id})() for m in base.matches],
         exceptions=list(base.exceptions),
+        # Named, because the replay no longer assumes it. `anchor_side="bank"`
+        # was hardcoded in `promotion`, so a rule promoted against any other loop
+        # was regression-tested against a side that loop does not have — every
+        # posting fell through the "no anchor line" branch and the gate reported
+        # a clean pass over nothing.
+        anchor_side="bank",
     )
 
 
@@ -169,6 +175,11 @@ def test_the_posting_delta_is_invariant_to_record_order(history, seed):
         records=history.records,
         matches=history.matches,
         exceptions=history.exceptions,
+        # Carried through the shuffle. Rebuilding a history without it makes the
+        # replay find no anchor side and reroute nothing, so the two sides of
+        # this comparison would differ for a reason that has nothing to do with
+        # record order — which is what this test exists to rule out.
+        anchor_side=history.anchor_side,
     )
     again = regress(rule, other, SETTLEMENT_3WAY, SETTLEMENT_POLICY, taxonomy=TAXONOMY).postings
     assert base.rerouted == again.rerouted

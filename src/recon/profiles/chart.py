@@ -17,8 +17,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..ledger.accounts import AccountRole, ChartOfAccounts
+
+if TYPE_CHECKING:
+    from ..engine.diagnose import DiagnosisRules
 
 PROFILE_DIR = Path("data/profiles")
 
@@ -47,3 +51,36 @@ def load_chart(profile: str, directory: Path | None = None) -> ChartOfAccounts:
             f"posted as INR."
         )
     return ChartOfAccounts(currency=raw["currency"], accounts=accounts)
+
+
+def load_diagnosis(profile: str, directory: Path | None = None) -> DiagnosisRules | None:
+    """How a loop reads its own near misses, from its profile file.
+
+    Loaded rather than written in Python for the reason `codes.json` exists: a
+    fact about a code belongs in `data/`, and an AST guard in
+    `tests/property/test_metamorphic.py` fails on a code-id literal anywhere
+    else. P12 wrote two frozensets of them back into code one phase after that
+    rule was made, in two modules — the guard is what stops the third time.
+
+    `None` when a profile declares none, which is correct for a loop keyed on a
+    single reference: there are no parts for a near miss to differ on.
+    """
+    from ..engine.diagnose import DiagnosisRules
+
+    path = (directory or PROFILE_DIR) / f"{profile}.json"
+    if not path.exists():
+        raise ProfileError(f"no profile at {path}")
+    raw = json.loads(path.read_text(encoding="utf-8")).get("diagnosis")
+    if not raw:
+        return None
+
+    try:
+        return DiagnosisRules(
+            by_difference={
+                frozenset(part.split("+")): code for part, code in raw["by_difference"].items()
+            },
+            by_absence={side: tuple(codes) for side, codes in raw["by_absence"].items()},
+            absence_reason=raw.get("absence_reason", ""),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProfileError(f"{path}: diagnosis is malformed — {exc}") from exc

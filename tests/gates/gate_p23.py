@@ -28,9 +28,10 @@ holds the evidence.
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 import shutil
-import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from recon.contracts import CodeStatus
 
 pytestmark = pytest.mark.gate
 
+ROOT = Path(__file__).resolve().parents[2]
 LOOP = "tds_26as"
 
 
@@ -63,33 +65,88 @@ def closed(batch, tmp_path_factory):
 # ------------------------------------------------- the engine did not change
 
 
-def test_the_engine_is_untouched_by_the_second_loop():
-    """The gate's real clause.
+def test_the_engine_speaks_no_domain():
+    """Invariant 7, asserted as a property rather than as a date.
 
-    Adding a reconciliation cost one profile, two adapter specs, a policy, a
-    chart and six taxonomy entries. If it had cost a line under `engine/`,
-    invariant 7 was a description of a coincidence.
+    The first version checked that `src/recon/engine/` had not been committed to
+    recently — which passed for the second loop and then failed the moment
+    near-miss diagnosis was added, correctly and uselessly. "The engine has not
+    changed" is not the invariant; plenty of legitimate work changes it. **"The
+    engine knows nothing about any domain" is**, and that does not decay with the
+    commit log.
+
+    Identifiers and live string literals only. A docstring may say "same deductor,
+    same section" to explain what a general mechanism is *for* — prose is how a
+    reader learns why the abstraction exists. A `deductor` variable, or the
+    string `"194O"` in a comparison, is the domain reaching the kernel.
+
+    The second loop is the proof this is real: `tan`, `section` and `quarter`
+    reach the engine as `profile.key_parts`, and `X-TDS-QUARTER-ERROR` reaches
+    `diagnose` through a mapping the profile supplies.
     """
-    head = subprocess.run(
-        ["git", "log", "-1", "--format=%H", "--", "src/recon/engine"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    since = subprocess.run(
-        ["git", "log", "--format=%H", "-n", "40"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
+    domain_words = {
+        "tds",
+        "26as",
+        "traces",
+        "deductor",
+        "deductee",
+        "tan",
+        "razorpay",
+        "gateway",
+        "bank",
+        "invoice",
+        "gstr",
+        "194o",
+        "quarter",
+        "section",
+    }
 
-    assert head, "no commit touches src/recon/engine at all, which cannot be right"
-    # The engine's last change must predate this phase's work. Stated as a
-    # position in history rather than a date, because a date is a thing somebody
-    # edits and a parent commit is not.
-    assert head in since, (
-        "src/recon/engine changed more than forty commits ago — this assertion has "
-        "lost its subject and should be rewritten against a tag"
+    def docstring_nodes(tree: ast.AST) -> set[int]:
+        """Every string that is prose, by identity.
+
+        Any bare string *statement* — not just a module, class or function
+        docstring, but the attribute docstring under a dataclass field, which is
+        how most of this codebase documents itself. Missing those made the first
+        run of this test report `MatchProfile.key_parts`'s own explanation as a
+        domain leak.
+        """
+        return {
+            id(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+
+    offenders: list[str] = []
+    for path in sorted((ROOT / "src" / "recon" / "engine").rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        exempt = docstring_nodes(tree)
+
+        tokens: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                tokens.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                tokens.add(node.attr)
+            elif isinstance(node, ast.arg):
+                tokens.add(node.arg)
+            elif (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in exempt
+            ):
+                tokens.add(node.value)
+
+        for token in tokens:
+            words = set(re.split(r"[^a-z0-9]+", str(token).lower()))
+            leaked = words & domain_words
+            if leaked:
+                offenders.append(f"{path.name}: {token!r} -> {sorted(leaked)}")
+
+    assert not offenders, (
+        "domain vocabulary reached the engine as code, so invariant 7 is false:\n  "
+        + "\n  ".join(sorted(set(offenders))[:8])
     )
 
 

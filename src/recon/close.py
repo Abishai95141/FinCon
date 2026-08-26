@@ -255,7 +255,19 @@ def match_and_verify(request: CloseRequest, track=None) -> MatchOutcome:
 
     if track:
         track.enter("block")
-    candidates = build_candidates(anchors, groups, BlockingPolicy())
+    # The loop's own keys, not a default. `BlockingPolicy()` was constructed
+    # empty here, so blocking inherited the kernel's `"gateway"` default and had
+    # been settlement-specific since P4 — which is why the TDS loop reported
+    # 0.0% reduction: its records have no `gateway` key, so the counterparty
+    # filter narrowed nothing and every pair went to the matcher.
+    candidates = build_candidates(
+        anchors,
+        groups,
+        BlockingPolicy(
+            counterparty_key=request.profile.counterparty_key,
+            date_window_days=request.profile.tolerance.date_window_days or 3,
+        ),
+    )
     if track:
         track.report("block", candidates.summary().split(" ::")[0])
         track.enter("match")

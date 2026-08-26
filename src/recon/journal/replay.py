@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from ..contracts import ExceptionCode, Proof, ProofTier, ReconException
+from ..contracts import Proof, ProofTier, ReconException
 from ..contracts.event import Event, EventKind
 
 
@@ -113,7 +113,14 @@ def replay(events: list[Event]) -> ReplayedClose:
                 exceptions.append(
                     ReconException(
                         exception_id=payload.exception_id,
-                        code=ExceptionCode(payload.code),
+                        # A `CodeId`, not an `ExceptionCode`. The registry has
+                        # been open since P11 and this line still coerced every
+                        # code back through the closed enum — so a close that
+                        # raised `X-TDS-RATE-DIFF` wrote it to the log happily
+                        # and then could not read its own record back. The open
+                        # registry did not survive a round trip, and nothing
+                        # noticed until a loop actually minted one.
+                        code=payload.code,
                         code_provenance=ProofTier(payload.code_provenance),
                         # The fingerprint was written into the event at P12 and
                         # dropped here, so every break read back from a record

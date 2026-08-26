@@ -52,10 +52,16 @@ def _parts(sides, batch):
     return bank, settlement, provenance, anchors, groups, declared
 
 
+#: The settlement loop's own counterparty key. Named here because `BlockingPolicy`
+#: no longer defaults to it — `"gateway"` sat in the kernel as the value every
+#: other loop silently inherited, which is why the TDS loop blocked nothing.
+SETTLEMENT_BLOCKING = BlockingPolicy(counterparty_key="gateway")
+
+
 def _measure(sides, batch, policy: BlockingPolicy | None = None):
     bank, _s, _p, anchors, groups, declared = _parts(sides, batch)
     labels = BATCHES / batch / "labels.json"
-    candidates = build(anchors, groups, policy or BlockingPolicy())
+    candidates = build(anchors, groups, policy or SETTLEMENT_BLOCKING)
     return candidates, recall(
         candidates,
         truth_groups(labels),
@@ -99,7 +105,7 @@ def test_unreachable_cannot_absorb_a_real_blocking_failure(sides):
     truth = truth_groups(labels)
     anchor_ids = {ext: rec.record_id for ext, rec in bank}
 
-    full = build(anchors, groups, BlockingPolicy())
+    full = build(anchors, groups, SETTLEMENT_BLOCKING)
     victim_ext = next(ext for ext, payout in sorted(truth.items()) if payout in declared)
     victim = (anchor_ids[victim_ext], truth[victim_ext])
     assert victim in full.pairs

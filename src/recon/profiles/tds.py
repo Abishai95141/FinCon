@@ -40,7 +40,7 @@ from ..engine.tolerance import TolerancePolicy
 from ..intake import ingest, load_spec
 from ..ledger.accounts import ChartOfAccounts
 from ..loop import LoadedSources, Loop, SourceBinding, register
-from .chart import load_chart
+from .chart import load_chart, load_diagnosis
 
 POLICY_FILE = Path("data/policy/tds_26as.json")
 TAXONOMY_FILE = Path("data/taxonomy/codes.json")
@@ -50,6 +50,31 @@ TAXONOMY_FILE = Path("data/taxonomy/codes.json")
 #: break if a period were hardcoded anywhere upstream of a profile.
 WINDOW: tuple[date, date] = (date(2026, 4, 1), date(2027, 3, 31))
 OPENED_ON = date(2026, 4, 1)
+
+#: How a 26AS row and a ledger voucher are the same deduction. This is the
+#: composite the profession already uses, plus the transaction date to keep a
+#: group down to one deduction rather than a deductor's whole quarter.
+#:
+#: Composed here rather than in an adapter spec, deliberately: the government's
+#: file has no column for our join key and never will, and a parse verb that
+#: concatenated fields would be a spec that computes rather than reads. ADR-001
+#: keeps the vocabulary closed; the domain knowledge lives in the profile.
+JOIN_KEYS: tuple[str, ...] = ("tan", "section", "quarter")
+
+
+#: How this loop reads its own near misses — loaded from the profile's data file
+#: rather than written here. Code ids are registry data since P11, and an AST
+#: guard fails on a literal one outside `data/`: P12 wrote two frozensets of them
+#: back into Python one phase after that rule was made, in two modules.
+#:
+#: The absence entry is the honest half. A ledger row with nothing on the
+#: government's side is *either* tax never deposited *or* tax deposited against
+#: somebody else's PAN, and your own 26AS cannot tell you which — true of the real
+#: filing, not an artefact of the generator. Picking one would be right about half
+#: the time and confident every time, and the wrong half sends a correction return
+#: to a deductor who did nothing wrong.
+DIAGNOSIS = load_diagnosis("tds_26as")
+
 
 PROFILE = MatchProfile(
     name="tds_26as",
@@ -82,6 +107,10 @@ PROFILE = MatchProfile(
     # and two of them landing within fifty paise is rare. That is luck, not a
     # property — the same path is open there and this loop is where it fired.
     counterparty_key="pairing",
+    # The parts the pairing key is built from, so `engine.nearmiss` can say
+    # which one an unmatched row failed on rather than only that it failed.
+    key_parts=JOIN_KEYS,
+    diagnosis=DIAGNOSIS,
     strategies=("exact", "tolerant"),
     # No consistency relation. Settlement has one because a gateway bills its
     # whole book on terms nobody publishes, so rows that disagree with their own
@@ -91,16 +120,6 @@ PROFILE = MatchProfile(
     # already hold.
     consistency=None,
 )
-
-#: How a 26AS row and a ledger voucher are the same deduction. This is the
-#: composite the profession already uses, plus the transaction date to keep a
-#: group down to one deduction rather than a deductor's whole quarter.
-#:
-#: Composed here rather than in an adapter spec, deliberately: the government's
-#: file has no column for our join key and never will, and a parse verb that
-#: concatenated fields would be a spec that computes rather than reads. ADR-001
-#: keeps the vocabulary closed; the domain knowledge lives in the profile.
-JOIN_KEYS = ("tan", "section", "quarter")
 
 
 def pairing_key(record: Record) -> str:

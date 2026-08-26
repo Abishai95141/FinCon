@@ -28,7 +28,7 @@ from ..contracts import (
     Record,
 )
 from ..contracts.rule import Rule
-from . import consistency, rulestore, strategies
+from . import consistency, diagnose, nearmiss, rulestore, strategies
 from .blocking import CandidateSet
 from .completeness import CompletenessReport, audit
 from .consistency import RelationSpec
@@ -53,8 +53,38 @@ class MatchProfile:
     """The side whose records form the other leg, grouped by `group_ref`."""
     side_signs: dict[str, int]
     tolerance: TolerancePolicy = field(default_factory=TolerancePolicy)
-    counterparty_key: str = "gateway"
-    """Key that must agree before two records are considered comparable."""
+    counterparty_key: str = ""
+    """Key that must agree before two records are considered comparable.
+
+    Defaulted to `"gateway"` until 2026-08-26 — one loop's key name, sitting in
+    the kernel as the value every other loop would silently inherit. Empty means
+    no counterparty filter, which is the only domain-free default there is: a
+    loop that needs one names it.
+    """
+    diagnosis: diagnose.DiagnosisRules | None = None
+    """How this loop reads a near miss — which differing component means which
+    code, and what an absent counterpart can mean. Data, so `engine.diagnose`
+    knows how to apply a mapping and nothing about any domain."""
+
+    diagnosis: diagnose.DiagnosisRules | None = None
+    """How this loop reads a near miss: which differing component means which
+    code, and what an absent counterpart can mean. Data, so `engine.diagnose`
+    knows how to apply a mapping and refuse when it is not decisive, and nothing
+    about any domain."""
+
+    key_parts: tuple[str, ...] = ()
+    """The components of this loop's composite pairing key, if it has one.
+
+    Read only by `engine.nearmiss`, to say *which* part an unmatched row failed
+    on. That is the difference between "did not match" and "same deductor, same
+    section, same amount, wrong quarter" — six of this project's codes are
+    indistinguishable without it, so a model handed the row alone can only guess.
+
+    Empty is honest for a loop keyed on a single reference: `settlement_3way`
+    names its group by a payout id, which has no parts, and near misses there
+    fall back to amount and date.
+    """
+
     cohesion_key: str | None = None
     """Key whose equal values must move together in a subset — a fee and the
     charge it was levied on. Passed through to the solver; naming it here keeps
@@ -420,7 +450,9 @@ def run(
         unmatched = [a for a in pending if not attempt(a, name)]
 
     unclaimed = sorted(set(grouped) - claimed)
-    _disposition_pass(unmatched, unclaimed, grouped, exceptions)
+    _disposition_pass(
+        unmatched, unclaimed, grouped, exceptions, profile.key_parts, profile.diagnosis
+    )
     _declared_gap_pass(declared_gaps, grouped, {a.record_id: a for a in anchors}, exceptions)
     _consistency_pass(group_records, profile, policy, exceptions)
     exceptions, advised = _advise(exceptions, applied.advisories)
@@ -534,6 +566,8 @@ def _disposition_pass(
     unclaimed_groups: list[str],
     grouped: dict[str, list[Record]],
     exceptions: list[ReconException],
+    key_parts: tuple[str, ...] = (),
+    rules: diagnose.DiagnosisRules | None = None,
 ) -> None:
     """Invariant 8's teeth. Anything the tiers left over gets an `E14` naming
     the facts the engine actually has.
@@ -547,18 +581,70 @@ def _disposition_pass(
     seen = {rid for exc in exceptions for rid in exc.record_ids}
     seen |= {rid for exc in exceptions for s in (exc.alternatives or []) for rid in s}
 
+    # Both sides of the leftovers, so a near miss can be looked for across them.
+    # An unmatched anchor's counterpart is an unclaimed group row and the other
+    # way round; comparing against *matched* rows would offer a candidate that
+    # is already somebody else's, which is a suggestion nobody can act on.
+    leftover_groups = [r for ref in unclaimed_groups for r in grouped[ref]]
+
+    def read(row: Record, others: list[Record]) -> tuple[str, ProofTier, str, list[str]]:
+        """Which key component this row failed on, and what that means.
+
+        Arithmetic, not a heuristic. Without it an unmatched row reaches triage
+        saying "1 row, total 821.25", from which a wrong-quarter, a wrong-section,
+        a wrong-rate and a never-deposited deduction are indistinguishable — and a
+        model handed that can only guess between them.
+
+        Returns `(code, provenance, hypothesis, evidence)`.
+
+        The provenance is the load-bearing part. A **derived** code is
+        `P0 ARITHMETIC` and a model proposal may not overwrite it — that is the
+        rule that stops a guess replacing a proof. An `E14` is the opposite: the
+        engine derived that it *cannot say*, so there is no label to protect and
+        triage may ask. Stamping `P0` on both would have refused the model on the
+        seven items it is the only thing that can look at.
+        """
+        undecided = ProofTier.P3_DECLARED
+        miss = nearmiss.compare(row, others, key_parts) if others else None
+        if miss is None or rules is None:
+            return (
+                ExceptionCode.E14_UNEXPLAINED,
+                undecided,
+                "",
+                miss.as_evidence() if miss else [],
+            )
+
+        evidence = miss.as_evidence()
+        verdict = diagnose.diagnose(miss, rules)
+        if verdict.decided:
+            return (verdict.code, ProofTier.P0_ARITHMETIC, verdict.reason, evidence)
+        if verdict.ambiguous:
+            # Stays E14 on purpose. The engine genuinely cannot say which, and a
+            # code carrying two meanings routes to two desks. The candidates go
+            # in the hypothesis so a person reads "either of these, and here is
+            # how to find out" rather than "unexplained".
+            return (
+                ExceptionCode.E14_UNEXPLAINED,
+                undecided,
+                f"either {' or '.join(verdict.codes)}. {verdict.reason}",
+                evidence,
+            )
+        return (ExceptionCode.E14_UNEXPLAINED, undecided, verdict.reason, evidence)
+
     for anchor in unmatched:
         if anchor.record_id in seen:
             continue
+        code, provenance, why, evidence = read(anchor, leftover_groups)
         exceptions.append(
             ReconException(
                 exception_id=f"EXC-{len(exceptions) + 1:05d}",
-                code=ExceptionCode.E14_UNEXPLAINED,
+                code=code,
+                code_provenance=provenance,
                 as_of=anchor.posted_on,
                 amount=abs(anchor.amount),
                 record_ids=[anchor.record_id],
-                hypothesis="no strategy produced a match and the engine cannot say why",
-                evidence=[anchor.lineage, f"amount {anchor.amount}"],
+                hypothesis=why or "no strategy produced a match and the engine cannot say why",
+                evidence=[anchor.lineage, f"amount {anchor.amount}", *evidence],
                 blocks_close=True,
             )
         )
@@ -569,15 +655,22 @@ def _disposition_pass(
         if all(rid in seen for rid in row_ids):
             continue
         total = sum((r.amount for r in rows), ZERO)
+        code, provenance, why, evidence = (
+            read(rows[0], unmatched)
+            if len(rows) == 1
+            else (ExceptionCode.E14_UNEXPLAINED, ProofTier.P3_DECLARED, "", [])
+        )
         exceptions.append(
             ReconException(
                 exception_id=f"EXC-{len(exceptions) + 1:05d}",
-                code=ExceptionCode.E14_UNEXPLAINED,
+                code=code,
+                code_provenance=provenance,
                 as_of=max(r.posted_on for r in rows),
                 amount=abs(total),
                 record_ids=row_ids,
-                hypothesis=f"group {group_ref!r} was not claimed by any anchor in this period",
-                evidence=[f"{len(rows)} row(s)", f"total {total}"],
+                hypothesis=why
+                or f"group {group_ref!r} was not claimed by any anchor in this period",
+                evidence=[f"{len(rows)} row(s)", f"total {total}", *evidence],
                 blocks_close=True,
             )
         )

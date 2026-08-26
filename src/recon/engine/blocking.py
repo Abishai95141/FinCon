@@ -32,7 +32,14 @@ class BlockingPolicy:
     total sitting near a boundary is not lost to rounding."""
 
     date_window_days: int = 3
-    counterparty_key: str = "gateway"
+    counterparty_key: str = ""
+    """Key that must agree before two records are considered comparable.
+
+    Defaulted to `"gateway"` until 2026-08-26 — one loop's key name, sitting in
+    the kernel as the value every other loop would silently inherit. Empty means
+    no counterparty filter, which is the only domain-free default there is: a
+    loop that needs one names it.
+    """
 
 
 @dataclass(frozen=True)

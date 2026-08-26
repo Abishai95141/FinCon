@@ -16,6 +16,23 @@
   "approved_at": "2026-08-26T00:00:00Z",
   "approved_by": "meera",
   "currency": "INR",
-  "notes": "The TDS loop's chart. Nothing here is a gateway account: a TDS credit is an asset against the government, and the roles the engine knows by name (clearing, suspense, receivable) point at tax accounts rather than at cash. That the same role names fit a completely different ledger is the strongest evidence available that AccountRole is domain-agnostic.",
+  "diagnosis": {
+    "absence_reason": "A deduction our books expect and 26AS has never heard of is either tax the deductor never deposited or tax deposited against another PAN. These two files cannot separate them \u2014 ask the deductor for the challan, or check their quarterly total against what they withheld from you.",
+    "by_absence": {
+      "books": [
+        "X-TDS-NOT-DEPOSITED",
+        "X-TDS-PAN-MISMATCH"
+      ],
+      "government": [
+        "X-TDS-UNBOOKED"
+      ]
+    },
+    "by_difference": {
+      "amount": "X-TDS-RATE-DIFF",
+      "quarter": "X-TDS-QUARTER-ERROR",
+      "section": "X-TDS-SECTION-MISMATCH"
+    }
+  },
+  "notes": "The TDS loop's chart. Nothing here is a gateway account: a TDS credit is an asset against the government, and the roles the engine knows by name (clearing, suspense, receivable) point at tax accounts rather than at cash. That the same role names fit a completely different ledger is the strongest evidence available that AccountRole is domain-agnostic. The diagnosis map moved here from Python on 2026-08-26: an AST guard in tests/property/ fails on a code-id literal outside data/, because P11 made codes data and P12 wrote two frozensets of them back into code one phase later.",
   "profile": "tds_26as"
 }
