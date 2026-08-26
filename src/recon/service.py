@@ -259,6 +259,13 @@ def loops() -> list[LoopView]:
     return out
 
 
+def loops_for(name: str):
+    """Resolve a loop name, raising the configuration error if it is unknown.
+    A thin pass-through so a surface can validate a name without importing the
+    registry and reaching past this service."""
+    return looplib.get(name)
+
+
 def source_sets(loop_name: str, root: Path | None = None) -> list[SourceSetView]:
     """Every directory under `root`, complete or not.
 

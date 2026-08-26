@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,7 @@ from fastapi.testclient import TestClient
 from recon import service
 from recon.api import app  # noqa: F401 — imported by the client fixture
 from recon.api.theme import money
-from tests.conftest import signed_in_client
+from tests.conftest import close_and_wait, signed_in_client
 
 pytestmark = pytest.mark.gate
 
@@ -69,8 +70,7 @@ def runs_root(session) -> Path:
 @pytest.fixture
 def closed(session) -> tuple[TestClient, str, Path]:
     client, _, root = session
-    page = client.post("/periods/close", data=_form(client, loop=LOOP, source_set=BATCH))
-    assert page.status_code == 200, page.text[:400]
+    page = close_and_wait(client, loop=LOOP, source_set=BATCH)
     return client, str(page.url).rsplit("/", 1)[-1], root
 
 
@@ -106,8 +106,23 @@ def test_a_controller_completes_a_close_through_the_ui(session):
     assert fields.get("loop") and fields.get("source_set"), fields
     assert "csrf" in fields, "the form carries no CSRF token, so a browser could not post it"
 
+    # The close runs on a thread and the browser lands on a page that refreshes
+    # itself, so the gate does what a browser does: watch it, then follow it to
+    # the record. Reaching past the processing page would not have noticed the
+    # day it stopped redirecting.
     page = client.post(form.group(1), data=fields)
     assert page.status_code == 200
+    assert "/closing/" in str(page.url), "the close did not show its work"
+    for name in ("ingest", "match", "verify", "post", "record"):
+        assert name in page.text, f"the processing page never names {name}"
+
+    for _ in range(120):
+        if "/closing/" not in str(page.url):
+            break
+        assert "The close stopped" not in page.text, page.text[:500]
+        time.sleep(0.05)
+        page = client.get(str(page.url))
+    assert "/closing/" not in str(page.url), "the close never left the processing page"
     run_id = str(page.url).rsplit("/", 1)[-1]
 
     # A close happened, and it left the record a close is supposed to leave —
@@ -334,8 +349,12 @@ def test_a_period_missing_a_source_cannot_be_closed(
     assert "Missing bank_icici_camt053.xml" in page
     assert "Cannot close" in page
 
+    # Refused before a thread starts, so the controller is told immediately
+    # rather than watching a processing page spend two seconds reaching the same
+    # answer.
     refused = client.post("/periods/close", data=_form(client, loop=LOOP, source_set="OCT"))
     assert refused.status_code == 422
+    assert "/closing/" not in str(refused.url), "a half-arrived period started a close anyway"
     assert "bank_icici_camt053.xml" in refused.text
 
 

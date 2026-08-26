@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from recon import review, service
 from recon.api import auth
-from tests.conftest import signed_in_client
+from tests.conftest import close_and_wait, signed_in_client
 
 LOOP = "settlement_3way"
 BATCH = "A"
@@ -32,8 +32,7 @@ BATCH = "A"
 @pytest.fixture
 def closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client, _, runs_root = signed_in_client(monkeypatch, tmp_path)
-    page = client.post("/periods/close", data=_form(client, loop=LOOP, source_set=BATCH))
-    assert page.status_code == 200, page.text[:300]
+    page = close_and_wait(client, loop=LOOP, source_set=BATCH)
     return client, str(page.url).rsplit("/", 1)[-1], runs_root
 
 
@@ -226,7 +225,7 @@ def test_a_close_over_uploaded_files_is_the_same_close(tmp_path, monkeypatch):
     assert (sources / BATCH / "settlement.csv").exists(), "sample data was not copied in"
     assert not (sources / BATCH / "labels.json").exists(), "ground-truth labels were copied too"
 
-    page = client.post("/periods/close", data=_form(client, loop=LOOP, source_set=BATCH))
+    page = close_and_wait(client, loop=LOOP, source_set=BATCH)
     run_id = str(page.url).rsplit("/", 1)[-1]
     view = service.view(run_id, runs_root)
     assert view.tiers.matched == 20

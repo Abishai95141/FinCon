@@ -25,7 +25,7 @@ from recon import loop as looplib
 from recon.api import auth
 from recon.api.app import app
 from recon.api.auth import AuthError, ConfigError, LocalIdentity, User
-from tests.conftest import signed_in_client
+from tests.conftest import close_and_wait, signed_in_client
 
 LOOP = "settlement_3way"
 BATCH = "A"
@@ -203,8 +203,7 @@ def test_one_account_cannot_read_another_accounts_close(tmp_path, monkeypatch):
     name*, which is exactly what an attacker would do.
     """
     alice, alice_id, _ = signed_in_client(monkeypatch, tmp_path / "a", email="alice@acme.in")
-    page = alice.post("/periods/close", data=_form(alice, loop=LOOP, source_set=BATCH))
-    assert page.status_code == 200
+    page = close_and_wait(alice, loop=LOOP, source_set=BATCH)
     run_id = str(page.url).rsplit("/", 1)[-1]
     assert alice.get(f"/v1/runs/{run_id}").status_code == 200
 

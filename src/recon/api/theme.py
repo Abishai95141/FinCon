@@ -428,6 +428,35 @@ td .sub{display:block;color:var(--n500);font-size:.92em;margin-top:.1rem}
   font-size:11.5px;line-height:1.55;overflow-x:auto;color:var(--n700);
 }
 
+/* ---- processing ---- */
+.run{max-width:44rem;margin:0 auto}
+.steps{display:flex;flex-direction:column;gap:.15rem;margin:1.4rem 0}
+.step{
+  display:flex;align-items:flex-start;gap:.85rem;padding:.8rem .95rem;border-radius:var(--r12);
+  border:1px solid transparent;transition:background .2s,border-color .2s;
+}
+.step.running{background:var(--surface);border-color:var(--g-line);box-shadow:var(--e2)}
+.step .mark{
+  width:22px;height:22px;border-radius:999px;flex:none;display:grid;place-items:center;
+  border:2px solid var(--n300);background:var(--surface);color:var(--n400);margin-top:.05rem;
+}
+.step.done .mark{border-color:#7ED4A6;color:#15803D}
+.step.running .mark{border-color:var(--primary);color:var(--primary)}
+.step.failed .mark{border-color:#F5A3A0;color:#B91C1C}
+.step .what{min-width:0;flex:1}
+.step .name{font-size:13.5px;font-weight:500;color:var(--n500)}
+.step.done .name,.step.running .name{color:var(--ink)}
+.step .why{font-size:12px;color:var(--n500);margin-top:.1rem}
+.step .fact{font-size:12.5px;color:var(--primary-deep);margin-top:.2rem;font-variant-numeric:tabular-nums}
+.step .ms{font-size:11px;color:var(--n400);font-variant-numeric:tabular-nums;margin-top:.15rem}
+/* A two-dot pulse, not a spinner: it says "still going" without implying a
+   fraction of the work that nobody has measured. */
+.pulse{display:inline-flex;gap:3px;align-items:center}
+.pulse i{width:4px;height:4px;border-radius:999px;background:currentColor;animation:p 1.1s infinite}
+.pulse i:nth-child(2){animation-delay:.18s}
+@keyframes p{0%,60%,100%{opacity:.25}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.pulse i{animation:none;opacity:.6}}
+
 /* ---- messages ---- */
 .note{border-left:2px solid var(--primary);padding:.1rem 0 .1rem 1rem;margin:1rem 0;color:var(--n600);font-size:13px}
 .note-bad{border-color:var(--error);color:#B91C1C}

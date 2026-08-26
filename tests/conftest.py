@@ -145,3 +145,39 @@ def signed_in_client(
         loaded = client.post("/sources/sample", data={"csrf": client.cookies[auth.CSRF_COOKIE]})
         assert loaded.status_code == 200, loaded.text[:300]
     return client, user.user_id, (tmp_path / "runs" / user.user_id)
+
+
+def close_and_wait(client, *, loop: str, source_set: str, tries: int = 120):
+    """Post the close form and follow the processing page to its end.
+
+    What a browser does: the close runs on a thread, the browser lands on a page
+    that refreshes itself, and the page redirects to the record when the pipeline
+    finishes. A test that reached past all that into `run_close` would be testing
+    a path no controller has — and would not have noticed the day the processing
+    page stopped redirecting.
+
+    Returns the final response, whose URL carries the run id.
+    """
+    import time
+
+    from recon.api import auth
+
+    reply = client.post(
+        "/periods/close",
+        data={
+            "loop": loop,
+            "source_set": source_set,
+            "csrf": client.cookies.get(auth.CSRF_COOKIE, ""),
+        },
+    )
+    assert reply.status_code in (200, 303), reply.text[:400]
+
+    url = str(reply.url)
+    for _ in range(tries):
+        if "/closing/" not in url:
+            return reply
+        assert "The close stopped" not in reply.text, reply.text[:600]
+        time.sleep(0.05)
+        reply = client.get(url)
+        url = str(reply.url)
+    raise AssertionError(f"the close never left the processing page: {url}")

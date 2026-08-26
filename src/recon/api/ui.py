@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 from decimal import Decimal
 from html import escape
 from pathlib import Path
@@ -34,7 +35,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import loop as looplib
-from .. import review, service
+from .. import progress, review, service
 from ..triage import classify as classify_mod
 from . import auth
 from .auth import AuthError, User
@@ -455,6 +456,10 @@ def _run_row(run_id: str, view: service.CloseView | None, signed: str = "") -> s
     )
 
 
+def tenant_jobs(user: User, request: Request) -> Path:
+    return tenant_runs(user, request) / ".jobs"
+
+
 @router.post("/periods/close")
 def do_close(
     request: Request,
@@ -463,20 +468,131 @@ def do_close(
     csrf: str = Form(""),
     user: User = CURRENT_USER,
 ) -> Response:
-    """Run the close, then send the controller to the record of it.
+    """Start the close, then send the controller somewhere they can watch it.
 
-    A redirect rather than a rendered response: the page they land on is built
-    from the decision log, and is the same page they get tomorrow. There is no
-    "just after the run" view showing something the record does not contain.
+    A close takes a couple of seconds, and for those seconds the old surface
+    showed nothing: the request hung and a finished page appeared. That is the
+    moment a controller most wants to know what the machine is doing with their
+    books, so it runs on a thread and the browser is redirected to a page that
+    reports the pipeline's real stages as they complete.
     """
     _check_csrf(request, csrf)
     try:
-        view = service.close(
-            loop, source_set, root=tenant_sources(user), runs_dir=tenant_runs(user, request)
+        service.loops_for(loop)
+    except looplib.LoopError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    sources, runs, jobs = (
+        tenant_sources(user),
+        tenant_runs(user, request),
+        tenant_jobs(user, request),
+    )
+    period = sources / source_set
+    if not period.exists():
+        raise HTTPException(422, f"no source set {source_set!r} for this account")
+    # Checked here, before a thread starts. `loop.run` refuses a half-arrived
+    # period too, but that refusal would arrive as a *failed job* — a controller
+    # who has not uploaded the bank statement should be told so, not shown a
+    # processing page that spends two seconds reaching the same answer.
+    missing = looplib.get(loop).missing(period)
+    if missing:
+        raise HTTPException(
+            422,
+            f"{source_set} is missing {', '.join(missing)}. A close over a "
+            f"half-arrived period would report a clean month over rows that never came.",
         )
-    except (service.ServiceError, looplib.LoopError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return RedirectResponse(f"/periods/{view.run_id}", status_code=303)
+
+    tracker = progress.Tracker(jobs, loop, source_set)
+
+    def work() -> None:
+        try:
+            outcome = looplib.run(
+                looplib.get(loop),
+                sources / source_set,
+                runs_dir=runs,
+                label=source_set,
+                track=tracker,
+            )
+            tracker.finish(outcome.run_id)
+        except Exception as exc:  # every failure is a state the page must show
+            tracker.fail(f"{type(exc).__name__}: {exc}")
+
+    threading.Thread(target=work, daemon=True).start()
+    return RedirectResponse(f"/periods/closing/{tracker.job.job_id}", status_code=303)
+
+
+@router.get("/periods/closing/{job_id}", response_class=HTMLResponse)
+def closing_page(request: Request, job_id: str, user: User = CURRENT_USER) -> Response:
+    """The pipeline, as it happens. Refreshed by the browser, not by a script.
+
+    `<meta http-equiv="refresh">` rather than JavaScript, for the same reason
+    nothing else here ships any: the page has to work on a fresh machine with no
+    build step. It costs a full render per second, which for six stages and two
+    seconds is a trade worth making.
+
+    The stages and their descriptions are rendered from `progress.STAGES` before
+    anything has happened, so a reader sees the whole shape of the work up front
+    rather than watching steps appear from nowhere.
+    """
+    job = progress.read(tenant_jobs(user, request), job_id)
+    if job is None:
+        raise HTTPException(404, "That close is not one of yours, or has been cleaned up.")
+
+    if job.state == "complete" and job.run_id:
+        return RedirectResponse(f"/periods/{job.run_id}", status_code=303)
+
+    describe = dict(progress.STAGES)
+    steps = []
+    for stage in job.stages:
+        if stage.state == "done":
+            glyph, cls = icon("check", 12, 3), "done"
+        elif stage.state == "running":
+            glyph, cls = "<span class='pulse'><i></i><i></i></span>", "running"
+        elif stage.state == "failed":
+            glyph, cls = icon("x", 12, 3), "failed"
+        else:
+            glyph, cls = "", "waiting"
+        fact = f"<div class='fact'>{escape(stage.detail)}</div>" if stage.detail else ""
+        took = f"<div class='ms'>{stage.elapsed_ms} ms</div>" if stage.elapsed_ms else ""
+        steps.append(
+            f"<div class='step {cls}'><span class='mark'>{glyph}</span>"
+            f"<span class='what'><div class='name'>{escape(stage.name)}</div>"
+            f"<div class='why'>{escape(describe.get(stage.name, ''))}</div>"
+            f"{fact}</span>{took}</div>"
+        )
+
+    if job.state == "failed":
+        head = (
+            f"<h1>The close stopped</h1>"
+            f"<p class='sub'>{escape(job.loop)} &middot; {escape(job.source_set)}</p>"
+            f"<div class='alert' style='margin-top:1rem'>{escape(job.error)}</div>"
+            f"<p class='cap'>The stages below show how far it got. The ones still "
+            f"waiting were not run &mdash; marking them done would be the worst thing "
+            f"this product could tell you.</p>"
+        )
+        refresh = ""
+        tail = "<p style='margin-top:1.4rem'><a class='btn btn-primary' href='/periods'>Back to periods</a></p>"
+    else:
+        head = (
+            f"<h1>Closing {escape(job.source_set)}</h1>"
+            f"<p class='sub'>{escape(job.loop)} &middot; every stage below is a real "
+            f"boundary in the pipeline, reporting the fact it produced.</p>"
+        )
+        refresh = "<meta http-equiv='refresh' content='1'>"
+        tail = (
+            "<p class='cap' style='margin-top:1.4rem'>This page refreshes itself. Nothing "
+            "is posted until every match has been re-derived from the raw records, and a "
+            "match that fails re-derivation is dropped rather than reported.</p>"
+        )
+
+    body = f"<div class='run'>{head}<div class='steps'>{''.join(steps)}</div>{tail}</div>"
+    page = shell(
+        user,
+        active="periods",
+        crumb="<a href='/periods'>Periods</a><span>/</span><b>Closing</b>",
+        body=body,
+    )
+    return HTMLResponse(page.body.decode().replace("<title>", f"{refresh}<title>", 1))
 
 
 # --------------------------------------------------------------------------

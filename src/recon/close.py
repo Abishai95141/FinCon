@@ -221,7 +221,13 @@ class MatchOutcome:
     stage saw rather than what it decided."""
 
 
-def match_and_verify(request: CloseRequest) -> MatchOutcome:
+#: A progress sink. `None` everywhere except the surface that renders one, so
+#: the pipeline is not made to carry a reporting concern it does not need — and
+#: the callback receives facts the stage already computed, never a timer.
+Reporter = "Tracker | None"
+
+
+def match_and_verify(request: CloseRequest, track=None) -> MatchOutcome:
     """Match, then check every match on real output before anyone sees it.
 
     An unverified match is not a match (invariant 2) and its refusal is recorded
@@ -247,7 +253,12 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         else:
             rules.append(rule)
 
+    if track:
+        track.enter("block")
     candidates = build_candidates(anchors, groups, BlockingPolicy())
+    if track:
+        track.report("block", candidates.summary().split(" ::")[0])
+        track.enter("match")
     outcome = run_tiers(
         anchors,
         groups,
@@ -259,6 +270,9 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         rules,
     )
 
+    if track:
+        track.report("match", f"{len(outcome.matches)} proposed, {len(outcome.exceptions)} raised")
+        track.enter("verify")
     kept, rejected, refuted, tiers = [], [], [], {}
     for match in outcome.matches:
         verdict = verify(
@@ -283,6 +297,12 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
         kept.append(match)
         tiers[match.tier.value] = tiers.get(match.tier.value, 0) + 1
 
+    if track:
+        track.report(
+            "verify",
+            f"{len(kept)}/{len(outcome.matches)} re-derived"
+            + (f" · {len(rejected)} refused" if rejected else ""),
+        )
     return MatchOutcome(
         matches=kept,
         rejected=rejected,
@@ -301,7 +321,7 @@ def match_and_verify(request: CloseRequest) -> MatchOutcome:
     )
 
 
-def run_close(request: CloseRequest) -> CloseOutcome:
+def run_close(request: CloseRequest, track=None) -> CloseOutcome:
     """Match, verify, post, record. The product's one path.
 
     The order is load-bearing and unchanged from the benchmark's: posting
@@ -315,7 +335,7 @@ def run_close(request: CloseRequest) -> CloseOutcome:
     from .engine import rulestore
     from .engine.promotion import broken_by_rules
 
-    staged = match_and_verify(request)
+    staged = match_and_verify(request, track)
 
     # Invariant 5 with a batch in front of it. Promotion measured breakage
     # against the history a rule was promoted on; nothing measured it against
@@ -326,12 +346,16 @@ def run_close(request: CloseRequest) -> CloseOutcome:
     # rules there is nothing that could have broken anything.
     broken: list[str] = []
     if request.rules:
+        # No tracker: this is the *counterfactual* pass, and reporting its stages
+        # would show a reader the same close running twice.
         unruled = match_and_verify(_dc.replace(request, rules=()))
         broken = broken_by_rules(unruled.matches, staged.matches)
     records, external_of = staged.records, staged.external_of
     rules = list(request.rules)
     kept, rejected = staged.matches, staged.rejected
 
+    if track:
+        track.enter("post")
     exceptions = staged.exceptions
     entries, not_posted = entries_for(
         matches=kept,
@@ -382,6 +406,13 @@ def run_close(request: CloseRequest) -> CloseOutcome:
         proof_ids=[m.proof.proof_id for m in kept],
         posted_proof_ids=[e.proof_id for e in entries if e.proof_id],
     )
+
+    if track:
+        track.report(
+            "post",
+            f"{len(entries)} entries · " + ("balanced" if not ledger.blocked else "BLOCKED"),
+        )
+        track.enter("record")
 
     # Built before the record, so an unresolvable code stops the run here rather
     # than being written into a log as if it were a finding.
@@ -500,6 +531,8 @@ def run_close(request: CloseRequest) -> CloseOutcome:
             ),
         )
 
+    if track:
+        track.report("record", f"{journal.count} events · chain sealed")
     return CloseOutcome(
         run_id=request.run_id,
         matches=kept,

@@ -250,7 +250,14 @@ def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ""
 
 
-def run(loop: Loop, root: Path, *, runs_dir: Path | None = None, label: str | None = None):
+def run(
+    loop: Loop,
+    root: Path,
+    *,
+    runs_dir: Path | None = None,
+    label: str | None = None,
+    track=None,
+):
     """Close one source set. The product's one path, with the files on it.
 
     Deliberately parameterless where authority is concerned. Policy, the
@@ -272,7 +279,14 @@ def run(loop: Loop, root: Path, *, runs_dir: Path | None = None, label: str | No
             f"month over rows that never came."
         )
 
+    if track:
+        track.enter("ingest")
     sources = loop.load(root)
+    if track:
+        checks = sum(len(p.checks) for p in sources.proofs)
+        rows = len(sources.anchor_rows) + len(sources.group_rows)
+        strengths = ", ".join(sorted({p.strength for p in sources.proofs}))
+        track.report("ingest", f"{rows} rows · {checks} checks · {strengths}")
     rules = rulestore.load(loop.profile.name)
     run_id = run_id_for(loop, sources, label=label, rules=rules)
 
@@ -295,5 +309,6 @@ def run(loop: Loop, root: Path, *, runs_dir: Path | None = None, label: str | No
             bundles=loop.bundles(),
             policy_digest=file_digest(loop.policy_file),
             taxonomy_digest=file_digest(loop.taxonomy_file),
-        )
+        ),
+        track,
     )

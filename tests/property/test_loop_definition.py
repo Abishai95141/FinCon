@@ -76,7 +76,11 @@ def test_a_run_takes_no_authority():
     banned = {"policy", "taxonomy", "rules", "chart", "tolerance", "profile", "side_signs"}
     taken = set(inspect.signature(looplib.run).parameters)
     assert not (banned & taken), f"recon.loop.run accepts authority: {sorted(banned & taken)}"
-    assert taken == {"loop", "root", "runs_dir", "label"}, taken
+    # `track` is a progress sink and `label`/`runs_dir` are where to write. None
+    # of them can change what a close is *permitted* to accept, which is the only
+    # question this test asks — the exhaustive set is here so a parameter that
+    # could has to be argued for rather than added.
+    assert taken == {"loop", "root", "runs_dir", "label", "track"}, taken
 
 
 def test_a_half_arrived_period_is_refused_rather_than_closed(tmp_path: Path):

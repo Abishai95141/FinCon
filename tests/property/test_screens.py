@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from recon import service
-from tests.conftest import signed_in_client
+from tests.conftest import close_and_wait, signed_in_client
 
 LOOP = "settlement_3way"
 BATCH = "A"
@@ -34,13 +34,8 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def closed(session):
     client, _, runs_root = session
-    from recon.api import auth
 
-    page = client.post(
-        "/periods/close",
-        data={"loop": LOOP, "source_set": BATCH, "csrf": client.cookies.get(auth.CSRF_COOKIE, "")},
-    )
-    assert page.status_code == 200, page.text[:300]
+    page = close_and_wait(client, loop=LOOP, source_set=BATCH)
     return client, str(page.url).rsplit("/", 1)[-1], runs_root
 
 
