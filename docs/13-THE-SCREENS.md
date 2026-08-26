@@ -103,6 +103,39 @@ and takes the item off your desk.
 All four are `P2 ATTESTED` and carry your name. This was headed *"How this ends"*,
 which said nothing about what it was for.
 
+### Check the arithmetic — *"can this be checked without trusting us?"*
+
+Two readers, one question, and it used to serve one of them. An auditor gets the
+four steps — fetch the files, confirm each sha256, `POST /v1/verify` with no
+account, confirm the hash chain — because that claim is what the product rests
+on and is written out rather than asserted.
+
+A **signed-in controller** gets a button. Their version of the question is
+"re-check the close I just ran", and they were being handed curl. Same code path
+either way: `service.reverify` routes through the same stateless `check` an
+external caller gets, because a re-derivation taking an internal shortcut would
+be measuring the shortcut.
+
+Renders with no session at all. Requiring a login here would undercut the claim.
+
+### What this account runs under — *"what am I being judged by, and who says so?"*
+
+Was "Settings", which promises things you can change; nothing here is changeable
+and the page now says **why** — a screen of values with no controls reads as
+half-built unless it explains itself. The reason is the whole control plane: a
+system where the person being judged can edit the judgement has no control.
+
+Three tables, each with the sentence that makes it mean something: bundles are
+signed with a key held outside them (one naming its own verification key would
+vouch for itself); a rule reaches the list only by passing a regression against
+every historical match *and* a named approval; and naming a code grants nothing
+— labelling is free, directing a journal entry needs promotion with a written
+definition.
+
+The tolerance shows as a figure with what it *does* beside it — "largest gap
+absorbed silently, above this an item is raised, never rounded away" — not as a
+labelled number.
+
 ### Sign off — *"I accept this"*
 
 A named person, a note, and the count of what was still open at signature. The
@@ -139,8 +172,6 @@ a posting. An ambiguity names both candidates rather than picking.
 
 ## Still rough
 
-- **Verify** and **Settings** were written before this pass and have not been
-  held to the one-question rule.
 - **Agent access** explains MCP to somebody who already knows what MCP is.
 - There is no empty state on **Worklist** for an account that has closed a period
   and resolved everything — the good ending is unwritten.

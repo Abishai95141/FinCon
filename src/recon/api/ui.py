@@ -1359,49 +1359,113 @@ def do_reverify(
 
 @router.get("/verify", response_class=HTMLResponse)
 def verify_page(request: Request) -> Response:
-    """Public and stateless. An auditor checking our arithmetic should not need
-    an account with us; requiring one would undercut the exact claim this page
-    exists to make."""
+    """Two readers, one question: *can this be checked without trusting us?*
+
+    Public and stateless, because an auditor checking our arithmetic should not
+    need an account with us — requiring one would undercut the exact claim this
+    page exists to make.
+
+    But a signed-in controller is the *other* reader, and this page used to give
+    them four steps of curl. Their version of the question is "re-check the close
+    I just ran", and the answer is a button, so it is one now. Same code path
+    either way: `service.reverify` routes through the same stateless `check` an
+    external caller gets, because a re-derivation that took an internal shortcut
+    would be measuring the shortcut.
+    """
+    user = visitor(request)
+    mine = ""
+    if user is not None:
+        runs_dir = tenant_runs(user, request)
+        rows = []
+        for run_id in service.stored_runs(runs_dir)[:8]:
+            try:
+                view = service.view(run_id, runs_dir)
+            except Exception:  # a log we cannot read is still worth listing
+                continue
+            source_set = service.source_set_of(run_id, runs_dir, root=tenant_sources(user))
+            rows.append(
+                f"<tr><td><b>{escape(run_id)}</b>"
+                f"<span class='sub'>{escape(view.loop)} &middot; "
+                f"{view.tiers.matched} matched, {len(view.exceptions)} on the worklist"
+                f"</span></td>"
+                f"<td class='right'>"
+                + (
+                    f"<a class='btn btn-secondary' "
+                    f"href='/periods/{escape(run_id)}/reverify'>Re-check it</a>"
+                    if source_set
+                    else "<span class='cap'>source files no longer here</span>"
+                )
+                + "</td></tr>"
+            )
+        mine = (
+            f"<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
+            f"<p class='sec' style='margin-bottom:.3rem'>Your closes</p>"
+            f"<p class='cap' style='margin:0 0 1rem'>Re-reads the source files from disk "
+            f"and re-derives every match in the record from the raw rows. It does not "
+            f"look at what the close decided &mdash; it works the arithmetic again and "
+            f"says whether it lands in the same place. A disagreement is a finding "
+            f"about us.</p>"
+            f"<div class='tbl'><table><tr><th>Close</th><th></th></tr>"
+            f"{''.join(rows)}</table></div>"
+            if rows
+            else "<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
+            "<p class='sec' style='margin-bottom:.3rem'>Your closes</p>"
+            "<p class='cap' style='margin:0'>Nothing to re-check yet. "
+            "<a href='/periods'>Close a period</a> first.</p>"
+        ) + "</div>"
+
     loops = "".join(
-        f"<li><b>{escape(lp.name)}</b> &mdash; policy <span class='num'>"
-        f"{escape(lp.policy_ref)}</span></li>"
+        f"<tr><td><b>{escape(lp.title)}</b><span class='sub'>{escape(lp.name)}</span></td>"
+        f"<td class='num'>{escape(lp.policy_ref)}</td>"
+        f"<td class='num'>{escape(', '.join(s.spec_id for s in lp.sources))}</td></tr>"
         for lp in service.loops()
     )
-    body = f"""
-<div style='max-width:46rem;margin:0 auto;padding:3rem 1.5rem'>
-  <div style='margin-bottom:2rem'>{wordmark(26, "17px")}</div>
-  <h1>Verify a proof</h1>
-  <p class='body-lg' style='color:var(--n600);margin-bottom:1.6rem'>
-    Stateless, public, and it trusts nothing. Hand it a proof from an audit export
-    and records you ingested yourself from the source files, and it re-derives the
-    arithmetic under a policy you name.</p>
 
+    stranger = f"""
   <div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>
-    <p class='sec' style='margin-bottom:.7rem'>How it works</p>
+    <p class='sec' style='margin-bottom:.3rem'>Somebody else checking us</p>
+    <p class='cap' style='margin:0 0 1rem'>Four steps, none of which need our
+      database, our network or our goodwill. This is the claim the whole product
+      rests on, so it is written out rather than asserted.</p>
     <ol style='margin:0;padding-left:1.1rem;color:var(--n700)'>
-      <li>Fetch the source files named in the export and confirm each sha256.</li>
-      <li>Ingest them with the published adapter spec in <code>data/adapters/</code>.</li>
-      <li><code>POST /v1/verify</code> with the proof, your records, and a loop name.</li>
-      <li>Confirm the decision log's chain with <code>GET /v1/runs/{{id}}/chain</code>.</li>
+      <li>Fetch the source files named in the audit export and confirm each sha256.</li>
+      <li>Ingest them yourself with the published adapter spec in <code>data/adapters/</code>.</li>
+      <li><code>POST /v1/verify</code> with the proof, your records, and a loop name.
+        No account, no key.</li>
+      <li>Confirm the decision log's hash chain with <code>GET /v1/runs/&#123;id&#125;/chain</code>.</li>
     </ol>
-    <p class='cap' style='margin:.9rem 0 0'>None of this needs our database, our network
-    or our goodwill. A step that disagrees is a finding about us.</p>
+    <p class='cap' style='margin:.9rem 0 0'>A step that disagrees is a finding about us.</p>
   </div>
 
   <div class='panel' style='padding:1.4rem 1.5rem'>
-    <p class='sec' style='margin-bottom:.7rem'>Published loops</p>
-    <ul style='margin:0;padding-left:1.1rem;color:var(--n700)'>{loops}</ul>
+    <p class='sec' style='margin-bottom:.7rem'>What is published</p>
+    <div class='tbl'><table><tr><th>Reconciliation</th><th>Policy</th><th>Adapters</th></tr>
+      {loops}</table></div>
     <p class='cap' style='margin:.9rem 0 0'>The verdict names the policy that judged it and
-    whether you supplied it. A lenient policy you bring along yields a verdict about
-    <i>your</i> constraints, stamped <code>caller-supplied</code> so it cannot be quoted
-    back as ours.</p>
-  </div>
+      whether <i>you</i> supplied it. A lenient policy you bring along yields a verdict about
+      your constraints, stamped <code>caller-supplied</code> so it cannot be quoted back
+      as ours.</p>
+  </div>"""
 
-  <p style='margin-top:1.6rem'>
-    <a class='btn btn-secondary' href='/docs'>Open the API reference</a>
-    <a class='btn btn-ghost' href='/login'>Sign in {icon("arrow", 14)}</a></p>
-</div>"""
-    return HTMLResponse(document("Verify a proof · FinCon", body))
+    inner = f"""
+  <h1>Check the arithmetic</h1>
+  <p class='body-lg' style='color:var(--n600);margin-bottom:1.6rem'>
+    Every match this system commits is re-derivable from the raw files by anyone who
+    has them. Not "trust the audit trail" &mdash; work it out again and see whether it
+    lands in the same place.</p>
+  {mine}{stranger}"""
+
+    if user is not None:
+        return shell(user, active="verify", crumb="<b>Verify</b>", body=inner)
+
+    body = (
+        f"<div style='max-width:46rem;margin:0 auto;padding:3rem 1.5rem'>"
+        f"<div style='margin-bottom:2rem'>{wordmark(26, '17px')}</div>{inner}"
+        f"<p style='margin-top:1.6rem'>"
+        f"<a class='btn btn-secondary' href='/docs'>Open the API reference</a>"
+        f"<a class='btn btn-ghost' href='/login'>Sign in {icon('arrow', 14)}</a></p></div>"
+    )
+    return HTMLResponse(document("Check the arithmetic · FinCon", body))
 
 
 def _empty(ico: str, title: str, body: str, action: str = "") -> str:
@@ -2603,37 +2667,63 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
     )
 
     body = (
-        f"<div class='pagehead'><div class='lhs'><h1>Settings</h1>"
-        f"<p class='sub'>Your account, and the authority every close runs under.</p></div></div>"
-        f"<div class='grid' style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
-        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec'>Account</p><div class='kv'>"
-        f"<div class='row'><span class='k'>Email</span><span class='v'>{escape(user.email)}</span></div>"
-        f"<div class='row'><span class='k'>Account id</span><span class='v'>{escape(user.user_id)}</span></div>"
-        f"<div class='row'><span class='k'>Credential store</span><span class='v'>"
-        f"{escape(identity.name)}{' (managed)' if identity.managed else ' — development only'}</span></div>"
-        f"<div class='row'><span class='k'>Records</span><span class='v num'>"
-        f"{len(service.stored_runs(tenant_runs(user, request)))} close(s), visible only to this account</span></div>"
+        f"<div class='pagehead'><div class='lhs'><h1>What this account runs under</h1>"
+        f"<p class='sub'>Who you are, and the rules every close is judged by. Those "
+        f"rules cannot be changed from here &mdash; that is the point of the page.</p>"
         f"</div></div>"
+        f"<div style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
+        # ---- you ----------------------------------------------------------
         f"<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec'>Authority &mdash; read only</p>"
-        f"<p class='cap' style='margin:0 0 1rem'>Policy, the taxonomy and the promoted rules come "
-        f"from signed bundles supplied out of band. There is no control here that could widen a "
-        f"tolerance or add a rule, and that is the point.</p>"
+        f"<p class='sec'>You</p><div class='kv'>"
+        f"<div class='row'><span class='k'>Signed in as</span>"
+        f"<span class='v'>{escape(user.email)}</span></div>"
+        f"<div class='row'><span class='k'>Your records</span><span class='v'>"
+        f"{len(service.stored_runs(tenant_runs(user, request)))} close(s), and nobody "
+        f"else can read them</span></div>"
+        f"<div class='row'><span class='k'>Where your password lives</span><span class='v'>"
+        f"{escape(identity.name)}"
+        f"{' &mdash; Amazon Cognito. We never see it.' if identity.managed else ' &mdash; a local file, for development only. Not for real accounts.'}"
+        f"</span></div>"
+        f"<div class='row'><span class='k'>Account id</span>"
+        f"<span class='v num'>{escape(user.user_id)}</span></div>"
+        f"</div></div>"
+        # ---- the rules ----------------------------------------------------
+        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<p class='sec'>The rules a close is judged by</p>"
+        f"<p class='cap' style='margin:0 0 1rem'>Tolerances, the exception vocabulary "
+        f"and the promoted rules arrive as <b>signed bundles</b>, supplied out of band. "
+        f"There is no control here that could widen a tolerance or add a rule &mdash; not "
+        f"because the screen is unfinished, but because a system where the person being "
+        f"judged can edit the judgement has no control at all. Change one and the close "
+        f"records the authority as untrusted until it is re-signed.</p>"
         f"<div class='kv' style='margin-bottom:1.2rem'>"
-        f"<div class='row'><span class='k'>Policy</span><span class='v num'>{escape(authority.policy.ref)}</span></div>"
-        f"<div class='row'><span class='k'>Approved by</span><span class='v'>{escape(authority.policy.approved_by)}</span></div>"
-        f"<div class='row'><span class='k'>Tolerance ceiling</span><span class='v num'>{money(authority.policy.tolerance_ceiling)}</span></div>"
-        f"<div class='row'><span class='k'>Taxonomy</span><span class='v num'>{escape(authority.taxonomy_ref)}</span></div>"
+        f"<div class='row'><span class='k'>Policy in force</span><span class='v num'>"
+        f"{escape(authority.policy.ref)}</span></div>"
+        f"<div class='row'><span class='k'>Approved by</span>"
+        f"<span class='v'>{escape(authority.policy.approved_by)}</span></div>"
+        f"<div class='row'><span class='k'>Largest gap absorbed silently</span>"
+        f"<span class='v num'>{money(authority.policy.tolerance_ceiling)} &mdash; above "
+        f"this an item is raised, never rounded away</span></div>"
+        f"<div class='row'><span class='k'>Exception vocabulary</span>"
+        f"<span class='v num'>{escape(authority.taxonomy_ref)}</span></div>"
         f"</div>"
-        f"<p class='sec' style='margin-bottom:.5rem'>Signed bundles</p>"
-        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Bundle</th><th>Signed by</th>"
-        f"<th>Digest</th><th>State</th></tr>{bundles}</table></div>"
-        f"<p class='sec' style='margin-bottom:.5rem'>Promoted rules</p>"
-        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Rule</th><th>Actions</th>"
-        f"<th>Approved by</th><th>Under policy</th></tr>{rules}</table></div>"
-        f"<p class='sec' style='margin-bottom:.5rem'>Exception vocabulary</p>"
-        f"<div class='tbl'><table><tr><th>Code</th><th>Status</th><th>Owner</th>"
+        f"<p class='sec' style='margin-bottom:.4rem'>Are those bundles trustworthy?</p>"
+        f"<p class='cap' style='margin:0 0 .6rem'>Each is signed with a key held outside "
+        f"it &mdash; a bundle naming its own verification key would be vouching for "
+        f"itself.</p>"
+        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Bundle</th>"
+        f"<th>Signed by</th><th>Digest</th><th>State</th></tr>{bundles}</table></div>"
+        f"<p class='sec' style='margin-bottom:.4rem'>Rules allowed to act</p>"
+        f"<p class='cap' style='margin:0 0 .6rem'>A rule reaches this table only by "
+        f"passing a regression against every historical match and being approved by a "
+        f"named person, under a named policy.</p>"
+        f"<div class='tbl' style='margin-bottom:1.2rem'><table><tr><th>Rule</th>"
+        f"<th>What it does</th><th>Approved by</th><th>Under policy</th></tr>{rules}</table></div>"
+        f"<p class='sec' style='margin-bottom:.4rem'>What a break can be called</p>"
+        f"<p class='cap' style='margin:0 0 .6rem'>Naming grants nothing. A code may label "
+        f"an item from the day it is minted; directing a journal entry needs somebody to "
+        f"promote it with a written definition.</p>"
+        f"<div class='tbl'><table><tr><th>Code</th><th>State</th><th>Whose desk</th>"
         f"<th>May direct a posting</th></tr>{codes}</table></div></div></div>"
     )
     return shell(user, active="settings", crumb="<b>Settings</b>", body=body)

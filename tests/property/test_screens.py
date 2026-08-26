@@ -110,9 +110,25 @@ def test_settings_shows_the_authority_and_offers_no_way_to_change_it(session):
     to break it: a settings page is where a tolerance would end up."""
     client, _, _ = session
     body = client.get("/settings").text
-    assert "settlement-in@v1" in body
-    assert "Tolerance ceiling" in body
-    assert "read only" in body.lower()
+    from recon import service
+
+    authority = service.authority("settlement_3way")
+    assert authority.policy.ref in body, "the page does not name the policy in force"
+
+    # The *number*, not the label above it. Pinning "Tolerance ceiling" made this
+    # test fail for a rewrite rather than for a regression, and the thing that
+    # must never disappear is the figure a person is being held to.
+    from recon.api.theme import money
+
+    assert money(authority.policy.tolerance_ceiling) in body, (
+        "the tolerance a close absorbs silently is not shown anywhere"
+    )
+    assert authority.policy.approved_by in body, "the ceiling is shown and nobody owns it"
+
+    # And it must say, in some words, that this is not the place to change it.
+    assert "cannot be changed" in body or "read only" in body.lower(), (
+        "the page shows the authority without saying it is not editable here"
+    )
 
     forms = re.findall(r"<form[^>]*>", body)
     assert all("logout" in f for f in forms), f"settings offers a mutating form: {forms}"
@@ -248,3 +264,58 @@ def test_every_worklist_row_opens_the_item_it_describes(tmp_path, monkeypatch):
     assert "near miss" in opened.text, (
         "the item page does not show the near-miss evidence the code was derived from"
     )
+
+
+def test_verify_lets_a_signed_in_person_re_check_their_own_close(tmp_path, monkeypatch):
+    """The page had two readers and served one.
+
+    An auditor with a terminal got four correct steps of curl. A controller who
+    had just run a close got the same four steps, when their version of the
+    question is "re-check the one I just ran" and the answer is a button.
+    """
+    from tests.conftest import close_and_wait, signed_in_client
+
+    client, _user_id, _runs = signed_in_client(monkeypatch, tmp_path)
+    page = close_and_wait(client, loop="settlement_3way", source_set="A")
+    run_id = str(page.url).rsplit("/", 1)[-1]
+
+    body = client.get("/verify").text
+    assert run_id in body, "the page does not offer the close this account just ran"
+    assert f"/periods/{run_id}/reverify" in body, "there is no way to re-check it"
+
+    # And the stranger's route is still there — losing it would undercut the
+    # claim the page exists to make.
+    assert "/v1/verify" in body
+    assert "sha256" in body
+
+
+def test_verify_works_with_no_account_at_all(tmp_path):
+    """Requiring a login to check our arithmetic would undercut the exact claim
+    this page makes. It renders signed out, and says how, without a session."""
+    from fastapi.testclient import TestClient
+
+    from recon.api.app import app
+
+    with TestClient(app, follow_redirects=False) as anon:
+        response = anon.get("/verify")
+
+    assert response.status_code == 200
+    assert "/v1/verify" in response.text
+    assert "Sign in" in response.text, "no way back to the product from the public page"
+    assert "Your closes" not in response.text, "a signed-out visitor is shown somebody's runs"
+
+
+def test_settings_explains_why_it_is_read_only_rather_than_looking_unfinished(session):
+    """A screen full of values and no controls reads as half-built unless it says
+    why. The reason is the whole control plane: a system where the person being
+    judged can edit the judgement has no control at all."""
+    client, _, _ = session
+    body = client.get("/settings").text
+
+    assert "signed bundles" in body
+    assert "re-signed" in body or "untrusted" in body, (
+        "the page does not say what happens if somebody edits a bundle anyway"
+    )
+    # Each table says what it is *for*, not just what is in it.
+    for phrase in ("Naming grants nothing", "regression"):
+        assert phrase in body, f"a table on settings is unexplained: {phrase!r} missing"
