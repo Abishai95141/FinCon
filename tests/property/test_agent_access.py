@@ -121,14 +121,23 @@ def test_the_boundary_check_is_computed_rather_than_asserted():
     )
 
 
-def test_only_one_tool_writes_and_the_page_names_it(signed_in):
+def test_the_page_names_every_tool_that_writes(signed_in):
+    """Whichever tools write, the page says so.
+
+    Was `assert catalog.writes == ("run_close",)` — a test of the *count*, which
+    went red the day an agent was allowed to resolve an item and told us nothing
+    except that a number had changed. What has to hold is that a reader can see
+    which tools have effects, not that there is exactly one.
+    """
     client, _user_id, _ = signed_in
     catalog = mcpprobe.catalog()
-    assert catalog.writes == ("run_close",)
+    assert catalog.writes, "no tool writes anything, so this page has nothing to warn about"
 
     body = client.get("/agent").text
     for tool in catalog.tools:
         assert tool.name in body, f"{tool.name} is exposed and not shown on the page"
+    for writer in catalog.writes:
+        assert writer in body, f"{writer} changes something and the page does not name it"
 
 
 # ------------------------------------------------------------------ the check
@@ -207,31 +216,57 @@ def test_the_page_explains_itself_to_somebody_who_has_not_heard_of_mcp(signed_in
     )
 
 
-def test_the_limits_are_stated_as_things_it_cannot_do(signed_in):
+def test_the_limits_are_stated_in_the_readers_terms(signed_in):
     """The interesting half, and the reason this is safe to switch on.
 
-    Not "no tool accepts a policy parameter", which is true and means nothing to
-    the person deciding — "it cannot sign off a close, because sign-off names a
-    person and it cannot name one".
+    The claim this pins changed when the write tools landed, and the change is
+    the point. It used to be *"an assistant cannot approve anything"*, which was
+    true and was the wrong control: an agent over HTTP holds a token its
+    principal issued, so refusing the write served the account half its own
+    books. The page now says what an agent **does** under your name, and what
+    genuinely still binds.
+
+    What must not regress: the bounds are stated as *things*, not as parameter
+    names. "No tool accepts a policy" is true and means nothing to the person
+    deciding whether to switch this on.
     """
     client, _user_id, _ = signed_in
     body = client.get("/agent").text
 
-    for cannot in ("Sign off a close", "Resolve an item", "Loosen a tolerance"):
-        assert cannot in body, f"the page does not say it cannot {cannot.lower()}"
-    assert "no tool for it" in body
+    # The two that bind everybody, agent or not — policy, not permission.
+    for bound in ("ceiling", "Loosen a tolerance"):
+        assert bound in body, f"the page does not state the {bound!r} bound"
+    # The one thing that is genuinely about identity.
+    assert "Act as somebody else" in body, (
+        "the page does not say the name comes off the credential, which is the "
+        "only limit here that is about who is calling"
+    )
+    # And it must say the decision is attributed, since that is what replaced
+    # the refusal.
+    assert "via assistant" in body, (
+        "the page does not tell a reader that a delegated decision is marked as "
+        "one — attribution is the whole of what the old refusal became"
+    )
     assert "verify_proof" in body, "the one deliberate exception is not explained"
 
 
 def test_the_developer_reference_is_present_but_not_in_the_way(signed_in):
-    """Eighteen tools with parameter lists is real and belongs on the page. It
-    does not belong in the middle of it, between why-you-would and how-to."""
+    """A tool table with parameter lists is real and belongs on the page. It
+    does not belong in the middle of it, between why-you-would and how-to.
+
+    The count is *derived*. Hardcoding `"All 18 tools"` made this test fail on
+    the day a tool was added, which is a change that breaks nothing a reader
+    cares about — the position of the table is the claim, not its size.
+    """
     client, _user_id, _ = signed_in
+    catalog = mcpprobe.catalog()
     body = client.get("/agent").text
 
     assert "<details>" in body, "the tool table is open by default again"
-    for tool in mcpprobe.catalog().tools:
+    for tool in catalog.tools:
         assert tool.name in body, f"{tool.name} is exposed and not listed"
-    assert body.index("id='connect'") < body.index("All 18 tools"), (
+    heading = f"All {len(catalog.tools)} tools"
+    assert heading in body, f"the reference is not headed {heading!r}"
+    assert body.index("id='connect'") < body.index(heading), (
         "the reference table sits above the thing a person came here to do"
     )

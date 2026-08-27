@@ -1,4 +1,11 @@
-"""P23 — a second loop, and whether invariant 7 was ever true.
+"""P15 — a second loop, and whether invariant 7 was ever true.
+
+Numbered P15 because that is what the plan calls it. This file was `gate_p23.py`
+for a day, and `P23` was already taken: it is the residual-risk id for "the same
+team authored the generator and the engine". Two things under one name in one
+STATUS.md is the class of rot this project keeps finding, so the gate takes the
+number `docs/06-PLAN-V2.md` gives it — P15, Generality, whose second checkbox is
+exactly this.
 
 "The engine is domain-agnostic" has been asserted since P1 and tested by exactly
 one reconciliation, which is not a test. `tds_26as` is the check: Form 26AS from

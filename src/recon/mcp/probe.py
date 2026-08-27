@@ -235,6 +235,21 @@ AUTHORITY_PARAMS = frozenset(
     {"policy", "tolerance", "tolerance_ceiling", "side_signs", "rules", "chart", "profile"}
 )
 
+#: Names a caller must never be able to supply, on any tool.
+#:
+#: Separate from `AUTHORITY_PARAMS` because these are not *permissions*, they are
+#: *identity* — and the stateless exemption must not reach them. A caller may
+#: legitimately verify a proof under a policy it brought; nobody may ever write a
+#: decision under a name they typed. `verify_proof` takes a policy for a good
+#: reason and would take a signer for none.
+#:
+#: This exists because the write tools landed. While the server could only read
+#: and run a close, "no tool names a person" was true by having no tool that
+#: needed one, which is not the same as being enforced.
+ACTOR_PARAMS = frozenset(
+    {"decided_by", "signed_by", "accepted_by", "by", "actor", "user", "tenant", "account", "via"}
+)
+
 #: The one tool allowed to take a policy, and safe for the opposite reason: it
 #: holds no state, reads nothing of ours, and a caller verifying under their own
 #: policy learns about their own constraints. That is an auditor checking our
@@ -244,7 +259,9 @@ STATELESS_TOOL = "verify_proof"
 #: Tools that change something on disk. Everything else is a read. Derived from
 #: what each one calls rather than from its name — `reverify_close` sounds like a
 #: write and is not.
-WRITING_TOOLS = frozenset({"run_close"})
+WRITING_TOOLS = frozenset(
+    {"run_close", "dispose_exception", "accept_classification", "sign_off_close"}
+)
 
 
 @dataclass(frozen=True)
@@ -296,5 +313,10 @@ def catalog() -> Catalog:
         breach = tuple(sorted(AUTHORITY_PARAMS.intersection(params)))
         if breach and spec.name != STATELESS_TOOL:
             offenders[spec.name] = breach
+        # Identity has no stateless exemption: `verify_proof` may take a policy
+        # and must never take a signer.
+        named = tuple(sorted(ACTOR_PARAMS.intersection(params)))
+        if named:
+            offenders[spec.name] = tuple(sorted(set(offenders.get(spec.name, ())) | set(named)))
 
     return Catalog(tools=tuple(sorted(tools, key=lambda t: t.name)), offenders=offenders)

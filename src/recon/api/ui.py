@@ -609,6 +609,23 @@ def root(request: Request) -> Response:
 # --------------------------------------------------------------------------
 
 
+def _via_label(via) -> str:
+    """Say when a decision came through an assistant, and stay silent otherwise.
+
+    Silent for a browser session on purpose: annotating the ordinary case is how
+    a label stops being read. The whole value of the channel is that the
+    unusual one is visible at the place somebody is deciding whether to trust
+    the signature.
+    """
+    from ..contracts import ActorChannel
+
+    if via is ActorChannel.AGENT:
+        return " <span class='badge badge-warn'>via assistant</span>"
+    if via is ActorChannel.CLI:
+        return " <span class='badge'>via command line</span>"
+    return ""
+
+
 def _state_badge(view: service.CloseView, signed: str = "") -> str:
     if signed:
         return f"<span class='badge badge-ok'>Signed off by {escape(signed)}</span>"
@@ -1064,6 +1081,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
             f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"
             f"<p class='sec' style='margin-bottom:.5rem'>Signed off</p>"
             f"<p style='margin:0'><b>{escape(state.signed_off_by)}</b> accepted this close"
+            + _via_label(state.signed_via)
             + (f" &mdash; &ldquo;{escape(state.note)}&rdquo;" if state.note else "")
             + ".</p><p class='cap' style='margin:.6rem 0 0'>Recorded in "
             "<code>review.jsonl</code>, chained separately from the decision log. The "
@@ -2691,18 +2709,9 @@ def sign_off_close(
     """The terminal human decision, or a refusal with the reason."""
     _check_csrf(request, csrf)
     runs_dir = tenant_runs(user, request)
-    view = service.view(run_id, runs_dir)
     try:
-        review.sign_off(
-            run_id,
-            runs_dir,
-            exceptions=[e.exception for e in view.exceptions],
-            outcome_digest=run_id,
-            by=user.email,
-            note=note,
-            books_blocked=list(view.blocked),
-        )
-    except review.ReviewError as exc:
+        service.sign_off(run_id, signed_by=user.email, note=note, runs_dir=runs_dir)
+    except service.ServiceError as exc:
         raise HTTPException(422, str(exc)) from exc
     return RedirectResponse(f"/periods/{run_id}", status_code=303)
 
@@ -3021,38 +3030,46 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
         "your closes and nobody else's.</p></div>"
         # ---- what it cannot do -------------------------------------------
         f"<div class='panel' style='padding:1.3rem 1.4rem'>"
-        f"<p class='sec'>What it cannot do {boundary}</p>"
-        f"<p class='lede' style='margin:0 0 1rem'>An assistant can run a close, read "
-        f"every proof and page the whole decision log. It cannot approve anything, and "
-        f"that is not a policy we are asking you to trust &mdash; there is no tool for it "
-        f"and no field to put your name in.</p>"
+        f"<p class='sec'>What it does under your name {boundary}</p>"
+        f"<p class='lede' style='margin:0 0 1rem'>An assistant can do anything you can, "
+        f"because it is signed in as you &mdash; it holds a token you issued, and that is "
+        f"your call to make. What it cannot do is act without leaving your name and the "
+        f"fact that an assistant did it on the record.</p>"
         f"<div class='kv' style='margin-bottom:1rem'>"
-        f"<div class='row'><span class='k'>Sign off a close</span>"
-        f"<span class='v'>No. Sign-off names a person, and it cannot name one</span></div>"
         f"<div class='row'><span class='k'>Resolve an item</span>"
-        f"<span class='v'>No. Booking, chasing and writing off are yours</span></div>"
+        f"<span class='v'>Yes &mdash; books the entry, under your name, marked "
+        f"<b>via assistant</b></span></div>"
+        f"<div class='row'><span class='k'>Sign off a close</span>"
+        f"<span class='v'>Yes &mdash; and refused over items nobody has opened, exactly "
+        f"as you would be</span></div>"
+        f"<div class='row'><span class='k'>Write off more than the ceiling</span>"
+        f"<span class='v'>No, and neither can you. That bound is policy</span></div>"
         f"<div class='row'><span class='k'>Loosen a tolerance</span>"
         f"<span class='v'>No. Those arrive as signed bundles and no tool accepts one</span></div>"
-        f"<div class='row'><span class='k'>Change what it may do</span>"
-        f"<span class='v'>No. The limits are in the tool definitions, not in a prompt</span></div>"
+        f"<div class='row'><span class='k'>Act as somebody else</span>"
+        f"<span class='v'>No. The name comes off your token, never from the request</span></div>"
         f"</div>"
-        f"<p class='cap' style='margin:0'>Checked against the tool definitions every time "
-        f"this page loads, not written down once and hoped for. The one exception is "
-        f"deliberate: <b>verify_proof</b> takes a policy, because it is how somebody "
-        f"outside checks our arithmetic under <i>their</i> rules, and it holds no state "
-        f"and changes nothing.</p></div>"
+        f"<p class='cap' style='margin:0'>This used to be a list of things an assistant was "
+        f"not allowed to do, which protected nobody: it holds <i>your</i> credential, so "
+        f"withholding the write tools only served your account half its own books. The "
+        f"limits that were doing real work &mdash; the write-off ceiling, the budget, the "
+        f"balance check, items nobody has read &mdash; were never about who was calling, "
+        f"and they still bind. What is new is that every decision records the door it came "
+        f"through, so a year from now you can tell which ones you read and which ones you "
+        f"delegated.</p></div>"
         # ---- connect ------------------------------------------------------
         + _hosted_panel()
         + _probe_panel(result)
         # ---- the reference ------------------------------------------------
         + f"<div class='panel' style='padding:1.3rem 1.4rem'>"
         f"<details><summary class='sec' style='cursor:pointer'>"
-        f"All {len(cat.tools)} tools, and the one that writes</summary>"
+        f"All {len(cat.tools)} tools, and the {len(cat.writes)} that write</summary>"
         f"<div style='padding-top:1rem'>"
-        f"<p class='cap' style='margin:0 0 1rem'>One tool writes anything: "
-        f"<b>{escape(', '.join(cat.writes))}</b>, which runs a close. Re-running the same "
-        f"period is idempotent, so an assistant that calls it twice has not done anything "
-        f"twice. Everything else reads.</p>"
+        f"<p class='cap' style='margin:0 0 1rem'>These write: "
+        f"<b>{escape(', '.join(cat.writes))}</b>. Everything else reads. Re-running a close "
+        f"on the same period is idempotent, so an assistant that calls it twice has not "
+        f"done anything twice &mdash; the other three each refuse an item that has already "
+        f"been ended.</p>"
         f"<div class='tbl'><table><tr><th>Tool</th><th>What it does</th>"
         f"<th>Parameters</th><th>Effect</th></tr>{rows}</table></div>"
         f"</div></details></div>"

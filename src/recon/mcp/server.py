@@ -37,7 +37,7 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from .. import service
-from ..contracts import Policy, Proof, Record
+from ..contracts import ActorChannel, Policy, Proof, Record
 
 INSTRUCTIONS = """\
 A reconciliation controller. It closes a three-way match, writes double-entry
@@ -103,6 +103,45 @@ def _tenant_id() -> str | None:
     if token is not None and getattr(token, "subject", None):
         return str(token.subject)
     return os.environ.get("RECON_TENANT")
+
+
+def _actor() -> tuple[str, ActorChannel]:
+    """Who a write is attributed to, and how it arrived.
+
+    **Never a parameter, for the same reason the tenant is not.** A `decided_by`
+    on a tool schema is the banned surface parameter in its purest form: the
+    caller supplying its own authority, at the one place where value leaves a
+    close. An agent that could type a name could type its principal's boss's.
+
+    So the name is read off the credential. Over HTTP that is the OAuth token
+    the person issued — `email` if Cognito put one in the claims, otherwise the
+    `sub`, which is what the tenant already resolves to. Over stdio there is no
+    token, so the operator names themselves once in `RECON_ACTOR`; unset is a
+    refusal rather than a default, because every default here would be a name
+    nobody chose.
+
+    The channel travels with the name and reaches the decision log. That is the
+    whole of the control: not that an agent may not act, but that a reader can
+    always tell that one did.
+    """
+    try:
+        from fastmcp.server.dependencies import get_access_token
+
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is not None and getattr(token, "subject", None):
+        claims = getattr(token, "claims", None) or {}
+        return str(claims.get("email") or token.subject), ActorChannel.AGENT
+    named = os.environ.get("RECON_ACTOR", "").strip()
+    if not named:
+        raise ToolRefusal(
+            "this call writes a decision and there is nobody to attribute it to. "
+            "Over HTTP the name comes from your OAuth token; over stdio set "
+            "RECON_ACTOR to the person accountable for what this server does. "
+            "An unnamed approval is the one thing P2 ATTESTED cannot mean."
+        )
+    return named, ActorChannel.CLI
 
 
 def _tenant_root(tenant: str | None) -> Path | None:
@@ -429,12 +468,122 @@ def propose_reclassification(
     answer with a guess.
 
     A verdict of `admissible: true` means the proposal is well-formed and
-    permitted, not that it is right. Making it so needs a named human, and no
-    tool on this server can name one.
+    permitted, not that it is right. Making it so is `accept_classification`,
+    which writes under the name on your credential.
     """
     return service.propose_reclassification(
         run_id, exception_id, code, hypothesis, evidence, runs_dir=_runs()
     ).model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------
+# decisions — written under the name on the credential, never a parameter
+#
+# These exist because "the agent cannot approve anything" was the wrong
+# control. An agent over HTTP holds an OAuth token its principal issued, and
+# the `sub` on that token is the same string the web session resolves to — so
+# withholding these tools never protected anyone. It served the account a
+# read-only view of its own books and called that governance.
+#
+# What replaces the refusal is attribution: every one of these records the
+# channel it arrived through, so a reader of the decision log can always tell
+# an agent acted. The bounds that mattered were never about who was calling —
+# write-off ceilings, the budget, unopened blockers and the balance check are
+# policy, and they bind these tools exactly as they bind a browser.
+# --------------------------------------------------------------------------
+
+
+@mcp.tool
+def dispose_exception(
+    run_id: str,
+    exception_id: str,
+    disposition: str,
+    rationale: str,
+    owner: str = "",
+    due_on: str = "",
+) -> dict:
+    """End an exception in a journal entry: book, carry_forward, chase, write_off.
+
+    This moves money, and it is meant to. The item leaves the worklist, double
+    entry is written, and the record carries your name and the fact that an
+    agent put it there.
+
+    **What it will still refuse**, all of it from the loop's signed policy and
+    none of it from you: a write-off above the per-item ceiling, one that would
+    exhaust the close's write-off budget, a `book` on a code the taxonomy has
+    not promoted, and any second disposition of an item already ended. There is
+    no ceiling parameter and no chart parameter, so there is nothing to widen.
+
+    `due_on` is `YYYY-MM-DD` and applies to `chase` only.
+    """
+    from datetime import date as _date
+
+    decided_by, via = _actor()
+    try:
+        when = _date.fromisoformat(due_on) if due_on else None
+    except ValueError as exc:
+        raise ToolRefusal(f"due_on must be YYYY-MM-DD, got {due_on!r}") from exc
+    try:
+        return service.dispose(
+            run_id,
+            exception_id,
+            disposition,
+            decided_by=decided_by,
+            rationale=rationale,
+            owner=owner,
+            due_on=when,
+            via=via,
+            runs_dir=_runs(),
+        ).model_dump(mode="json")
+    except (service.ServiceError, ValueError) as exc:
+        raise ToolRefusal(str(exc)) from exc
+
+
+@mcp.tool
+def accept_classification(run_id: str, exception_id: str, code: str, rationale: str) -> dict:
+    """Accept a proposed code for an exception, under your name.
+
+    `propose_reclassification` asks whether a code would be admissible and
+    writes nothing. This is the other half: it records that somebody accepted
+    it. Same checker, same refusals — a proposal may still not overwrite a code
+    the engine *derived*, because a guess does not outrank arithmetic no matter
+    who signs for it.
+    """
+    decided_by, via = _actor()
+    try:
+        return service.accept_classification(
+            run_id,
+            exception_id,
+            code,
+            accepted_by=decided_by,
+            rationale=rationale,
+            via=via,
+            runs_dir=_runs(),
+        ).model_dump(mode="json")
+    except (service.ServiceError, ValueError) as exc:
+        raise ToolRefusal(str(exc)) from exc
+
+
+@mcp.tool
+def sign_off_close(run_id: str, note: str = "") -> dict:
+    """Accept the close. The terminal decision, and the strongest claim here.
+
+    Three refusals stand, and they bind an agent exactly as they bind a person
+    at a screen, because none of them was ever a question about who was calling:
+    books that do not balance, blocking items nobody has opened, and an unnamed
+    signer. Delegating to an agent does not make an unopened item opened — read
+    the worklist first, the same as anyone would.
+
+    The pack records that this signature arrived through an agent. That is not a
+    hedge against you; it is what lets a reader a year from now tell the
+    difference between a close somebody read and a close somebody automated.
+    """
+    signed_by, via = _actor()
+    try:
+        service.sign_off(run_id, signed_by=signed_by, note=note, via=via, runs_dir=_runs())
+    except (service.ServiceError, ValueError) as exc:
+        raise ToolRefusal(str(exc)) from exc
+    return service.view(run_id, _runs()).model_dump(mode="json")
 
 
 # --------------------------------------------------------------------------

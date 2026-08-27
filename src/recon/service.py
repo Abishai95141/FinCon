@@ -49,6 +49,7 @@ from . import review as reviewlib
 from . import trust
 from .contracts import (
     CONTRACT_VERSION,
+    ActorChannel,
     CodeStatus,
     Money,
     Policy,
@@ -1705,6 +1706,7 @@ def dispose(
     rationale: str,
     owner: str = "",
     due_on: date | None = None,
+    via: ActorChannel = ActorChannel.BROWSER,
     runs_dir: Path | None = None,
 ) -> DispositionView:
     """End an exception in a journal entry.
@@ -1768,6 +1770,7 @@ def dispose(
             decision=decision,
             rationale=rationale,
             decided_by=decided_by,
+            via=via,
             policy_ref=policy.ref,
         )
     except reviewlib.ReviewError as exc:
@@ -1790,6 +1793,97 @@ def dispose(
         budget_remaining=decision.budget_left,
         blockers_left=reviewlib.blockers(tail, after),
     )
+
+
+class AcceptedView(BaseModel):
+    """What accepting a classification changed."""
+
+    exception_id: str
+    code: str
+    accepted_by: str
+    via: ActorChannel
+
+
+def accept_classification(
+    run_id: str,
+    exception_id: str,
+    code: str,
+    *,
+    accepted_by: str,
+    rationale: str = "",
+    via: ActorChannel = ActorChannel.BROWSER,
+    runs_dir: Path | None = None,
+) -> AcceptedView:
+    """Take a proposed code, under a name.
+
+    Same extraction as `sign_off`: the HTTP route resolved the item and called
+    `review` directly, so a second surface meant a second copy of the lookup and
+    the error mapping.
+
+    The refusal that matters is unchanged and lives in `review` — a proposal may
+    not overwrite a code the engine derived, whoever accepts it. That check is
+    about the evidence, not the actor, so an agent hits it identically.
+    """
+    from . import review as reviewlib
+
+    root = runs_dir or runs_root()
+    item = next(
+        (e for e in view(run_id, runs_dir).exceptions if e.exception.exception_id == exception_id),
+        None,
+    )
+    if item is None:
+        raise ServiceError(f"no item {exception_id!r} in {run_id!r}")
+    try:
+        reviewlib.accept_classification(
+            run_id,
+            root,
+            exception=item.exception,
+            to_code=code,
+            by=accepted_by,
+            hypothesis=rationale,
+        )
+    except reviewlib.ReviewError as exc:
+        raise ServiceError(str(exc)) from exc
+    return AcceptedView(exception_id=exception_id, code=code, accepted_by=accepted_by, via=via)
+
+
+def sign_off(
+    run_id: str,
+    *,
+    signed_by: str,
+    note: str = "",
+    via: ActorChannel = ActorChannel.BROWSER,
+    runs_dir: Path | None = None,
+) -> str:
+    """Accept a close, from whichever surface asked.
+
+    Extracted from the HTTP route when MCP needed it. The route had assembled
+    the exceptions, the digest and the blocked list itself, so exposing sign-off
+    over MCP meant either importing a route or writing that assembly a second
+    time — and a second implementation of the terminal human decision is the
+    exact shape of the demo path this project bans. Both surfaces call this.
+
+    The caller names the item and itself. It does not get to say whether the
+    books balance or which items are still open: those come from the record.
+    """
+    from . import review as reviewlib
+
+    root = runs_dir or runs_root()
+    view_ = view(run_id, runs_dir)
+    try:
+        reviewlib.sign_off(
+            run_id,
+            root,
+            exceptions=[e.exception for e in view_.exceptions],
+            outcome_digest=run_id,
+            by=signed_by,
+            note=note,
+            books_blocked=list(view_.blocked),
+            via=via,
+        )
+    except reviewlib.ReviewError as exc:
+        raise ServiceError(str(exc)) from exc
+    return run_id
 
 
 def _books_to(exception, lp):

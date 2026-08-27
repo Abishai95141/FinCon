@@ -131,6 +131,18 @@ def test_the_pairing_table_covers_every_read_both_surfaces_expose():
         # Compared by `test_one_proof_is_the_same_proof_through_either_door`,
         # which needs a match id from the run and cannot be a table row.
         "get_proof",
+        # The three decision tools. Not comparable as a table row for a reason
+        # that is the point of them rather than an inconvenience: each writes a
+        # decision attributed to whoever the *credential* names, so running one
+        # through both doors produces two different records by design — one
+        # `browser`, one `mcp-agent`. A naive equality check would be asserting
+        # that the channel is *not* recorded, which is the whole control.
+        #
+        # `tests/property/test_agent_may_decide.py` compares what actually has
+        # to agree: the same refusals fire, and the same entry is written.
+        "dispose_exception",
+        "accept_classification",
+        "sign_off_close",
     }
     paired = {name for name, _, _, _ in PAIRED}
     missing = _tool_names(go) - paired - unpaired

@@ -409,6 +409,36 @@ class ClassificationAcceptedPayload(_Payload):
     model: str = ""
 
 
+class ActorChannel(StrEnum):
+    """How a human decision reached the record.
+
+    Added because *"the agent cannot approve anything"* was the wrong control.
+    An agent holding an OAuth token **is** the person who issued it — the `sub`
+    claim is the same string the web session resolves to — so refusing the write
+    was not protecting anybody. It was declining to serve an account its own
+    records, on a risk the customer took deliberately when they issued a token.
+
+    What an auditor genuinely needs is not a shorter list of things an agent may
+    do. It is to be able to tell, afterwards, that a decision arrived this way:
+    *"a person approved it"* and *"a person delegated to something that approved
+    it"* are different claims about how much attention the item got, and only
+    one of them is what `P2 ATTESTED` used to imply.
+
+    So the record says which. That is **never move silently** applied where the
+    old answer was *refuse what you cannot prove* — the same trade this project
+    already makes for `P3 DECLARED`.
+    """
+
+    BROWSER = "browser"
+    """A person at a screen, in a session they signed into."""
+
+    AGENT = "mcp-agent"
+    """An automated caller holding that person's OAuth token."""
+
+    CLI = "cli"
+    """A process on the operator's own machine, named by `RECON_ACTOR`."""
+
+
 class DispositionRecordedPayload(_Payload):
     """A person decided what happens to an exception, and an entry followed.
 
@@ -441,6 +471,11 @@ class DispositionRecordedPayload(_Payload):
     """A named person. `P2 ATTESTED` means somebody is accountable, and an empty
     string here is a disposition nobody made."""
 
+    decided_via: ActorChannel = ActorChannel.BROWSER
+    """How the decision arrived. Optional and defaulted so a log written before
+    this field existed still reads — every one of those was a browser session,
+    because no other channel could write one."""
+
     rationale: str
     policy_ref: str
     """Which policy's ceilings this was checked against — recorded because an
@@ -472,6 +507,11 @@ class CloseSignedOffPayload(_Payload):
     run_id: str
     outcome_digest: str
     signed_off_by: str
+    signed_via: ActorChannel = ActorChannel.BROWSER
+    """A signature is the strongest claim in this system, so how it arrived is
+    the fact most worth keeping. An agent may sign — it holds the token of the
+    person who is accountable for it — and the close pack says that it did."""
+
     acknowledged: int
     exceptions_open: int
     note: str = ""

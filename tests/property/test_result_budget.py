@@ -100,6 +100,16 @@ def test_every_tool_is_covered_by_this_budget(run_id: str):
             "verify_proof",
             # Returns a verdict of a dozen fields.
             "propose_reclassification",
+            # The decision tools. Excluded because measuring them means *making*
+            # a decision — booking an entry, or signing a close — and a budget
+            # walk that mutates the record it is measuring would leave every
+            # later case reading a different close than the one it was set up
+            # for. Their results are a handful of fields by construction:
+            # `DispositionView`, `AcceptedView` and a `CloseView` already
+            # measured through `get_close`.
+            "dispose_exception",
+            "accept_classification",
+            "sign_off_close",
         }
     )
     assert not unmeasured, f"tools with no budget case: {sorted(unmeasured)}"

@@ -26,6 +26,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .contracts import (
+    ActorChannel,
     ClassificationAcceptedPayload,
     CloseSignedOffPayload,
     DispositionRecordedPayload,
@@ -110,9 +111,30 @@ class Review:
     signed_off_at: str = ""
     note: str = ""
 
+    signed_via: ActorChannel = ActorChannel.BROWSER
+    """How the signature arrived. Surfaced rather than merely stored: the
+    unread-field ratchet refused the field the moment it was added and nothing
+    read it, which is exactly the defect it exists to catch — a payload field
+    written for an auditor who has no way to see it is a claim with no reader."""
+
+    disposed_via: dict[str, ActorChannel] = field(default_factory=dict)
+    """exception id -> the channel its disposition came through."""
+
     @property
     def signed_off(self) -> bool:
         return bool(self.signed_off_by)
+
+    @property
+    def delegated(self) -> int:
+        """How many decisions in this close were made through an assistant.
+
+        The number a reviewer actually wants, and the reason the channel is
+        recorded at all: not *whether* an agent may act, but how much of this
+        close it acted on.
+        """
+        return sum(1 for c in self.disposed_via.values() if c is ActorChannel.AGENT) + (
+            1 if self.signed_via is ActorChannel.AGENT else 0
+        )
 
 
 def state(run_id: str, runs_dir: Path) -> Review:
@@ -138,9 +160,11 @@ def fold(stream: list[Event]) -> Review:
     accepted_from: dict[str, str] = {}
     disposed: dict[str, str] = {}
     disposed_by: dict[str, str] = {}
+    disposed_via: dict[str, ActorChannel] = {}
     written_off = ZERO
     still_open = 0
     by = at = note = ""
+    signed_via = ActorChannel.BROWSER
     for event in stream:
         payload = event.payload
         if event.kind is EventKind.EXCEPTION_ACKNOWLEDGED:
@@ -154,11 +178,13 @@ def fold(stream: list[Event]) -> Review:
         elif event.kind is EventKind.DISPOSITION_RECORDED:
             disposed[payload.exception_id] = payload.disposition
             disposed_by[payload.exception_id] = payload.decided_by
+            disposed_via[payload.exception_id] = payload.decided_via
             if payload.disposition == "write_off":
                 written_off += abs(payload.amount)
         elif event.kind is EventKind.CLOSE_SIGNED_OFF:
             by, at, note = payload.signed_off_by, event.at.isoformat(), payload.note
             still_open = payload.exceptions_open
+            signed_via = payload.signed_via
     return Review(
         acknowledged,
         notes,
@@ -172,6 +198,8 @@ def fold(stream: list[Event]) -> Review:
         by,
         at,
         note,
+        signed_via,
+        disposed_via,
     )
 
 
@@ -317,6 +345,7 @@ def sign_off(
     note: str = "",
     books_blocked: list[str] | None = None,
     policy_ref: str | None = None,
+    via: ActorChannel = ActorChannel.BROWSER,
 ) -> Event:
     """A named human accepts the close, or is refused with the reason.
 
@@ -324,6 +353,12 @@ def sign_off(
     unnamed signer, books that do not balance, and blocking items nobody has
     looked at. The last is the one that matters — signing off on items you have
     not opened is the exact failure a sign-off exists to prevent.
+
+    **All three bind every channel.** An agent signing under its principal's
+    token is refused for unopened blockers exactly as a browser session is —
+    the control was never "is this a human", it was "has this been looked at",
+    and delegating does not make an unopened item opened. What `via` changes is
+    what the record says afterwards, not what is allowed.
     """
     if not by.strip():
         raise ReviewError("a sign-off needs a named human; that is the whole content of it")
@@ -353,6 +388,7 @@ def sign_off(
             run_id=run_id,
             outcome_digest=outcome_digest,
             signed_off_by=by,
+            signed_via=via,
             acknowledged=len(review.acknowledged),
             exceptions_open=len(exceptions) - len(review.acknowledged),
             note=note.strip(),
@@ -373,6 +409,7 @@ def dispose(
     rationale: str,
     decided_by: str,
     policy_ref: str,
+    via: ActorChannel = ActorChannel.BROWSER,
 ) -> Event:
     """Record a checked disposition. The entry is already built; this is where
     it becomes durable and stops being a thing that happened in a process.
@@ -420,6 +457,7 @@ def dispose(
             credit_account=credit.role.value,
             entry_id=entry.entry_id,
             decided_by=decided_by,
+            decided_via=via,
             rationale=rationale,
             policy_ref=policy_ref,
             ceiling_applied=decision.ceiling,

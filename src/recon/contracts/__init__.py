@@ -19,7 +19,25 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, PlainSerializer
 
-CONTRACT_VERSION = "7.7.0"
+CONTRACT_VERSION = "7.8.0"
+# 7.8.0 — `ActorChannel`, and `decided_via` / `signed_via` on the two payloads
+#         that carry a human decision. Added when the MCP server gained the
+#         tools to dispose an item and sign off a close.
+#         The reasoning is worth keeping, because the *old* design looked like a
+#         control and was not one: an agent over HTTP holds an OAuth token its
+#         principal issued, and the `sub` on that token is the same string the
+#         web session resolves to. So withholding the write tools never kept a
+#         stranger out — it served an account a read-only view of its own books.
+#         What an auditor actually needs is to tell, afterwards, that a decision
+#         arrived through an assistant, because "a person approved it" and "a
+#         person delegated to something that approved it" are different claims.
+#         So the record says which, and every bound that was doing real work —
+#         the write-off ceiling, the budget, unopened blockers, the balance
+#         check — binds every channel identically, because none of them was ever
+#         a question about who was calling.
+#         Both fields optional with defaults, so an old reader ignores them and
+#         every log written before this reads as `browser`, which is what it was:
+#         minor.
 # 7.5.0 — The human half of a close. ExceptionAcknowledged, ClassificationAccepted
 #         and CloseSignedOff, with their payloads. Until now a close ended at
 #         `CloseCompleted` and the product presented that as approval — the engine
@@ -205,6 +223,7 @@ from .event import (  # noqa: E402
     GENESIS,
     PAYLOADS,
     PRODUCERS,
+    ActorChannel,
     AdapterAuthoredPayload,
     AuthorityVerifiedPayload,
     ClassificationAcceptedPayload,
@@ -262,6 +281,7 @@ __all__ = [
     "GENESIS",
     "PAYLOADS",
     "PRODUCERS",
+    "ActorChannel",
     "AdapterAuthoredPayload",
     "AdapterSpec",
     "Authority",
