@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # Gates that are GREEN in STATUS.md. `make verify` re-runs exactly these.
 # Add a phase number here ONLY when its gate output is pasted into STATUS.md.
-GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11 13 14
+GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11 13 14 15
 
 # Gates that require a live model and cannot run offline. Excluded from
 # `make test` so a fresh clone still passes, and NAMED in the output so the
@@ -16,24 +16,25 @@ LIVE_GATES := 12 12b 12c
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
 	@echo
-	@echo "  setup     uv sync + install hooks"
+	@echo "  setup     uv sync"
 	@echo "  verify    re-run every currently-green gate ($(if $(GREEN_GATES),$(GREEN_GATES),none yet))"
 	@echo "            (P$(LIVE_GATES) needs a live model — not in verify, see STATUS)"
 	@echo "  gate P=N  run the gate for phase N"
-	@echo "  eval      ablation runner - 4 arms, 8 metrics, batches A and B     [P10]"
+	@echo "  eval      ablation runner - 4 arms, 9 metrics, batches A and B     [P10]"
 	@echo "  gen       regenerate synthetic batches from seed                     [P0]"
 	@echo "  test      unit + property"
 	@echo "  e2e       end-to-end on a generated batch"
 	@echo "  lint      ruff + the no-float rule"
 	@echo "  serve     start the HTTP API and the screens         [P14]"
-	@echo "            (http://127.0.0.1:8000/ui — no terminal needed after this)"
+	@echo "            (http://127.0.0.1:8000/ — no terminal needed after this)"
 	@echo "  mcp       start the MCP server on stdio               [P13]"
+	@echo "  mcp-http  the same tools over Streamable HTTP + OAuth  [P22]"
 	@echo "  ses       wire Cognito to SES once the sender is verified  [CHECK=1]"
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
-	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p19]"
+	@echo "  mutate    revert each control, confirm the suite goes red   [SET=p9..p21]"
 	@echo "            (rewrites src/ in place - do not run anything else meanwhile)"
 	@echo "  mutate-preflight  check every mutation anchor, offline and free"
 	@echo "  status-table  regenerate the known-broken table from its reproducers"
@@ -50,8 +51,11 @@ ifeq ($(strip $(GREEN_GATES)),)
 	@echo "No gates are green yet. Nothing to verify."
 	@echo "See STATUS.md -> Next action."
 else
+	@echo "verify runs offline: tests marked 'live' are deselected, and named here."
+	@echo "  pytest prints the count per gate as 'N deselected'. To run one whole,"
+	@echo "  including its live tests: make gate P=<n>   (needs DEEPSEEK_API_KEY)."
 	@for p in $(GREEN_GATES); do \
-	  echo "=== gate P$$p ==="; $(MAKE) --no-print-directory gate P=$$p || exit 1; \
+	  echo "=== gate P$$p ==="; $(MAKE) --no-print-directory gate P=$$p OFFLINE=1 || exit 1; \
 	done
 endif
 
@@ -62,7 +66,8 @@ gate:
 	  echo "Do not mark it green in STATUS.md. See CLAUDE.md rule 1."; \
 	  exit 1; \
 	fi
-	uv run pytest -q "tests/gates/gate_p$(P).py"
+	@$(if $(OFFLINE),echo "OFFLINE=1 — tests marked 'live' are deselected; run without it for the whole gate.",true)
+	uv run pytest -q "tests/gates/gate_p$(P).py" $(if $(OFFLINE),-m "not live",)
 
 gen:
 	@test -d bench/generator && test -n "$$(ls -A bench/generator 2>/dev/null | grep -v __init__)" \

@@ -44,7 +44,9 @@ def render() -> str:
     lines += [f"| {why} | {where} | {state} |" for why, where, state in rows()]
     lines += [
         "",
-        f"_{len(rows())} reproducible problems, each an `xfail(strict=True)` in "
+        f"_{len(rows())} reproducible "
+        f"{'problem, an' if len(rows()) == 1 else 'problems, each an'} "
+        "`xfail(strict=True)` in "
         f"`{MODULE.replace('.', '/')}.py`. Fixing one turns it into an XPASS, which "
         "fails the suite and forces the row out — a fix cannot land unnoticed._",
         "",

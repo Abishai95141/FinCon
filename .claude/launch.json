@@ -25,6 +25,35 @@
       ],
       "port": 8311,
       "url": "http://localhost:8311"
+    },
+    {
+      "name": "fincon-capture",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "RECON_ENV=dev",
+        "RECON_AUTH=local",
+        "RECON_SESSION_SECRET=c0ffee5eed1234567890abcdef0123456789abcdef0123456789abcdef012345",
+        "uv",
+        "run",
+        "recon-api",
+        "--port",
+        "8142"
+      ],
+      "port": 8142,
+      "url": "http://localhost:8142"
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8155",
+        "--directory",
+        "/Users/abishaikc/Agentic-Fintech/site"
+      ],
+      "port": 8155,
+      "url": "http://localhost:8155"
     }
   ]
 }

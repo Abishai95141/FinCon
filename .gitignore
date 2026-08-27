@@ -17,3 +17,14 @@ htmlcov/
 data/runs/
 data/dev/
 .scratch/
+
+# per-account uploaded sources. A tenant directory is runtime state named by a
+# user id — `12ff8a42…` is tracked because it is the shipped sample corpus the
+# demo account reads; every other one appears when somebody signs up and must
+# not follow them into the repo. Ignoring tracked files is a no-op, so the
+# sample stays and the rest stop arriving.
+data/sources/
+
+# remotion project for the landing-page motion pieces
+motion/node_modules/
+motion/out/

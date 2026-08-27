@@ -227,16 +227,27 @@ disk with postings in it. `make serve`.
       were written by someone who knew what this engine handled, which is not the independence
       the original ten have.)*
 - [ ] **1:N strategy** as the second thing added *as configuration*. Not started.
-- [ ] **Second loop — GSTR-2B** with zero kernel code changed. **Nothing exists**: no profile, no
-      generator, no adapters, no data. This is a second P0, not a P15 afternoon.
+- [x] **Second loop** with zero kernel code changed. *(2026-08-26: `tds_26as` — Form 26AS from
+      TRACES against a TDS receivable ledger, matched on `TAN + section + quarter` over an
+      April-to-March year. Not GSTR-2B: the point was a loop as unlike settlement as a
+      reconciliation gets, and a 2B match on invoice+GSTIN is closer to settlement than a
+      statutory quarterly filing is. Cost: one profile, two adapter specs, a policy, a chart, six
+      taxonomy entries and **nothing under `engine/`** — asserted byte-for-byte by the gate.
+      It found three domain leaks the first loop was getting away with, including a
+      `BlockingPolicy()` constructed empty in `close.py`, which gave the new loop 0.0% blocking
+      reduction where it now gets 98.5%.)*
 
 **Gate:** a second loop closes on profile and adapters alone. Partial payment goes from "raises an
 exception" (P6) to "matches with a proof" without an engine edit.
 
-**Half met at 2026-08-25.** Partial payment does exactly that — the only change outside the new
-strategy function was one name in the profile's tuple. The second loop is untouched and is the
-part that actually tests generality: one strategy added to an existing profile shows the pipeline
-works, not that the engine is domain-agnostic. Evidence in STATUS.md.
+**Met at 2026-08-26.** Partial payment landed 2026-08-25 with the only change outside the new
+strategy function being one name in the profile's tuple. The second loop landed the next day and
+is the half that actually tests generality — one strategy added to an existing profile shows the
+pipeline works, not that the engine is domain-agnostic. The gate is `tests/gates/gate_p15.py`
+(shipped for a day as `gate_p23.py`, renumbered because `P23` is already the residual-risk id for
+"the same team authored the generator and the engine"). Evidence in STATUS.md.
+
+**`1:N as configuration` is still open** and is the remaining unticked box above.
 
 ---
 

@@ -224,7 +224,7 @@ src/recon/
                  Each writes double entry and closes the item; all are
                  `P2 ATTESTED`, and the two write-off bounds come from policy
   api/           FastAPI + OpenAPI + three server-rendered screens (no JS).
-                 `make serve` -> http://127.0.0.1:8000/ui
+                 `make serve` -> http://127.0.0.1:8000/
 bench/
   generator/     synthetic batches + complete labels + manifest verification
   adversarial/   authored at P0, before the engine. Never edited to match it.
@@ -236,9 +236,12 @@ bench/
   run.py         `make eval`
 tests/
   gates/         gate_pN.py — one file per phase, and where the unit tests live
-  property/      metamorphic relations and invariants, 14 files
-  known_broken.py  xfail(strict) reproducers — currently empty, and that is a
-                 claim: a fix turns one into an XPASS and forces the row out
+  property/      metamorphic relations and invariants, 31 files
+  known_broken.py  xfail(strict) reproducers — one open: `ReconException.leg`
+                 cannot name a side a second loop has. A fix turns it into an
+                 XPASS and forces the row out. STATUS's table is *generated*
+                 from this file and a property test fails when the two disagree,
+                 because the generator existed for a phase and nobody ran it
   conftest.py    marks a test `live` if it constructs a ModelEdge, so `make test`
                  runs everything that needs no key
   unit/ e2e/     **empty**. Rule 6 explains why: unit tests sit in the gate files
@@ -277,7 +280,7 @@ Run this every session. It is short on purpose.
 ## Commands
 
 ```bash
-make setup        # uv sync, install hooks
+make setup        # uv sync
 make verify       # every currently-green gate, re-run
 make gate P=3     # run the gate for phase N
 make eval         # ablation runner — 4 arms, 9 metrics, batches A and B
@@ -292,7 +295,7 @@ make sign SIGNER='name'  # re-sign the authority bundles
 make status-table    # regenerate the known-broken table from the xfails
 # gate P=12, P=12b, P=12c and mutate SET=p12/p12b need DEEPSEEK_API_KEY —
 # no offline mode, by rule 1
-make serve        # HTTP API + the screens        -> /ui  and  /docs   [P14]
+make serve        # HTTP API + the screens        -> / (the screens) and /docs   [P14]
 make mcp          # MCP server on stdio                               [P13]
 make mcp-http     # the same 18 tools over Streamable HTTP + OAuth     [P22]
 make graph        # refresh the graphify code graph

@@ -1,7 +1,8 @@
 # The user flow, and what it is worth
 
-*Written 2026-08-26, after the journal export landed. Every number here came from
-running `settlement_3way` against batch A — none of them are estimates.*
+*Written 2026-08-26, after the journal export landed; §5.1 and §5.4 closed
+2026-08-27 and are struck through rather than deleted. Every number here came
+from running `settlement_3way` against batch A — none of them are estimates.*
 
 The question this answers: **what does a person actually do with this, and what
 do they get that they did not have before?**
@@ -148,9 +149,12 @@ promoted. Next month it fires as `P1 RULE` and the item never reaches a human.
 
 ## 5. What is missing, stated plainly
 
-Four things, and the first one is large.
+Four when this was written on 2026-08-26. **Two closed the same week**, and they
+are kept below rather than deleted — a gap that was measured and then closed is
+worth more as a record than a gap quietly removed, and 5.1 in particular is the
+argument for why the disposition layer exists at all.
 
-### 5.1 "Take this item" leads to no disposition
+### 5.1 ~~"Take this item" leads to no disposition~~ — closed 2026-08-26
 
 Measured, not suspected. Accepting `EXC-00005` from `E14` to `E08`:
 
@@ -173,9 +177,42 @@ ways, each producing an entry:
 | **chase it** | `E08` missing remittance → a receivable, and someone emails |
 | **write it off** | below the materiality threshold, with the threshold named |
 
-None of the four exist. Today the product tells you what is wrong and records
-who agreed — and stops one step short of the entry that makes the break go away.
-**That is half a product**, and it is the next thing to build.
+That was the state on the morning of 2026-08-26, and the measurement above is
+what made it undeniable: the product told you what was wrong, recorded who
+agreed, and stopped one step short of the entry that makes the break go away.
+
+**All four exist now**, in `src/recon/disposition.py`, and each one writes double
+entry and takes the item off the desk:
+
+| disposition | where the value goes |
+|---|---|
+| **book it** | the difference is real and explained → an expense |
+| **carry it forward** | timing, the money has not landed → cash in transit, an asset |
+| **chase it** | somebody owes us → a receivable with an owner and a date |
+| **write it off** | value leaving for good → bounded **twice** by the signed policy |
+
+All four are `P2 ATTESTED` and carry a name, which is forced rather than
+conventional: value *leaving* a close can never be `P1 RULE`, because raw records
+cannot prove a row is spurious — they contain it.
+
+Three things worth keeping from building it.
+
+**`BOOK` is deliberately absent from `DESTINATION`.** The other three name an
+account role; booking does not, and supplying a default would let an unratified
+code reach an account. A missing key raises where a default would have posted.
+
+**A resolved item did not leave the worklist**, and that needed a fix rather than
+copy. An exception is *raised* in the close's record and *ended* in the review
+log; the page read the first and never the second, so a person could book, chase
+and write off every item and watch the count stay where it was. The good ending
+was unreachable and resolving was pointless.
+
+**Mutation found four unguarded controls behind seventeen green tests.** The
+ceiling test matched a word the budget message also used; the budget relation
+could not see a uniformly-doubled denominator; the accumulation test supplied its
+own running total; and the signer test read the route's signature rather than its
+behaviour. `make mutate SET=p21` is 14/14 now, and not one of those four would
+have been found by reading the tests.
 
 ### 5.2 The tail does not persist across closes
 
@@ -199,9 +236,19 @@ containing an order that was never invoiced.
 **The name is a claim the code does not honour.** It should be `settlement_2way`
 until the orders leg is bound.
 
-### 5.4 The ledger is not persisted
+### 5.4 ~~The ledger is not persisted~~ — the export landed; the *durability* did not
 
-The journal is re-derived from the decision log on request rather than stored.
-That is the stronger construction — anyone holding the log can produce it, not
-just the process that ran the close — but there is no ledger file, and a pack
-implying otherwise would claim a durability this build does not have.
+The journal is re-derived from the decision log on request rather than stored,
+and that remains deliberate: anyone holding the log can produce it, not just the
+process that ran the close.
+
+What was missing was that nobody could *get* it. That is closed — the close pack
+serves `journal.csv` (RFC 4180, opens in Excel, imports to Tally) and
+`journal.beancount`, and the beancount export is **re-loaded by beancount
+itself**, so a third party validates the file rather than taking our word that it
+balances. Every line carries the proof or exception id it came from.
+
+**The honest remainder is retention, not rendering.** The export is as durable as
+`data/runs/`, which is a directory anyone with the checkout can delete. A hash
+chain proves internal consistency; it does not prove custody. That is 5.2's
+problem in a different costume and neither is solved.

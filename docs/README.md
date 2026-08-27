@@ -26,7 +26,7 @@ document below answers the question in front of you.
 Two surfaces, both real since 2026-08-25. Neither is a benchmark.
 
 ```bash
-make serve   # http://127.0.0.1:8000/ui — close a period, work the tail, export the audit
+make serve   # http://127.0.0.1:8000/ — close a period, work the tail, export the audit
              # http://127.0.0.1:8000/docs — OpenAPI, with the semver'd contracts in it
 make mcp     # 16 tools on stdio, for an agent
 ```

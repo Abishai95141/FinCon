@@ -108,9 +108,9 @@ record        an append-only hash-chained decision log; the run refuses to finis
 | **Audit export** | `GET /v1/runs/{id}/export` | **yes** — every decision with its proof, rule version and approver, plus how to re-derive it |
 | **Independent re-derivation** | `POST /v1/runs/{id}/reverify`, and a button on the page | **yes** |
 | **Stateless public verification** | `POST /v1/verify` · MCP `verify_proof` | **yes** |
-| **UI** | `make serve` → `http://127.0.0.1:8000/ui` | **yes** — three server-rendered pages, no JavaScript |
-| **MCP** | `make mcp` → 16 tools on stdio | **yes** |
-| Journal entries + balance assertion | **in memory** | computed, asserted, **still not written to a file** |
+| **UI** | `make serve` → `http://127.0.0.1:8000/` | **yes** — server-rendered screens, no JavaScript |
+| **MCP** | `make mcp` → 18 tools on stdio · `make mcp-http` over Streamable HTTP + OAuth | **yes** |
+| Journal entries + balance assertion | `GET /v1/runs/{id}/journal` · CSV and beancount on the close pack | **yes** — and the beancount export is re-loaded by beancount itself, so a third party validates it |
 | Cross-close history on a break | — | **not built** — `fingerprint` is the precondition and landed; the store does not exist |
 
 **Two entry points, and neither of them is a benchmark any more.** `make serve`
@@ -198,10 +198,9 @@ and cannot reach anything a human has to sign for.
 
 | | What | Why it matters |
 |---|---|---|
-| **P15c** | Second loop (GSTR-2B) | The generality claim is *asserted*. One strategy added to an existing profile shows the pipeline works, not that the engine is domain-agnostic. Nothing exists — no profile, generator, adapters or data. **This is a second P0 and the only remaining item that tests the claim rather than extending it.** |
+| ~~**P15c**~~ | ~~Second loop~~ | **Closed 2026-08-26.** `tds_26as` — Form 26AS from TRACES against a TDS receivable ledger, matched on `TAN + section + quarter` over an April-to-March year. It cost one profile, two adapter specs, a policy, a chart and six taxonomy entries, and **nothing under `engine/`**, which is what turned invariant 7 from an assertion into a measurement. Not GSTR-2B: the point was a loop as unlike settlement as a reconciliation gets, and this one is. |
 | — | Cross-close state (`first_seen_at`, `occurrence_count`) | The worklist ranks by the age of the *transaction*, not of the break. `fingerprint` is the precondition, landed, and now survives the record in both directions — two of seven breaks recur across A and B and nothing on the page says so. |
-| — | Persist the ledger | Entries are computed and asserted in memory and never written. The API serves a *count* of postings, which is what the record holds. |
-| — | Retention | `data/runs/` is local scratch. "The record" is a file anyone with the checkout can delete; a hash chain proves internal consistency, not custody. |
+| — | Retention and custody | The journal is *rendered* now — CSV and beancount, and the beancount export is re-loaded by beancount itself, so a third party validates it. What is still missing is durability: it is rendered from `data/runs/`, which is a file anyone with the checkout can delete. A hash chain proves internal consistency, not custody. |
 | — | A proposal store | `propose_reclassification` persists nothing, because a proposal outlives the close it speaks about. Said in the response rather than left ambiguous. |
 | — | The orders leg | Two of three sources; the third is declared out of scope |
 | — | `E05` overpayment | The branch exists, has never executed, and is asserted structurally — the weakest assertion in the codebase |

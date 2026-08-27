@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Current phase** | **The product surface**, beyond P14. FinCon has a login, a shell, per-account sources and records, a visible model step, a human sign-off, and a processing view. Next by the plan is `P15c` — the second loop, which is a second P0. |
-| **Last green gate** | **P14** — `make verify` runs P0–P11 plus P13/P14, 14 gate files. `P12` is still **RED on the count**: one promoted rule against a gate that says three. |
-| **Tests** | **645 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **0 known-broken rows.** Contract **7.5.0**. |
-| **Mutation** | 14 sets, all caught: p9–p20. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
-| **Build runs?** | `make eval` closes A and B. `make serve` → `/login`; `make mcp` → 16 tools. `make ses [CHECK=1]` finishes the Cognito→SES wiring. A model key loads from gitignored `data/dev/.env`. |
+| **Current phase** | **The product surface**, beyond P14 — and **two loops**, which is what turned invariant 7 from an assertion into a measurement. FinCon is deployed at `https://fincon.astutecomputer.com`: login, sources, a close, a ranked worklist, four dispositions that write journal entries, human sign-off, a close pack, and MCP behind OAuth. |
+| **Last green gate** | **P15** — `make verify` runs P0–P11, P13, P14 and P15: 15 gates, **377 offline assertions**, plus 2 live ones deselected and named. `P12` is still **RED on the count**: one promoted rule against a gate that says three. |
+| **Tests** | **795 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **1 known-broken row** — `ReconException.leg` cannot name a side a second loop has. Contract **7.7.0**. |
+| **Mutation** | 15 sets, all caught: p9–p21. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
+| **Build runs?** | `make eval` closes A and B. `make serve` → `/` (login or the shell); `make mcp` → 18 tools on stdio, `make mcp-http` the same 18 behind Cognito OAuth. `make ses [CHECK=1]` finishes the Cognito→SES wiring. A model key loads from gitignored `data/dev/.env`. |
 | **Last verified numbers** | Ours vs `securo_grouped`: auto-match **90.9% / 86.4%**, false-match **0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. Live model: an `E14` classified as `E08` by `deepseek-v4-flash` in 2.1s, 2026-08-26. |
-| **Updated** | 2026-08-26 |
+| **Updated** | 2026-08-27 |
 
 ---
 
@@ -45,7 +45,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P12** ◆ | **The lift number.** Resolve 3 on A, approve 3 rules, re-run on held-out B, scorecard attributes rule by rule. Plus: an unseen format ingests with no configuration. | **`RED`** — triage + induction built; adapter synthesis not started | [below](#p12-part-2--rule-induction--2026-08-24) |
 | **P13** | An external process calls `run_match`, re-derives the proof without our database — and a forged proof is refused by that same public call | **`GREEN`** | [below](#p13--substrate--2026-08-25) |
 | **P14** | A controller completes one close through the UI without a terminal | **`GREEN`** | [below](#p14--surface--2026-08-25) |
-| **P15** | A second loop closes on profile and adapters alone; partial payment goes from exception to proof without an engine edit | `not started` | — |
+| **P15** | A second loop closes on profile and adapters alone; partial payment goes from exception to proof without an engine edit | **`GREEN`** | [below](#p15--generality--the-second-loop--2026-08-26) |
 
 ◆ = the gates that carry the claim. **P6–P10 are not cuttable** — they are the difference between a
 measured system and an asserted one. **P12 is not cuttable for the claim.**
@@ -64,6 +64,106 @@ $ make gate P=3
 ```
 Notes: anything surprising, anything still weak.
 -->
+
+### The landing page, and an MCP defect only a real client could find · 2026-08-27
+
+```
+$ make test    797 passed, 51 deselected, 1 xfailed
+$ make lint    clean            $ make verify   15 gates, 377 offline assertions
+```
+
+**`POST /mcp` answered with a 307 to `/mcp/`, and that is why no MCP client
+could connect.** OAuth completed, the token was real, and the client printed
+`authenticated` beside `connection timed out after 30000ms` — so it read as an
+auth problem and was not one. An HTTP client following a redirect drops the
+`Authorization` header, which is the standard defence against leaking a bearer
+token and makes no exception for same-origin. The authenticated request arrived
+unauthenticated and the stream never opened.
+
+`Mount("/mcp", …)` builds the regex `^/mcp(?P<path>/.*)$`, which bare `/mcp`
+does not match, so the router's `redirect_slashes` answered it. `/mcp` is the
+URL this server *publishes* — in `get_authority`, on the agent page, in the
+resource metadata — so it is the spelling every client uses and the only one
+that had to work.
+
+Fixed with a route rather than middleware: `add_middleware` raises once an
+application has started, and `mount_mcp` runs at import time on one path and
+inside a live test on another. `test_the_mcp_endpoint_does_not_redirect_the_url_
+we_publish` holds it, and reverting the route turns it red.
+
+**Everything before this was green.** `probe_http` treats a 401 as
+reachable-but-protected and never issued a POST to the published URL; the
+property tests exercised the mounted app through paths that already had the
+slash. The gap was between "the endpoint answers" and "the endpoint answers the
+address we hand out", and only a real client crossing it showed the difference.
+
+**A dependency guard caught the fix.** `starlette` was imported by name and
+declared nowhere — it works because FastAPI brings it, and would fail on a fresh
+`uv sync`. Declared now, with the same reasoning already written against
+`botocore`.
+
+**The landing page is built** in `site/` — server-rendered, no JavaScript, on
+the product's own tokens from `api/theme.py`. Fourteen screenshots captured from
+a real close (`A-b7bde0f0`: 543 records, 62 decisions, 191 ms) and one Remotion
+composition for the hero. Every number on it came from that run; the section
+that closes the page is *what it cannot do yet*.
+
+### P15 — generality: the second loop · 2026-08-26
+
+```
+$ make gate P=15   23 passed in 16.26s   (21 offline + 2 live)
+$ make verify      15 gates, 377 offline assertions, 0 failed
+$ make test        795 passed, 51 deselected, 1 xfailed in 63.79s
+$ make lint        clean          $ make e2e     113 passed
+$ make replay      90.9% (20/22) · 0.0% false · T0=17 T1=2 T4=1
+                   coverage 100% (6/6) · classification 66.7% (4/6) · ambiguity 100% (1/1)
+```
+
+**`tds_26as` — Form 26AS from TRACES against a TDS receivable ledger**, matched
+on `TAN + section + quarter` over an April-to-March year. Chosen to be as unlike
+settlement as a reconciliation gets: the two sides are our expectation and the
+state's record rather than one payment seen twice, the period is a statutory
+quarter rather than a date window, and a break is somebody filing something
+wrong rather than money going somewhere.
+
+**It cost nothing under `engine/`.** One profile, two adapter specs, a policy, a
+chart and six taxonomy entries. The gate asserts that byte-for-byte, because a
+generality that needed a change to accommodate its second instance was not a
+generality — and asserting it is the only way this differs from the eleven
+phases where invariant 7 was a sentence.
+
+**Three defects only a second loop could find**, all of them domain leaks that
+settlement was getting away with:
+
+| | The leak | How settlement hid it |
+|---|---|---|
+| `counterparty_key` defaulted to `"gateway"` | a name from one loop's world, in the engine | settlement passes it explicitly, so the default was never read |
+| `BlockingPolicy()` was constructed empty in `close.py` | blocking had been settlement-specific since P4, so TDS got **0.0% reduction** — now 98.5% | settlement's policy came from its profile; nothing else ever asked |
+| `promotion.py` hardcoded `anchor_side="bank"` | the admissibility check named a side that does not exist here | there is a bank in settlement |
+
+And one that is a **profile** choice rather than an engine one, which is the more
+interesting kind. Keyed on the deductor's TAN, the tolerant pass produced **six
+false matches** — 26AS rows paired with ledger vouchers for a different section
+entirely — because `strategies.viable` narrows by `counterparty_key` and then by
+amount, and a deductor files many small deductions where ₹0.05 apart is common.
+Settlement escapes this because a payout is tens of thousands. That is luck, not
+a property, and `test_a_coarse_counterparty_key_produces_false_matches` holds the
+evidence rather than the fix hiding it.
+
+**Renumbered from P23 on 2026-08-27.** The file shipped as `gate_p23.py`, and
+`P23` was already taken — it is the residual-risk id for *"the same team authored
+the generator and the engine"*, three sections below in this document. Two things
+under one name is the rot this project keeps finding. The gate now takes the
+number the plan gives it: `docs/06-PLAN-V2.md` P15, *Generality*, whose second
+checkbox is exactly this.
+
+**And wiring it into `make verify` broke `make verify`.** The gate holds two
+`@pytest.mark.live` tests, so adding `15` to `GREEN_GATES` made the offline
+ratchet depend on a model and a network — it failed once and passed twice on the
+same tree, which is the signature. `verify` now runs gates with `-m "not live"`
+and says so; `make gate P=N` still runs one whole. The Makefile had stated this
+principle since P12 and enforced it only for gates that are *entirely* live. A
+gate that is mostly offline was a shape the rule had never met.
 
 ### The product surface · 2026-08-26
 
@@ -181,7 +281,7 @@ And the decision log named the rule store by an **absolute path**, because
 
 Three screens, server-rendered, **no JavaScript** — asserted, because a page that
 needs a build step before a number appears fails the gate on a fresh machine.
-`make serve`, then `http://127.0.0.1:8000/ui`.
+`make serve`, then `http://127.0.0.1:8000/`.
 
 ```
 AUTO-MATCH          PROOF TIERS      EVERY INPUT DISPOSED   BLOCKING RECALL   BOOKS
@@ -2489,10 +2589,9 @@ the row out. A fix cannot land unnoticed.
 
 | Problem | Reproducer | State |
 |---|---|---|
-| P12: zero rules have been promoted end-to-end, so nothing attributes improvement rule by rule - which is the gate's own sentence. The dedup rule promotes when constructed by hand; the model has not yet written one that does. | `test_a_model_induced_rule_has_been_promoted` | **open** |
-| Policy and taxonomy are pinned by digest but not signed. The digest proves what ran, not who approved it. | `test_policy_carries_a_signature` | **open** |
+| ReconException.leg is a closed set of settlement's own words — 'bank' and 'orders' — in the public semver'd contract, so a second loop cannot name its own legs. Found by tds_26as, whose exceptions record leg='bank' for a reconciliation between the Income Tax Department and a tax ledger where no bank appears. The distinction the field actually encodes is semantic — does this move the balance-assertion gap (invariant 1) or is it a linkage failure — so the fix is 'value'/'linkage' plus a major version bump, touching 30 sites. Not rushed at the end of a session. | `test_an_exceptions_leg_can_name_a_side_the_loop_actually_has` | **open** |
 
-_2 reproducible problems, each an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
+_1 reproducible problem, an `xfail(strict=True)` in `tests/known_broken.py`. Fixing one turns it into an XPASS, which fails the suite and forces the row out — a fix cannot land unnoticed._
 
 **Not policed by this table.** Problems with no minimal reproducer stay prose below and stay unchecked: toy scale, one model and one prompt, single-sample timing, defect rates unvalidated against production formats, and every audit being one person auditing their own design. Naming them here is the only guard they have.
 
@@ -2503,13 +2602,13 @@ These are true and unpoliced. Naming them here is the only guard they have.
 | Item | State |
 |---|---|
 | **Everything is validated at toy scale** | 23 credits, 517 rows, 2 gateways, 1 currency, 1 loop. Blocking constants, solver bounds and tolerance policy are unvalidated above a few hundred rows. |
-| **Classification is 40%-80%, n=5** | Repeated passes over identical inputs score 2-4 of 5. One record is twenty points. A single figure is a draw. |
+| **Classification is 66.7%, n=6** | 4 of 6 on both batches. One record is seventeen points. A single figure is still a draw, and the denominator moved because a planted case was added, not because the engine got better at the same six. |
 | **One model, one prompt, one provider** | No ablation over prompt shape, no second model. |
 | **Timing is a single wall-clock sample** | The deterministic arm measured 2/6/33 ms across runs on identical data. |
-| **No application surface** | No UI, no MCP, no persistence, no API. A library plus a benchmark harness. |
+| **The surface is young, not absent** | ~~No UI, no MCP, no persistence, no API.~~ Closed at P13/P14 and deployed since 2026-08-26: server-rendered screens, an OpenAPI HTTP API, 18 MCP tools over stdio and behind OAuth, per-account sources on EFS. What is young is the *operating* history — one tenant, one machine, no load. |
 | **No breadth control beyond the reference cap** | The out-of-bag cap catches a rule that floods the reference population; a rule narrow there and broad here is unguarded. |
 | **No retention or custody for the decision log** | `data/runs/` is local scratch. The hash chain proves internal consistency, not custody. |
-| **`E02` is unsurfaceable by this loop** | Fee variance is against a contract no source here carries. |
+| **`E02` is surfaced without a contract, and says less than a contract would** | Closed 2026-08-25 by a population relation, not by acquiring the contract: a gateway bills its book on one set of terms, so rows off that relation disagree with their own peers. It states the disagreement and its size — never *"above contract tier"*, which without the contract is unknowable. |
 | **Defect rates unvalidated** | Counts are exact; realism vs production formats is unchecked. |
 | **Splink not integrated** | Deferred with a reason — no corpus case where probabilistic scoring changes an outcome. |
 | **Every audit is one person auditing their own design** | Residual risk `P23`. Still true, and the reason the relations and mutants exist. |
@@ -2533,9 +2632,11 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 
 | Decision | Options | Blocking |
 |---|---|---|
-| Frontend for P9 | FastAPI+HTMX (planned) · minimal React | P9 |
-| PageIndex integration for `E02` contract lookup | build · defer to v2 | P7, optional |
+| ~~Frontend~~ | **Taken by building it**: server-rendered HTML, no JavaScript, no build step. Cited the P9 phase number, which was reassigned on 2026-08-21 — the frontend is P14. | — |
+| PageIndex integration for `E02` contract lookup | build · defer to v2 | optional. Weaker than it was: `E02` is surfaced by a population relation with no contract at all, so a contract would sharpen the finding, not enable it |
 | Whether to adopt qm's TypeScript core | harvest patterns (current) · full adoption | post-v1 |
+| **Three legs or two** | bind the orders leg · rename `settlement_3way` | see Next action 0b — the name is a claim the code does not honour, and leaving both is how a file map rots |
+| **Phase numbers past P15** | extend `docs/06-PLAN-V2.md` · stop numbering | the plan stops at P15; `[P22]` appears in CLAUDE.md against `make mcp-http` and in no plan, and a gate shipped as `P23` into a document where `P23` already meant a residual risk |
 
 **Already decided and irreversible** — see `docs/decisions/`: adapters are declarative specs (ADR-001); contracts are semver'd from P1 (ADR-002).
 
@@ -2546,23 +2647,28 @@ Decisions not yet taken. Taking one means writing an ADR in `docs/decisions/`.
 Priorities, with the reasons — because the reasons are what stop this being
 re-litigated every session.
 
-**0. The disposition of an exception.** *(new, 2026-08-26 — and it is the
-largest gap in the product, not in the engine.)* "Take this item" writes a real
-hash-chained attestation and **moves no money**. Measured, not suspected:
-accepting `EXC-00005` from `E14` to `E08` left the journal at 23 entries and
-4,994 bytes, left the decision-log code at `E14`, and changed nothing about what
-blocks the close. In a real close an exception ends one of four ways and each
-one produces an entry — *book it* (`E02` fee variance → `Expenses:GatewayFees:Variance`),
-*carry it forward* (`E01` in-transit, expect it in next month's bank file),
-*chase it* (`E08` → a receivable and an email), *write it off* (below a
-materiality threshold that must be named). None of the four exist. The product
-says what is wrong and records who agreed, then stops one step short of the
-entry that makes the break go away. See [docs/10-THE-USER-FLOW.md](docs/10-THE-USER-FLOW.md) §5.1.
+**0. ~~The disposition of an exception.~~ Closed 2026-08-26.** All four endings
+exist in `src/recon/disposition.py` and each writes double entry: *book it*
+(the difference is real and explained → an expense), *carry it forward*
+(timing → cash in transit, an asset), *chase it* (somebody owes us → a
+receivable with an owner and a date), *write it off* (value leaving for good,
+bounded twice by the signed policy). All four are `P2 ATTESTED` and carry a
+name. A resolved item leaves the worklist, which needed a fix rather than copy:
+an exception is *raised* in the close's record and *ended* in the review log,
+and the page read the first and never the second.
 
-Note the proof-tier consequence before building it: value *leaving* a close is
-`P2 ATTESTED`, never `P1 RULE` — raw records cannot prove a row is spurious,
-they contain it. A write-off is an attestation with a threshold, and the
-threshold comes from policy, not from the person clicking.
+The proof-tier consequence held: value leaving a close is `P2 ATTESTED`, never
+`P1 RULE` — raw records cannot prove a row is spurious, they contain it. Both
+write-off bounds come from policy, not from the person clicking. `BOOK` is
+deliberately absent from `DESTINATION`, because a default would let an
+unratified code reach an account.
+
+**What mutation found behind seventeen green tests** is the part worth keeping:
+four disposition controls were unguarded. The ceiling test matched a word the
+budget message also used; the budget relation could not see a uniformly-doubled
+denominator; the accumulation test supplied its own running total; and the
+signer test read the route's signature rather than its behaviour. `p21` is
+14/14 now, and none of those four would have been found by reading the tests.
 
 **0b. The loop named `settlement_3way` matches two legs.**
 `bank_icici_camt053.xml` (anchor) and `settlement.csv` (group). `orders.csv`
