@@ -765,3 +765,48 @@ def test_every_oauth_route_but_the_endpoint_itself_is_hoisted():
         "the callback is a string in Cognito's console; leaving it under the "
         "mount breaks the redirect after a person approves the client"
     )
+
+
+def test_the_mcp_endpoint_does_not_redirect_the_url_we_publish(monkeypatch, tmp_path):
+    """`POST /mcp` must be answered, not 307'd to `/mcp/`.
+
+    A mounted ASGI app answers its root without a trailing slash with a redirect,
+    and an HTTP client following it commonly drops the `Authorization` header —
+    the standard defence against leaking a bearer token across a redirect, which
+    makes no exception for same-origin. The authenticated request then arrives
+    unauthenticated, the stream never opens, and the client waits until it times
+    out.
+
+    It reads as an auth failure and is not one. Found against the deployed
+    server on 2026-08-27: `/authorize` completed, the token was real, the client
+    printed `authenticated` beside `connection timed out after 30000ms`.
+
+    `/mcp` is the URL this server *publishes* — in `get_authority`, on the agent
+    page and in the resource metadata — so it is the spelling every client will
+    use, and it is the one that has to work.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from recon.api.app import mount_mcp
+    from recon.mcp import http as mcphttp
+
+    monkeypatch.setenv("FINCON_MCP_HOST", "127.0.0.1")
+    monkeypatch.setenv("RECON_RUNS_ROOT", str(tmp_path))
+    application = FastAPI()
+    if not mount_mcp(application):
+        raise AssertionError(
+            "the MCP app did not mount, so this control has nothing to guard — "
+            "that is a failure to look at, not a test to skip"
+        )
+
+    with TestClient(application) as client:
+        answered = client.post(mcphttp.MOUNT, follow_redirects=False)
+
+    assert answered.status_code != 307, (
+        f"POST {mcphttp.MOUNT} redirected to {answered.headers.get('location')!r}. "
+        "A client that follows it drops the Authorization header and hangs."
+    )
+    # 401 is the right answer to an unauthenticated call, and it proves the
+    # request reached the endpoint rather than a redirect.
+    assert answered.status_code in (400, 401, 406), answered.status_code

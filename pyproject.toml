@@ -28,6 +28,11 @@ dependencies = [
   "cryptography>=43", # Ed25519 — the authority bundles' signatures. This one is
                       # load-bearing for the trust argument, so it is not going
                       # to arrive by accident through somebody else's tree
+  "starlette>=0.37",  # BaseRoute/Match, for the route that answers `/mcp` in
+                      # place instead of letting the router 307 it to `/mcp/`.
+                      # FastAPI brings it, but we import it by name and a
+                      # transitive dependency is not a promise — same argument
+                      # as botocore above, and a test enforces it
 ]
 
 # The product's two surfaces, as commands. `src/recon/api/` and

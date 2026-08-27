@@ -28,6 +28,7 @@ from typing import Annotated
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.routing import BaseRoute, Match, NoMatchFound
 
 from .. import service
 from ..contracts import CONTRACT_VERSION, Policy, Proof, Record
@@ -108,6 +109,38 @@ def _loop_error(_request, exc: LoopError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"refused": str(exc)})
 
 
+class _MountRoot(BaseRoute):
+    """Answer the mount root itself, so `/mcp` is served rather than redirected.
+
+    A route and not middleware, deliberately: `add_middleware` raises once an
+    application has started, and `mount_mcp` is called at import time on one path
+    and inside a live test on another. A route is installable at any point.
+
+    `Mount("/mcp", …)` builds the regex `^/mcp(?P<path>/.*)$`, which bare `/mcp`
+    does not match — so the router's `redirect_slashes` answers it with a 307.
+    This matches it first and hands the request straight to the mounted app.
+    """
+
+    def __init__(self, path: str, app):
+        self.path = path
+        self.app = app
+
+    def matches(self, scope):
+        if scope["type"] == "http" and scope.get("path") == self.path:
+            return Match.FULL, {"endpoint": self.app, "path_params": {}}
+        return Match.NONE, {}
+
+    async def handle(self, scope, receive, send):
+        await self.app(
+            {**scope, "path": "/", "raw_path": b"/", "root_path": self.path},
+            receive,
+            send,
+        )
+
+    def url_path_for(self, name, /, **path_params):  # pragma: no cover - never named
+        raise NoMatchFound(name, path_params)
+
+
 def mount_mcp(application: FastAPI = app) -> bool:
     """Serve MCP from this same process, at `/mcp`.
 
@@ -152,7 +185,26 @@ def mount_mcp(application: FastAPI = app) -> bool:
             yield
 
     application.router.lifespan_context = lifespan
+
+    # `Mount` answers the mount root without a trailing slash with a **307 to
+    # `/mcp/`**, and an HTTP client that follows it commonly drops the
+    # `Authorization` header on the way — that is the standard defence against
+    # leaking a bearer token across a redirect, and it does not make an exception
+    # for same-origin. So the authenticated request arrives unauthenticated, the
+    # stream never opens, and the client sits there until it times out.
+    #
+    # It reads as an auth failure and is not one: `/authorize` completes, the
+    # token is real, and the client reports `authenticated` beside a connection
+    # that never came up. Found against the deployed server with a client
+    # configured for `…/mcp`, which is the URL we publish and therefore the one
+    # everybody will use.
+    #
+    # Rewriting the path in the ASGI scope serves the request where it arrived,
+    # with its headers intact, and no redirect is ever emitted. Both spellings
+    # work; neither costs a round trip.
     application.mount(mcphttp.MOUNT, mcp_app)
+    # First, so it wins over the router's trailing-slash redirect.
+    application.router.routes.insert(0, _MountRoot(mcphttp.MOUNT, mcp_app))
 
     # Everything the OAuth handshake touches has to sit at the *origin*, because
     # that is where the metadata this server publishes says it is:
