@@ -52,6 +52,11 @@ dev = [
   "pyyaml>=6.0",
   "hypothesis>=6.100",
   "ruff>=0.6",
+  # `make shots` drives a headless Chromium over the running app to capture the
+  # README screenshots. Dev-only and deliberately so: nothing the product does
+  # at runtime needs a browser, and every frame it captures is the real
+  # application rendering its own state rather than a mock.
+  "playwright>=1.47",
 ]
 
 [build-system]

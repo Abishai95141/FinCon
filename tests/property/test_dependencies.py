@@ -43,11 +43,38 @@ IMPORT_NAME = {
 JUSTIFIED_UNIMPORTED: dict[str, str] = {}
 
 
-def _declared() -> list[str]:
+def _block(marker: str) -> list[str]:
     text = (ROOT / "pyproject.toml").read_text()
-    block = text[text.index("dependencies = [") :]
-    block = block[: block.index("\n]")]
-    return re.findall(r'"([^"]+)"', block)
+    start = text.find(marker)
+    if start == -1:
+        return []
+    block = text[start:]
+    return re.findall(r'"([^"]+)"', block[: block.index("\n]")])
+
+
+def _declared() -> list[str]:
+    """Runtime dependencies. What the product itself is built on."""
+    return _block("dependencies = [")
+
+
+def _installed() -> list[str]:
+    """Runtime **and** dev. Everything a fresh `uv sync` puts in the venv.
+
+    The two directions need different sets, which is the thing to get right
+    here rather than to paper over:
+
+    - **declared → imported** asks whether the runtime list is honest, so it
+      must not count the dev group. Ten aspirational dependencies once sat in
+      `dependencies` reading as capability, and that is the defect it catches.
+    - **imported → declared** asks whether a fresh install works, so it must
+      count both. `tools/shots.py` imports playwright, which is dev-only and
+      perfectly legitimate.
+
+    Widening one function for both made pytest, ruff and hypothesis look
+    unimported — they are imported under `tests/`, which is not scanned. Two
+    questions, two sets.
+    """
+    return _declared() + _block("dev = [")
 
 
 def _requirement_name(spec: str) -> str:
@@ -102,8 +129,11 @@ def test_every_third_party_import_is_declared():
     asking the interpreter rather than by keeping a list, because a list of
     stdlib modules is a thing that goes stale between Python releases.
     """
-    declared = {_import_name(_requirement_name(spec)) for spec in _declared()}
-    declared |= {"pytest", "hypothesis", "ruff"}  # the dev group
+    # `_installed()` reads the dev group out of pyproject, so the hand-kept
+    # `{"pytest", "hypothesis", "ruff"}` that used to sit here is gone. A list
+    # of dev tools maintained beside the file that declares them is the
+    # hand-kept-list failure this suite has now hit three times.
+    declared = {_import_name(_requirement_name(spec)) for spec in _installed()}
     first_party = {"recon", "bench", "tools", "tests"}
 
     missing = sorted(

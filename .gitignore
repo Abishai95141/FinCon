@@ -28,3 +28,6 @@ data/sources/
 # remotion project for the landing-page motion pieces
 motion/node_modules/
 motion/out/
+
+# real deploy coordinates; the .example is the committed one
+infra/deploy.env

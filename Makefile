@@ -31,6 +31,8 @@ help:
 	@echo "  mcp-http  the same tools over Streamable HTTP + OAuth  [P22]"
 	@echo "  ses       wire Cognito to SES once the sender is verified  [CHECK=1]"
 	@echo "  graph     refresh the graphify code graph"
+	@echo "  logo      re-render the README lockup from the shipped mark"
+	@echo "  shots     capture the product screenshots  [needs a local close]"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
@@ -142,32 +144,59 @@ mcp-http:
 	uv run recon-mcp-http
 
 # ---- AWS -----------------------------------------------------------------
+# Account-specific values live in a gitignored `infra/deploy.env`, not here.
+# They are identifiers rather than credentials — an account id is not a secret
+# and a Cognito client id ships to browsers by design — but publishing the
+# coordinates of a live estate on a public repository is free to avoid and
+# tells a stranger exactly what to point at.
+#
+#   cp infra/deploy.env.example infra/deploy.env   and fill it in.
+-include infra/deploy.env
+
+AWS_REGION ?= ap-south-1
+STACK      ?= fincon
 # The image is tagged with the commit, never `latest`: a service pointed at a
 # moving tag cannot be rolled back to whatever was running.
-ECR = 531728396678.dkr.ecr.ap-south-1.amazonaws.com/fincon
+ECR = $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com/$(STACK)
 TAG = $(shell git rev-parse --short HEAD)
 
-image:
-	aws ecr get-login-password --region ap-south-1 | \
+# Fail with the reason rather than pushing to `.dkr.ecr…amazonaws.com/fincon`
+# and reporting an authentication error about a registry that does not exist.
+guard-deploy-env:
+	@test -n "$(AWS_ACCOUNT)" || { \
+	  echo "infra/deploy.env is missing or has no AWS_ACCOUNT."; \
+	  echo "cp infra/deploy.env.example infra/deploy.env and fill it in."; exit 2; }
+	@test -n "$(COGNITO_POOL_ID)" || { echo "deploy.env: COGNITO_POOL_ID unset"; exit 2; }
+	@test -n "$(COGNITO_CLIENT_ID)" || { echo "deploy.env: COGNITO_CLIENT_ID unset"; exit 2; }
+
+image: guard-deploy-env
+	aws ecr get-login-password --region $(AWS_REGION) | \
 	  docker login --username AWS --password-stdin $(firstword $(subst /, ,$(ECR)))
 	docker build --platform linux/amd64 -t $(ECR):$(TAG) .
 	docker push $(ECR):$(TAG)
 
+# PUBLIC_URL and CERT are passed explicitly on purpose. `cloudformation deploy`
+# resets any parameter you omit to its TEMPLATE DEFAULT rather than to the
+# previous value, and CertificateArn defaults to "" — so a bare `make deploy`
+# on a live stack silently removes the HTTPS listener. Both default here to
+# whatever deploy.env says, and either can still be overridden on the command
+# line for a one-off.
 deploy: image
-	aws cloudformation deploy --template-file infra/fincon.yaml --stack-name fincon \
+	aws cloudformation deploy --template-file infra/fincon.yaml --stack-name $(STACK) \
 	  --capabilities CAPABILITY_IAM --parameter-overrides \
 	    Image=$(ECR):$(TAG) \
-	    CognitoUserPoolId=ap-south-1_kNSrctMRo \
-	    CognitoClientId=4scuq8j5s68siqgnikmnskcir6 \
-	    CognitoClientSecretArn=$(shell aws secretsmanager describe-secret --secret-id fincon/cognito-client-secret --query ARN --output text) \
-	    SessionSecretArn=$(shell aws secretsmanager describe-secret --secret-id fincon/session-secret --query ARN --output text) \
-	    DeepSeekApiKeyArn=$(shell aws secretsmanager describe-secret --secret-id fincon/deepseek-api-key --query ARN --output text) \
-	    $(if $(PUBLIC_URL),PublicUrl=$(PUBLIC_URL),) $(if $(CERT),CertificateArn=$(CERT),)
-	aws cloudformation describe-stacks --stack-name fincon \
+	    CognitoUserPoolId=$(COGNITO_POOL_ID) \
+	    CognitoClientId=$(COGNITO_CLIENT_ID) \
+	    CognitoClientSecretArn=$(shell aws secretsmanager describe-secret --secret-id $(STACK)/cognito-client-secret --query ARN --output text) \
+	    SessionSecretArn=$(shell aws secretsmanager describe-secret --secret-id $(STACK)/session-secret --query ARN --output text) \
+	    DeepSeekApiKeyArn=$(shell aws secretsmanager describe-secret --secret-id $(STACK)/deepseek-api-key --query ARN --output text) \
+	    PublicUrl=$(if $(PUBLIC_URL),$(PUBLIC_URL),$(DEPLOY_PUBLIC_URL)) \
+	    CertificateArn=$(if $(CERT),$(CERT),$(DEPLOY_CERT_ARN))
+	aws cloudformation describe-stacks --stack-name $(STACK) \
 	  --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' --output table
 
 deploy-logs:
-	aws logs tail /ecs/fincon --since 15m --follow
+	aws logs tail /ecs/$(STACK) --since 15m --follow
 
 # Finish the Cognito -> SES wiring once the sender identity is verified.
 ses:
@@ -175,6 +204,15 @@ ses:
 
 graph:
 	graphify update .
+
+logo:
+	uv run python -m tools.logo
+
+# Screenshots for the README and the landing page. Needs a local server with a
+# close already run, and a session cookie minted against the same secret it is
+# running with — see tools/shots.py.
+shots:
+	uv run --with playwright python -m tools.shots $(if $(BASE),--base $(BASE),) $(if $(FULL),--full,)
 
 status:
 	@sed -n '1,20p' STATUS.md

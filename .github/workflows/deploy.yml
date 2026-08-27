@@ -1,0 +1,95 @@
+name: Deploy
+
+# Manual, and manual on purpose.
+#
+# A push-to-deploy pipeline on this repository would be the thing it argues
+# against: `make deploy` writes to the estate that holds the decision logs, and
+# the two footguns in docs/14-AWS.md — a tag derived from HEAD, and
+# CloudFormation falling back to *template defaults* rather than previous values
+# for any parameter you omit — both fail silently and one of them drops the
+# HTTPS listener. Those want a person who has read the diff.
+#
+# Requires an OIDC role, so no long-lived AWS keys live in this repository:
+#   AWS_DEPLOY_ROLE   arn of a role trusting token.actions.githubusercontent.com
+#   ACM_CERT_ARN      the certificate. Omitting it serves plain HTTP.
+#   PUBLIC_URL        https://fincon.astutecomputer.com
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type the commit sha you intend to deploy'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: build · push · update stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The sha you typed is the sha that is checked out
+        # Cheap, and it is the difference between deploying what you reviewed
+        # and deploying whatever landed on main while you were reviewing it.
+        run: |
+          set -euo pipefail
+          have="$(git rev-parse --short HEAD)"
+          want="$(echo '${{ inputs.confirm }}' | tr -d '[:space:]')"
+          if [ "${have#"$want"}" = "$have" ] && [ "${want#"$have"}" = "$want" ]; then
+            echo "checked out $have, you asked for $want" >&2
+            exit 1
+          fi
+          echo "deploying $have"
+
+      - uses: astral-sh/setup-uv@v5
+        with: {enable-cache: true, cache-dependency-glob: "uv.lock"}
+
+      - run: uv sync --frozen
+
+      - name: Refuse to deploy a red tree
+        # The gates run again here rather than trusting CI's green tick on the
+        # same sha: a deploy is the one action that cannot be un-run cheaply.
+        run: |
+          make gen
+          make sign SIGNER='ci@github'
+          make lint
+          make test
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-region: ap-south-1
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        run: make image
+
+      - name: Update the stack
+        # Both parameters passed explicitly. `cloudformation deploy` resets any
+        # parameter you omit to its template default, and CertificateArn
+        # defaults to "" — which silently removes TLS.
+        run: |
+          make deploy \
+            PUBLIC_URL='${{ vars.PUBLIC_URL }}' \
+            CERT='${{ secrets.ACM_CERT_ARN }}'
+
+      - name: The published URL answers
+        # A green CloudFormation update is not a working service. This is the
+        # check that would have caught `POST /mcp` answering 307 for a week.
+        run: |
+          set -euo pipefail
+          base='${{ vars.PUBLIC_URL }}'
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$base/healthz" --max-time 20)
+          [ "$code" = "200" ] || { echo "healthz -> $code" >&2; exit 1; }
+          # 401 is correct and 307 is the bug: a redirect drops the bearer token.
+          mcp=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/mcp" --max-time 20)
+          [ "$mcp" = "401" ] || { echo "POST /mcp -> $mcp, expected 401" >&2; exit 1; }
+          echo "healthz 200 · mcp 401 (protected, not redirected)"

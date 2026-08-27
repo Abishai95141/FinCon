@@ -1,0 +1,107 @@
+name: CI
+
+# Every gate that can run without a model key or an AWS credential. The live
+# gates (P12, P12b, P12c) are deliberately absent: they call a real model, this
+# project bans an offline mode for them (CLAUDE.md rule 1), and a secret in a
+# fork's pull request is a secret in a stranger's hands.
+#
+# What this exists to stop is specific. Three of this repository's controls
+# were correct, reachable, and run by nobody — `make status-table --check` sat
+# unrun while the table it guards rotted in both directions. A control nothing
+# executes is a preference.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # `make mutate` rewrites files under src/ in place. Nothing here runs it, and
+  # nothing here may run two jobs against one checkout.
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  check:
+    name: lint · test · gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync
+        run: uv sync --frozen
+
+      - name: Lint
+        run: make lint
+
+      - name: Generate the batches
+        # The gates close a real batch. `make gen` is deterministic from a seed,
+        # so CI reconstructs the same corpus the labels were authored against
+        # rather than committing 500 rows of generated data.
+        run: make gen
+
+      - name: Sign the authority bundles
+        # `data/policy`, `data/taxonomy` and `data/rules` are Ed25519-signed and
+        # a close records the authority as untrusted if the signature does not
+        # verify. The dev signing key is committed and labelled as one.
+        run: make sign SIGNER='ci@github'
+
+      - name: Tests
+        run: make test
+
+      - name: Every green gate
+        run: make verify
+
+      - name: The record is current
+        # STATUS.md's known-broken table is generated. This is the check that
+        # was never run.
+        run: uv run python -m tools.status_table --check
+
+  mutation:
+    name: mutation preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv sync --frozen
+      - name: Every mutation anchor still resolves
+        # Not the mutation run itself — that rewrites src/ and takes minutes per
+        # set. This checks that every mutation still has a line to revert, which
+        # is how a mutation set goes quietly stale: the code moves, the anchor
+        # stops matching, and the set reports zero survivors because it changed
+        # nothing.
+        run: make mutate-preflight
+
+  image:
+    name: container builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        # Build only — publishing is `make deploy`, which is manual and needs
+        # AWS credentials this workflow does not have. A container that stopped
+        # building is worth knowing about before deploy day.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

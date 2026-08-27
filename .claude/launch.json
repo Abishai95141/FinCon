@@ -54,6 +54,22 @@
       ],
       "port": 8155,
       "url": "http://localhost:8155"
+    },
+    {
+      "name": "fincon-shots",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "RECON_ENV=dev",
+        "RECON_AUTH=local",
+        "RECON_SESSION_SECRET=c0ffee5eed1234567890abcdef0123456789abcdef0123456789abcdef012345",
+        "uv",
+        "run",
+        "recon-api",
+        "--port",
+        "8142"
+      ],
+      "port": 8142,
+      "url": "http://localhost:8142"
     }
   ]
 }

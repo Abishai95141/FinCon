@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinCon — close the books with a proof, not a plug</title>
+<meta name="description" content="FinCon reconciles what your payment gateway says it paid out against what the bank received, writes the double entry, and hands back the tail ranked and priced. Every match carries arithmetic an auditor re-derives without us.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2.6' y='2.6' width='18.8' height='18.8' rx='5' fill='none' stroke='%232F7BFF' stroke-width='1.8'/><path d='M7.4 14.6l3.1-3.4 2.5 2.2 3.6-4.6' fill='none' stroke='%232F7BFF' stroke-width='2' stroke-linecap='round'/></svg>">
+</head>
+<body>
+
+<!-- ════════════ NAV ════════════ -->
+<nav class="nav">
+  <div class="nav-in">
+    <a class="wordmark" href="#top" aria-label="FinCon home">
+      <svg class="mark" width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M7.4 14.6l3.1-3.4 2.5 2.2 3.6-4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="16.6" cy="8.8" r="1.5" fill="currentColor"/>
+      </svg>
+      <span class="wordmark-text">Fin<span>Con</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#ai">The AI</a>
+      <a href="#mcp">Agent access</a>
+      <a href="#limits">Limits</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="mailto:abishaioff@gmail.com?subject=FinCon">Contact</a>
+      <a class="btn btn-primary" href="https://fincon.astutecomputer.com/login">Try FinCon</a>
+    </div>
+  </div>
+</nav>
+
+<main id="top">
+
+<!-- ════════════ §02 HERO ════════════ -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-head">
+      <h1>Close the books with a proof, not a plug.</h1>
+      <p class="subtitle">
+        FinCon reconciles what your payment gateway says it paid out against what the bank
+        actually received, writes the double entry, and hands back what is left — ranked,
+        priced and routed to a desk. <strong>Every match carries arithmetic an auditor
+        re-derives without us.</strong>
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="https://fincon.astutecomputer.com/login">Try FinCon</a>
+        <a class="btn btn-outline btn-lg" href="mailto:abishaioff@gmail.com?subject=FinCon">Contact</a>
+      </div>
+      <ul class="badges">
+        <li><b>0.00%</b> false matches</li>
+        <li>no model touches the match</li>
+        <li>verify without an account</li>
+      </ul>
+    </div>
+
+    <figure class="hero-shot">
+      <video src="assets/m1-close.mp4" poster="assets/m1-poster.webp"
+             width="1708" height="812" autoplay muted loop playsinline
+             preload="metadata"
+             aria-label="A close running: ingest reads 543 rows and 12 checks, block narrows 150 of 572 pairs, match proposes 20 and raises 7, verify re-derives 20 of 20, post writes 23 balanced entries, record seals 62 events. Auto-matched 20 of 23, by tier T0=17 T1=2 T4=1.">
+      </video>
+      <figcaption>One real close, start to finish, in 191&nbsp;ms. Every figure carries its decomposition — the rate never appears alone.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ════════════ §03 BRIDGE ════════════ -->
+<section class="bridge">
+  <div class="container narrow">
+    <p class="bridge-small">Reconciliation software already matches 90–99% of your transactions. That problem is solved.</p>
+    <p class="bridge-big">Nobody solved what happens to the rest.</p>
+  </div>
+</section>
+
+<!-- ════════════ §04 SIX CARDS ════════════ -->
+<section id="how" class="cards-section">
+  <div class="container">
+    <header class="sec-head">
+      <p class="eyebrow">What one close produces</p>
+      <h2>Two files in. A signed pack out.</h2>
+    </header>
+
+    <div class="cards" role="list">
+      <article class="card" role="listitem">
+        <h3>The three-way match</h3>
+        <p>Bank statement, gateway settlement and your register, tied row by row. Exact, tolerant, subset-sum for the N:1 payouts, and a declared tier for a short payment nobody should absorb silently.</p>
+        <img src="assets/A1-scorecard.webp" width="1160" height="514" alt="The close scorecard with its tier split" loading="lazy" decoding="async">
+      </article>
+
+      <article class="card" role="listitem">
+        <h3>A proof on every row</h3>
+        <p>Not a confidence score. Both sides’ record ids, the residual closing to zero, the tolerance consumed, the rule that fired. A match without a passing proof does not appear in the match count.</p>
+        <img src="assets/A3-proof.webp" width="1160" height="427" alt="An expanded proof showing the legs, the residual and the verdict" loading="lazy" decoding="async">
+      </article>
+
+      <article class="card" role="listitem">
+        <h3>The tail, ranked and priced</h3>
+        <p>What did not match arrives named, valued and routed to a desk — ordered by cash impact × age. A worklist, not a queue.</p>
+        <img src="assets/A4-worklist.webp" width="1160" height="723" alt="The worklist: seven ranked exceptions with amounts, ages, break fingerprints and owners" loading="lazy" decoding="async">
+      </article>
+
+      <article class="card" role="listitem">
+        <h3>Four ways to end it</h3>
+        <p>Book it, carry it forward, chase it, or write it off. Each writes double entry, moves the money where it belongs, and takes the item off your desk under your name.</p>
+        <img src="assets/A7-dispositions.webp" width="1160" height="626" alt="Resolve it — pick one: book it, carry forward, chase it, write it off" loading="lazy" decoding="async">
+      </article>
+
+      <article class="card" role="listitem">
+        <h3>The journal, actually written</h3>
+        <p>Balanced double entry, asserted against the bank’s own closing figure, downloadable as CSV or beancount — and the beancount file is re-loaded by beancount itself.</p>
+        <img src="assets/A10-journal.webp" width="1160" height="557" alt="The journal in the close pack: 23 balanced entries with both download formats" loading="lazy" decoding="async">
+      </article>
+
+      <article class="card" role="listitem">
+        <h3>Checked without us</h3>
+        <p>Hand an auditor the log and the source files. They re-derive every match on a public endpoint that needs no account and touches none of our state.</p>
+        <img src="assets/A14-verify.webp" width="1440" height="690" alt="The public verification page, rendered with no session at all" loading="lazy" decoding="async">
+      </article>
+    </div>
+
+    <p class="sec-foot"><a class="arrow" href="#ai">See where the AI runs</a></p>
+  </div>
+</section>
+
+<!-- ════════════ §05 FORMATS ════════════ -->
+<section class="formats">
+  <div class="container">
+    <p class="formats-cap">No integration project. It reads the files your bank and your gateway already give you.</p>
+    <ul class="marquee">
+      <li>CAMT.053</li><li>OFX</li><li>RFC 4180 CSV</li><li>beancount</li>
+      <li>Form 26AS · TRACES</li><li>Ed25519</li><li>Model Context Protocol</li>
+      <li>OpenAPI 3.1</li><li>CP-SAT</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════ §06 RECEIPTS ════════════ -->
+<section class="receipts">
+  <div class="container">
+    <header class="sec-head">
+      <p class="eyebrow">The receipts</p>
+      <h2>We have no customers yet. So here is the output instead.</h2>
+      <p class="sec-lede">
+        Every card below came out of a real run on the sample batch. Nothing here is a
+        mock-up, and nothing is a quote we wrote for somebody.
+      </p>
+    </header>
+
+    <div class="rail" role="list">
+      <figure class="receipt" role="listitem">
+        <pre><b>bl_00006 → pout_00007</b>  <span class="dim">tier</span> <b>T0</b>  <span class="dim">22 rows</span>
+  residual                     <b>0.00</b>
+  tolerance used         0.00 / 0.50
+  verdict                    <span class="ok">PROVEN</span>
+  provenance         <span class="hl">P0 ARITHMETIC</span></pre>
+        <figcaption>A proof. <span>decisions.jsonl · batch A</span></figcaption>
+      </figure>
+
+      <figure class="receipt" role="listitem">
+        <pre><b>E09</b>  Netting ambiguity     <b>₹87,250.40</b>
+  2 distinct subsets sum to this
+  credit within tolerance
+  <span class="dim">subset of 4 …  subset of 4 …</span>
+  <span class="warn">no unique answer exists</span></pre>
+        <figcaption>A refusal. <span>worklist · rank 3</span></figcaption>
+      </figure>
+
+      <figure class="receipt" role="listitem">
+        <pre><b>E02</b>  Fee variance          <b>₹290.07</b>
+  12 row(s) do not follow the
+  relation the other 164 rows
+  of 'razorpay' follow
+  <span class="dim">— found with no contract on file</span></pre>
+        <figcaption>A finding no rule could state. <span>engine/consistency.py</span></figcaption>
+      </figure>
+
+      <figure class="receipt" role="listitem">
+        <pre><b>E14</b>  Unexplained        <b>₹84,769.72</b>
+  no strategy produced a match
+  and <b>the engine cannot say why</b>
+
+  <span class="dim">4 of 7 items in this close</span></pre>
+        <figcaption>An admission. <span>worklist · batch A</span></figcaption>
+      </figure>
+
+      <figure class="receipt" role="listitem">
+        <pre><b>R-DUP-06</b>  <span class="dim">induced by the model</span>
+  when side eq "settlement"
+   and keys.row_type eq "fee"
+   and key_occurrence gt "0"
+  then raise_advisory → <b>E06</b>
+  <span class="ok">0 broken · 0 added</span>  A 1/517 · B 1/536</pre>
+        <figcaption>A promoted rule. <span>data/rules/settlement_3way.json</span></figcaption>
+      </figure>
+    </div>
+    <p class="rail-hint">five receipts, scroll</p>
+  </div>
+</section>
+
+<!-- ════════════ §07 WHERE THE AI RUNS ════════════ -->
+<section id="ai" class="slider">
+  <div class="container">
+    <header class="slider-head">
+      <h2 class="stack">Read the mess.<br>Name the tail.<br>Write the rule.</h2>
+      <div class="slider-side">
+        <p>
+          The model does three jobs here, and all three are jobs no deterministic system can
+          do: read a file format nobody has configured, put a name to a break the arithmetic
+          could not resolve, and turn a controller’s own sentence into a rule. It runs on
+          <strong>DeepSeek</strong>, and it must answer through a tool schema — a prose reply
+          is refused and recorded, never parsed.
+        </p>
+        <p class="replaces"><span>Replaces:</span> an IT ticket for a new vendor format · a flat exception queue · a rule nobody had time to write</p>
+      </div>
+    </header>
+
+    <div class="rail" role="list">
+      <article class="panel" role="listitem">
+        <p class="pnum">01</p>
+        <h3>Adapter synthesis</h3>
+        <p>A settlement file in a format we have never seen. The model reads twelve raw lines and authors the parse spec — delimiter, header row, minor units, a non-ISO date. It ingests with no configuration. <em>The spec is data, never code: nothing a model writes is ever executed.</em></p>
+        <img src="assets/A13-sources.webp" width="1160" height="512" alt="Data sources, showing which spec reads each file" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel" role="listitem">
+        <p class="pnum">02</p>
+        <h3>Classifying the tail <span class="pill">≈2.1s</span></h3>
+        <p>The arithmetic names what it can first. Only what is genuinely unexplained is sent, with the near misses the engine derived. It comes back with a code, a hypothesis and cited evidence — <em>and it declines when the files cannot separate two causes.</em></p>
+        <img src="assets/A5-exception.webp" width="1160" height="532" alt="An exception with the engine's own reading and the competing subsets" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel" role="listitem">
+        <p class="pnum">03</p>
+        <h3>Rule induction</h3>
+        <p>You resolve a break in your own words. The model proposes a deterministic rule that would have prevented it, regression-tested against every historical match before a named human approves it. Next month it fires as <code>P1 RULE</code> and nobody sees the item.</p>
+        <pre class="shot"><span class="dim">candidate from a controller's own sentence —
+"the gateway sent the same fee row through twice"</span>
+
+<b>R-DUP-06</b>
+  when  side eq "settlement"
+        keys.row_type eq "fee"
+        key_occurrence gt "0"
+  then  raise_advisory → E06
+
+<span class="dim">regression against every historical match</span>
+  broken        <span class="ok">0</span>
+  added         <span class="ok">0</span>
+  postings moved <span class="ok">0</span>
+  fires    A 1/517   B 1/536  <span class="dim">(held out)</span>
+
+  promotable    <b>True</b>
+  <span class="hl">PROMOTED by meera</span> · evidence f3d5ccca7c7beb68</pre>
+      </article>
+    </div>
+    <p class="rail-hint">three of these, scroll</p>
+  </div>
+</section>
+
+<!-- ════════════ §08 WHERE THE AI IS BARRED ════════════ -->
+<section class="slider fence">
+  <div class="container">
+    <header class="slider-head">
+      <h2 class="stack">It proposes.<br>It never posts.<br>And you can check the fence.</h2>
+      <div class="slider-side">
+        <p>
+          Language models collapse from <strong>95.6% on lookups to near zero on multivariate
+          calculation</strong>, and they fail confidently. So the model is kept off the
+          arithmetic by construction, not by policy. Every boundary below is a test that
+          fails if somebody removes it.
+        </p>
+        <p class="replaces"><span>Replaces:</span> a chatbot that books entries · a confidence score nobody can audit · trust</p>
+      </div>
+    </header>
+
+    <figure class="wide-shot">
+      <img src="assets/A6-fence.webp" width="1160" height="167" alt="Ask the model: the engine derived this label — E09 at P0. A model proposal is P2 at best and may not overwrite a higher proof tier, so this item is never sent to a model at all." loading="lazy" decoding="async">
+      <figcaption>The product saying it itself, on an item you can open. Not a claim on a marketing page.</figcaption>
+    </figure>
+
+    <div class="bars">
+      <div class="bar"><h3>No model call in a close</h3><p>The six-stage close makes zero model calls at any stage, and the receipt says so. Every match is arithmetic over raw records.</p></div>
+      <div class="bar"><h3>A proposal cannot overwrite a derived answer</h3><p>A proposal is <code>P2</code> at best and may not overwrite <code>P0 ARITHMETIC</code>. A derived item is never even offered — refusing after the call would still have spent it.</p></div>
+      <div class="bar"><h3>No generated code is executed</h3><p>No <code>eval</code>, no <code>exec</code>, no dynamic import. Adapters are declarative specs read by a closed vocabulary of parse verbs; an unknown verb is a spec error, not an execution.</p></div>
+      <div class="bar"><h3>No tool carries authority</h3><p>Not one of the 18 MCP tools accepts a policy, a tolerance, a sign convention or a rule set — checked against the generated schemas, because a convention lasts until the next person adds a tool.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ §09 THE TAIL ════════════ -->
+<section class="slider">
+  <div class="container">
+    <header class="slider-head">
+      <h2 class="stack">543 rows in.<br>Seven decisions out.<br>Each one priced.</h2>
+      <div class="slider-side">
+        <p>
+          The match was never the cost. Bank-feed automation already cuts a reconciliation
+          from about <strong>47 minutes to exception handling only</strong> — and then hands
+          the exceptions back with no reason attached. FinCon hands them back named, valued,
+          routed, with the evidence pre-assembled and one decision to make.
+        </p>
+        <p class="replaces"><span>Replaces:</span> three days in Excel · the plug entry · “I’ll look at it next month”</p>
+      </div>
+    </header>
+
+    <div class="rail" role="list">
+      <article class="panel" role="listitem">
+        <p class="pnum">01</p>
+        <h3>Ranked by what it costs you</h3>
+        <p>Cash impact × age, routed to the desk that can act — gateway ops, credit control, the controller. Three desks instead of one pile. Seven items, <b>₹3,04,560.53</b> at stake.</p>
+        <img src="assets/A4-worklist.webp" width="1160" height="723" alt="Seven ranked items across three desks" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel" role="listitem">
+        <p class="pnum">02</p>
+        <h3>One break, one row</h3>
+        <p>A two-sided difference is one error, not two rows to reconcile against each other. Breaks are fingerprinted from content, so the same one is recognisable next month.</p>
+        <img src="assets/A5-exception.webp" width="1160" height="532" alt="One exception with its evidence and records" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel" role="listitem">
+        <p class="pnum">03</p>
+        <h3>Ends in an entry, under your name</h3>
+        <p>Book, carry forward, chase or write off — each writes double entry and clears the item. Write-off is bounded twice by signed policy, not by whoever is clicking.</p>
+        <img src="assets/A7-dispositions.webp" width="1160" height="626" alt="The four dispositions, each with what it means" loading="lazy" decoding="async">
+      </article>
+    </div>
+    <p class="rail-hint">three of these, scroll</p>
+  </div>
+</section>
+
+<!-- ════════════ §10 MCP ════════════ -->
+<section id="mcp" class="slider">
+  <div class="container">
+    <header class="slider-head">
+      <h2 class="stack">Point your assistant at it.<br>Ask in your own words.<br>It still cannot sign.</h2>
+      <div class="slider-side">
+        <p>
+          FinCon is a <strong>Model Context Protocol</strong> server — <b>18</b> tools over
+          stdio for a local agent, or Streamable HTTP behind OAuth for a hosted one. Ask
+          <em>“what is blocking the October close, biggest first?”</em> and it reads the
+          record, runs a deterministic close, verifies a proof, and proposes. It cannot
+          promote a rule, attest a decision or widen a tolerance — and there is no parameter
+          through which to try.
+        </p>
+        <p class="endpoint"><span>Endpoint</span><code>https://fincon.astutecomputer.com/mcp</code></p>
+      </div>
+    </header>
+
+    <div class="rail" role="list">
+      <article class="panel" role="listitem">
+        <p class="pnum">01</p>
+        <h3>What it can do</h3>
+        <p>Eighteen tools: list the loops, run a close, fetch a proof, walk the decision log, explain an exception, export the audit bundle, and verify a proof with no account at all.</p>
+        <img src="assets/A12-connect.webp" width="1160" height="328" alt="Connecting an assistant over MCP" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel wide" role="listitem">
+        <p class="pnum">02</p>
+        <h3>What it cannot do</h3>
+        <p>Stated as things, not parameter names — and checked against the tool definitions every time the page loads, rather than written down once and hoped for.</p>
+        <img src="assets/A11-cannot.webp" width="1160" height="378" alt="What it cannot do: sign off a close, resolve an item, loosen a tolerance, change what it may do" loading="lazy" decoding="async">
+      </article>
+
+      <article class="panel" role="listitem">
+        <p class="pnum">03</p>
+        <h3>Connect it</h3>
+        <p>OAuth via Cognito, discovery at the origin per RFC 9728, dynamic client registration. Paste one URL into your MCP client and approve it like any other app.</p>
+        <pre class="shot"><span class="dim">$ curl -s https://fincon.astutecomputer.com/mcp</span>
+  <b>401</b> Unauthorized
+  WWW-Authenticate: Bearer
+    resource_metadata="…/.well-known/
+    oauth-protected-resource"
+
+<span class="dim">discovery, at the origin</span>
+  authorization_servers  <span class="ok">✓</span>
+  scopes_supported       openid, email
+  registration_endpoint  <span class="ok">✓</span> <span class="dim">(RFC 7591)</span></pre>
+      </article>
+    </div>
+    <p class="rail-hint">three of these, scroll</p>
+  </div>
+</section>
+
+<!-- ════════════ §11 CHIPS ════════════ -->
+<section class="chips-section">
+  <div class="container narrow">
+    <p class="bridge-big">Every figure decomposed.<br>Nothing rounded away.</p>
+    <h2 class="chips-h">One close does all of this — and tells you what it could not do.</h2>
+    <p class="sec-lede">
+      From two files to a signed pack an auditor can check without calling you. About
+      <b>191ms</b> of compute on the sample batch, and then the only thing left is the
+      judgement that was always yours.
+    </p>
+    <ul class="chips">
+      <li>Five ingestion proofs</li><li>Candidate blocking</li><li>Exact &amp; tolerant match</li>
+      <li>Subset-sum for N:1 payouts</li><li>Ambiguity detection</li><li>Independent re-derivation</li>
+      <li>Double-entry journal</li><li>Balance assertions</li><li>Ranked, routed worklist</li>
+      <li>Four dispositions</li><li>Hash-chained decision log</li><li>Signed authority bundles</li>
+    </ul>
+    <p class="center"><a class="btn btn-primary btn-lg" href="https://fincon.astutecomputer.com/login">Try FinCon</a></p>
+  </div>
+</section>
+
+<!-- ════════════ §12 WHY ════════════ -->
+<section class="why">
+  <div class="container">
+    <header class="sec-head">
+      <p class="eyebrow">Why FinCon</p>
+      <h2>Built so you never have to take our word for it.</h2>
+      <p class="sec-lede">
+        A reconciliation you cannot check is a reconciliation you cannot defend. Every claim
+        below is enforced by a test that fails when it is violated — otherwise it is a
+        preference, not a control.
+      </p>
+    </header>
+
+    <div class="pillars">
+      <article class="pillar">
+        <h3>Proof, not confidence</h3>
+        <p>Every accepted match re-derives from raw records. A match without a passing proof is not counted. Match rates ship with their tier split, because a headline number alone is gameable — and gameable is indistinguishable from false.</p>
+      </article>
+      <article class="pillar">
+        <h3>It says when it does not know</h3>
+        <p>Where two answers both fit the arithmetic, it returns the ambiguity rather than picking. Where nothing fits, it says so and hands you the evidence. Four of seven items in a real close are “I cannot say why”, and that number is printed rather than smoothed.</p>
+      </article>
+      <article class="pillar">
+        <h3>The tail is supposed to shrink</h3>
+        <p>A resolution becomes a rule, regression-tested against every historical match and approved by name. The system gets <em>more</em> deterministic over time, not more agentic — which is the opposite of how agent products usually age.</p>
+      </article>
+      <article class="pillar">
+        <h3>Domain-agnostic, and measured</h3>
+        <p>A second reconciliation — Form 26AS from the Income Tax Department against a TDS ledger — runs on the same engine with <strong>zero changes to it</strong>, asserted byte-for-byte. A generality that needed a change for its second instance was never a generality.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ §13 LIMITS ════════════ -->
+<section id="limits" class="limits">
+  <div class="container narrow">
+    <h2>And what it can’t do yet.</h2>
+    <dl>
+      <dt>Validated at small scale.</dt>
+      <dd>Hundreds of rows, two gateways, one currency — not tens of thousands.</dd>
+      <dt>Four of seven breaks are still unnamed.</dt>
+      <dd>The engine reports that rather than guessing a code.</dd>
+      <dt>The tail does not remember.</dt>
+      <dd>A break is fingerprinted, so the same one is recognisable — but nothing yet says “fourth month running”.</dd>
+      <dt>Two legs, not three.</dt>
+      <dd>Gateway ↔ bank is done. Order register ↔ gateway is next, and that is where revenue leakage hides.</dd>
+    </dl>
+  </div>
+</section>
+
+<!-- ════════════ §14 CTA ════════════ -->
+<section class="cta">
+  <div class="container narrow center">
+    <h2>Close a period in about a second.<br>Then argue with the seven things that matter.</h2>
+    <p class="sec-lede">Sample data loads with one button. No card, no sales call, no configuration.</p>
+    <p class="center">
+      <a class="btn btn-primary btn-lg" href="https://fincon.astutecomputer.com/login">Try FinCon</a>
+      <a class="btn btn-outline btn-lg" href="mailto:abishaioff@gmail.com?subject=FinCon">Contact</a>
+    </p>
+  </div>
+</section>
+
+</main>
+
+<!-- ════════════ §15 FOOTER ════════════ -->
+<footer class="foot">
+  <div class="container foot-in">
+    <a class="wordmark" href="#top" aria-label="FinCon home">
+      <svg class="mark" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M7.4 14.6l3.1-3.4 2.5 2.2 3.6-4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark-text">Fin<span>Con</span></span>
+    </a>
+    <p class="foot-tag">A reconciliation controller. Proof on every match.</p>
+    <a class="foot-link arrow" href="https://fincon.astutecomputer.com/verify">Check a close without an account</a>
+    <div class="foot-social">
+      <a href="https://github.com/Abishai95141/FinCon" aria-label="GitHub" title="FinCon on GitHub">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.3-1.7-1.3-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>
+      </a>
+      <a href="#" aria-label="LinkedIn" title="LinkedIn — placeholder">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 9h4v12H3zM10 9h3.8v1.65h.05c.53-.95 1.83-1.95 3.76-1.95 4.02 0 4.765 2.5 4.765 5.75V21h-4v-5.65c0-1.35-.025-3.08-1.9-3.08-1.9 0-2.19 1.46-2.19 2.98V21h-4z"/></svg>
+      </a>
+    </div>
+    <p class="foot-copy">© 2026 FinCon</p>
+  </div>
+</footer>
+
+</body>
+</html>

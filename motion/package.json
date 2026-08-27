@@ -1,0 +1,16 @@
+{
+  "name": "fincon-motion",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "render": "remotion render src/index.ts CloseRunning ../site/assets/m1-close.mp4",
+    "still": "remotion still src/index.ts CloseRunning ../site/assets/m1-poster.png --frame=520",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.518",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.518"
+  }
+}

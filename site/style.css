@@ -1,0 +1,272 @@
+/* FinCon landing page.
+
+   Tokens are the product's own, from src/recon/api/theme.py, so the page and
+   the app are visibly one thing. The product's rule holds here too: glass for
+   the frame, opaque paper under anything carrying a number.
+
+   No JavaScript. The horizontal rails are CSS scroll-snap, which is the same
+   commitment the product makes and one less thing that can fail to load. */
+
+:root{
+  /* from theme.py */
+  --primary:#2F7BFF; --primary-light:#E9F1FF; --primary-deep:#1D5FD8; --secondary:#7BA7FF;
+  --success:#22C55E; --warning:#F59E0B;
+  --n100:#FFFFFF; --n200:#F1F5F9; --n300:#E2E8F0; --n400:#CBD5E1;
+  --n500:#94A3B8; --n600:#64748B; --n700:#334155;
+  --ink:#1E293B; --ink-deep:#0B1E45;
+  --surface:#FFFFFF; --raised:#F8FAFF; --ground:#FCFDFF;
+  --g-fill:rgba(255,255,255,.66); --g-strong:rgba(255,255,255,.84); --g-line:rgba(255,255,255,.85);
+  --e1:0 1px 2px rgba(30,41,59,.04);
+  --e2:0 2px 6px rgba(30,41,59,.05),0 1px 2px rgba(30,41,59,.04);
+  --e3:0 6px 16px -6px rgba(30,41,59,.10),0 2px 6px rgba(30,41,59,.04);
+  --e4:0 16px 32px -12px rgba(30,41,59,.13),0 4px 10px rgba(30,41,59,.04);
+  --r8:8px; --r12:12px; --r16:16px; --r24:24px;
+
+  --sans:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+
+  /* the vertical scale the whole page is built on */
+  --s1:.5rem; --s2:1rem; --s3:1.5rem; --s4:2rem; --s6:3rem; --s8:4rem; --s12:6rem;
+  --gutter:2rem; --maxw:1200px;
+}
+
+*{box-sizing:border-box}
+html{
+  -webkit-text-size-adjust:100%; scroll-behavior:smooth;
+  background-color:var(--ground);
+  background-image:
+    radial-gradient(52rem 34rem at 6% 0%,   rgba(123,167,255,.17), transparent 62%),
+    radial-gradient(46rem 30rem at 98% 6%,  rgba(47,123,255,.11),  transparent 58%),
+    radial-gradient(50rem 34rem at 24% 100%,rgba(163,201,255,.15), transparent 62%);
+  background-repeat:no-repeat;
+  background-position:top left,top right,bottom left;
+  background-size:100% 90vh,100% 70vh,100% 80vh;
+}
+@media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
+
+body{
+  margin:0; color:var(--ink); font-family:var(--sans);
+  font-size:17px; line-height:1.62; font-weight:400;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%; height:auto; display:block}
+a{color:var(--primary-deep); text-decoration:none}
+a:focus-visible,button:focus-visible{outline:2px solid var(--primary); outline-offset:3px; border-radius:4px}
+
+.container{max-width:var(--maxw); margin:0 auto; padding:0 var(--gutter)}
+.container.narrow{max-width:760px}
+.center{text-align:center}
+strong,b{font-weight:600; color:var(--ink-deep)}
+em{font-style:italic}
+code{font-family:var(--mono); font-size:.86em; background:var(--primary-light);
+  color:var(--primary-deep); padding:.1em .38em; border-radius:4px}
+
+h1,h2,h3{color:var(--ink-deep); letter-spacing:-.03em; text-wrap:balance; margin:0}
+h1{font-size:clamp(2.15rem,5.6vw,3.9rem); line-height:1.04; font-weight:600}
+h2{font-size:clamp(1.6rem,3.4vw,2.35rem); line-height:1.16; font-weight:600}
+h3{font-size:1.12rem; line-height:1.35; font-weight:600; letter-spacing:-.018em}
+p{margin:0 0 var(--s2)}
+
+/* ───────── nav ───────── */
+.nav{position:sticky; top:0; z-index:50; padding:.7rem 0;
+  background:var(--g-strong); border-bottom:1px solid var(--g-line);
+  backdrop-filter:blur(12px) saturate(1.15); -webkit-backdrop-filter:blur(12px) saturate(1.15)}
+@supports not (backdrop-filter:blur(1px)){ .nav{background:rgba(255,255,255,.96)} }
+.nav-in{max-width:var(--maxw); margin:0 auto; padding:0 var(--gutter);
+  display:flex; align-items:center; gap:var(--s3)}
+.wordmark{display:inline-flex; align-items:center; gap:.55rem; color:var(--primary)}
+.wordmark-text{font-weight:600; font-size:1.06rem; letter-spacing:-.032em; color:var(--ink-deep); line-height:1}
+.wordmark-text span{color:var(--primary)}
+.nav-links{display:flex; gap:var(--s3); margin-left:auto; font-size:.94rem}
+.nav-links a{color:var(--n600); font-weight:450}
+.nav-links a:hover{color:var(--ink-deep)}
+.nav-cta{display:flex; gap:.6rem; margin-left:var(--s3)}
+@media (max-width:880px){ .nav-links{display:none} .nav-cta{margin-left:auto} }
+
+/* ───────── buttons ───────── */
+.btn{display:inline-flex; align-items:center; justify-content:center;
+  font-size:.94rem; font-weight:500; padding:.55rem 1.05rem; border-radius:var(--r8);
+  border:1px solid transparent; white-space:nowrap; transition:background .15s,border-color .15s}
+.btn-primary{background:var(--primary); color:#fff; box-shadow:var(--e2)}
+.btn-primary:hover{background:var(--primary-deep)}
+.btn-outline{border-color:var(--n300); color:var(--ink-deep); background:var(--surface)}
+.btn-outline:hover{border-color:var(--n400)}
+.btn-ghost{color:var(--n600)}
+.btn-ghost:hover{color:var(--ink-deep); background:rgba(255,255,255,.72)}
+.btn-lg{font-size:1rem; padding:.72rem 1.5rem; border-radius:10px}
+@media (prefers-reduced-motion:reduce){ .btn{transition:none} }
+
+/* ───────── hero ───────── */
+.hero{padding:var(--s12) 0 var(--s8)}
+.hero-head{max-width:820px; margin:0 auto; text-align:center}
+.subtitle{font-size:clamp(1.05rem,1.9vw,1.22rem); line-height:1.55; font-weight:300;
+  color:var(--n700); margin:var(--s3) auto var(--s4); max-width:44rem}
+.hero-cta{display:flex; gap:.7rem; justify-content:center; flex-wrap:wrap}
+.badges{display:flex; gap:1.6rem; justify-content:center; flex-wrap:wrap;
+  list-style:none; margin:var(--s3) 0 0; padding:0;
+  font-family:var(--mono); font-size:.76rem; color:var(--n600); letter-spacing:.01em}
+.badges b{color:var(--ink-deep); font-weight:700}
+.hero-shot{margin:var(--s8) auto 0; max-width:1000px}
+.hero-shot img,.hero-shot video{width:100%; height:auto; display:block;
+  border-radius:var(--r16); border:1px solid var(--n300); box-shadow:var(--e4); background:var(--surface)}
+/* Somebody who asked not to be moved gets the last frame as a still. The video
+   still renders — a poster with the controls hidden is a picture, not motion. */
+@media (prefers-reduced-motion:reduce){
+  .hero-shot video{display:none}
+  .hero-shot::before{content:""; display:block; width:100%; aspect-ratio:1708/812;
+    background:url(assets/m1-poster.webp) center/cover no-repeat;
+    border-radius:var(--r16); border:1px solid var(--n300); box-shadow:var(--e4)}
+}
+figcaption{margin-top:.8rem; font-size:.86rem; color:var(--n600); text-align:center; line-height:1.5}
+
+/* ───────── bridge ───────── */
+.bridge{padding:var(--s8) 0}
+.bridge-small{font-size:1rem; color:var(--n600); margin-bottom:.9rem}
+.bridge-big{font-size:clamp(1.7rem,4.2vw,2.9rem); line-height:1.12; letter-spacing:-.032em;
+  font-weight:600; color:var(--ink-deep); margin:0; text-wrap:balance}
+
+/* ───────── section furniture ───────── */
+section{padding:var(--s8) 0}
+.sec-head{max-width:640px; margin-bottom:var(--s6)}
+.eyebrow{font-family:var(--mono); font-size:.7rem; font-weight:500; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--primary); margin:0 0 .55rem}
+.sec-lede{font-size:1.05rem; line-height:1.55; font-weight:300; color:var(--n700); margin-top:.9rem}
+.sec-foot{margin-top:var(--s4)}
+.arrow::after{content:" →"; font-family:var(--mono)}
+
+/* ───────── six cards ───────── */
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr)); gap:var(--s3)}
+.card{background:var(--surface); border:1px solid var(--n300); border-radius:var(--r16);
+  padding:var(--s3); box-shadow:var(--e2); display:flex; flex-direction:column}
+.card p{font-size:.95rem; line-height:1.55; color:var(--n700); margin:.55rem 0 var(--s3)}
+.card img{border-radius:var(--r8); border:1px solid var(--n200)}
+
+/* ───────── formats marquee ───────── */
+.formats{padding:var(--s6) 0}
+.formats-cap{text-align:center; font-size:.95rem; color:var(--n600); margin-bottom:var(--s3)}
+.marquee{display:flex; flex-wrap:wrap; gap:.6rem .9rem; justify-content:center;
+  list-style:none; margin:0; padding:0}
+.marquee li{font-family:var(--mono); font-size:.8rem; color:var(--n700);
+  background:var(--surface); border:1px solid var(--n300); border-radius:20px; padding:.35rem .85rem}
+
+/* ───────── rails (scroll-snap, no JS) ───────── */
+.rail{display:flex; align-items:start; gap:var(--s3); overflow-x:auto; scroll-snap-type:x mandatory;
+  padding-bottom:var(--s2); margin:0; list-style:none;
+  scrollbar-width:thin; scrollbar-color:var(--n400) transparent}
+.rail::-webkit-scrollbar{height:7px}
+.rail::-webkit-scrollbar-thumb{background:var(--n400); border-radius:4px}
+.rail > *{scroll-snap-align:start; flex:0 0 min(470px,80vw)}
+.rail > .wide{flex-basis:min(620px,86vw)}
+
+/* ───────── receipts ───────── */
+.receipts .rail > *{flex-basis:min(400px,82vw)}
+.receipt{background:var(--surface); border:1px solid var(--n300); border-radius:var(--r12);
+  box-shadow:var(--e2); margin:0; overflow:hidden; display:flex; flex-direction:column}
+.receipt pre{margin:0; padding:1.1rem 1.2rem; flex:1}
+.receipt figcaption{text-align:left; padding:.75rem 1.2rem; border-top:1px solid var(--n200);
+  background:var(--raised); font-size:.85rem; color:var(--ink-deep); font-weight:500; margin:0}
+.receipt figcaption span{display:block; font-family:var(--mono); font-size:.72rem;
+  color:var(--n500); font-weight:400; margin-top:.15rem}
+
+pre{font-family:var(--mono); font-size:.76rem; line-height:1.72; color:var(--ink);
+  font-variant-numeric:tabular-nums; overflow-x:auto; white-space:pre}
+pre b{color:var(--ink-deep); font-weight:700}
+pre .dim{color:var(--n500)}
+pre .ok{color:var(--success); font-weight:700}
+pre .warn{color:var(--warning); font-weight:700}
+pre .hl{color:var(--primary-deep); font-weight:700}
+pre.shot{background:var(--surface); border:1px solid var(--n300); border-radius:var(--r8);
+  padding:1.1rem 1.2rem; box-shadow:var(--e1)}
+
+/* ───────── slider sections ───────── */
+.slider-head{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);
+  gap:var(--s4); align-items:start; margin-bottom:var(--s6)}
+@media (max-width:860px){ .slider-head{grid-template-columns:1fr} }
+.stack{font-size:clamp(1.7rem,3.8vw,2.6rem); line-height:1.1}
+.slider-side p{font-size:1rem; line-height:1.6; color:var(--n700)}
+.replaces{font-size:.85rem; color:var(--n600); margin-top:var(--s2)}
+.replaces span{font-family:var(--mono); font-size:.7rem; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--n500); margin-right:.5rem}
+.endpoint{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-top:var(--s2)}
+.endpoint span{font-family:var(--mono); font-size:.7rem; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--n500)}
+.endpoint code{font-size:.82rem}
+
+.panel{background:var(--surface); border:1px solid var(--n300); border-radius:var(--r16);
+  padding:var(--s3); box-shadow:var(--e2); display:flex; flex-direction:column}
+.panel p{font-size:.95rem; line-height:1.55; color:var(--n700); margin:.5rem 0 var(--s3)}
+.panel img{border-radius:var(--r8); border:1px solid var(--n200)}
+.panel pre.shot{margin-top:0}
+.pnum{font-family:var(--mono); font-size:.72rem; color:var(--n500); margin:0 0 .5rem; letter-spacing:.1em}
+.pill{display:inline-block; font-family:var(--mono); font-size:.66rem; font-weight:700;
+  background:var(--primary-light); color:var(--primary-deep);
+  padding:.15rem .45rem; border-radius:5px; vertical-align:middle; margin-left:.4rem}
+
+/* ───────── the fence ───────── */
+.wide-shot{margin:0 0 var(--s4)}
+.wide-shot img{border-radius:var(--r12); border:1px solid var(--n300); box-shadow:var(--e3)}
+.bars{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr)); gap:var(--s3)}
+.bar{background:var(--surface); border:1px solid var(--n300); border-left:3px solid var(--primary);
+  border-radius:var(--r12); padding:var(--s3); box-shadow:var(--e1)}
+.bar p{font-size:.92rem; line-height:1.55; color:var(--n700); margin:.5rem 0 0}
+
+/* ───────── chips ───────── */
+.chips-section{text-align:center}
+.chips-h{margin:var(--s3) 0 0; font-size:clamp(1.15rem,2.3vw,1.5rem)}
+.chips{display:flex; flex-wrap:wrap; gap:.6rem; justify-content:center;
+  list-style:none; margin:var(--s4) 0 var(--s4); padding:0}
+.chips li{font-size:.9rem; padding:.45rem 1rem; border-radius:22px;
+  background:var(--surface); border:1px solid var(--n300); color:var(--ink-deep); box-shadow:var(--e1)}
+
+/* ───────── pillars ───────── */
+/* four pillars want 2x2, not 3+1 with a hole where the fourth should be */
+.pillars{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(430px,100%),1fr)); gap:var(--s3)}
+.pillar{background:var(--surface); border:1px solid var(--n300); border-radius:var(--r16);
+  padding:var(--s3); box-shadow:var(--e2)}
+.pillar p{font-size:.94rem; line-height:1.58; color:var(--n700); margin:.6rem 0 0}
+
+/* ───────── limits ───────── */
+.limits dl{margin:var(--s4) 0 0}
+.limits dt{font-weight:600; color:var(--ink-deep); font-size:1.02rem; margin-top:var(--s3)}
+.limits dd{margin:.2rem 0 0; color:var(--n700); font-size:.98rem; line-height:1.55;
+  padding-bottom:var(--s3); border-bottom:1px solid var(--n200)}
+.limits dd:last-of-type{border-bottom:0}
+
+/* ───────── cta ───────── */
+.cta{padding:var(--s12) 0}
+.cta h2{margin-bottom:var(--s2)}
+.cta .center .btn{margin:.35rem}
+
+/* ───────── footer ───────── */
+.foot{padding:var(--s6) 0 var(--s8); border-top:1px solid var(--n300);
+  background:rgba(255,255,255,.5)}
+.foot-in{display:flex; align-items:center; gap:var(--s3); flex-wrap:wrap}
+.foot-tag{margin:0; font-size:.92rem; color:var(--n600)}
+.foot-link{font-size:.9rem; margin-left:auto}
+.foot-social{display:flex; gap:.9rem; align-items:center}
+.foot-social a{color:var(--n500)}
+.foot-social a:hover{color:var(--ink-deep)}
+.foot-copy{margin:0; font-size:.85rem; color:var(--n500); font-family:var(--mono)}
+@media (max-width:760px){
+  .foot-in{flex-direction:column; align-items:flex-start; gap:var(--s2)}
+  .foot-link{margin-left:0}
+}
+
+/* The rails scroll. Say so, rather than relying on a peeking card alone. */
+.rail-hint{display:flex; align-items:center; gap:.4rem; margin:var(--s2) 0 0;
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--n500)}
+.rail-hint::after{content:"→"; letter-spacing:0}
+
+/* ───────── small screens ───────── */
+@media (max-width:560px){
+  :root{--gutter:1.15rem; --s8:2.75rem; --s12:3.5rem}
+  body{font-size:16px}
+  .hero{padding:var(--s8) 0 var(--s6)}
+  .badges{gap:.5rem .9rem; font-size:.7rem}
+  .hero-cta .btn, .cta .btn{flex:1 1 auto}
+  .foot-in{gap:var(--s2)}
+}
+/* A page that scrolls sideways on a phone is broken, whatever the cause.
+   The grids above are fixed at the source; this is the backstop. */
+html,body{overflow-x:clip}
