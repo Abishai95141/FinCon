@@ -148,7 +148,7 @@ credentials — every real secret is fetched by ARN from
 Secrets Manager at deploy time — but publishing the address of a live estate on
 a public repository is free to avoid.
 
-**Two footguns, both of which have fired.**
+**Three footguns, all of which have fired.**
 
 **`TAG` comes from `git rev-parse --short HEAD`.** Build with the fix
 uncommitted and the image pushes to the tag already deployed — CloudFormation
@@ -164,6 +164,26 @@ left off:
 ```make
 PublicUrl=$(if $(PUBLIC_URL),$(PUBLIC_URL),$(DEPLOY_PUBLIC_URL)) \
 CertificateArn=$(if $(CERT),$(CERT),$(DEPLOY_CERT_ARN))
+```
+
+**Docker Desktop can answer AAAA-only.** A build died in `uv sync` with
+`Network unreachable (os error 101)` while the host resolved `pypi.org` to IPv4
+without trouble: Docker's embedded resolver returned no A records, and a build
+container with no IPv6 route cannot reach an AAAA address. Image *pulls* still
+worked, which is what makes it confusing — the daemon has network, the container
+does not. `make deploy DOCKER_BUILD_FLAGS=--network=host` borrows the host's
+stack. CI is unaffected; the flag is not portable to buildx on Linux, which is
+why it defaults to empty rather than being written into the recipe.
+
+**A CloudFormation timeout is not a failed deploy.** `aws cloudformation deploy`
+returned `Connect timeout on endpoint URL` *after* printing "Waiting for stack
+create/update to complete" — the changeset had been created and the update ran
+to `UPDATE_COMPLETE` server-side while the client gave up. Check the stack before
+concluding anything:
+
+```bash
+aws cloudformation describe-stacks --stack-name fincon \
+  --query 'Stacks[0].[StackStatus,LastUpdatedTime]' --output text
 ```
 
 To read what the live stack currently believes:

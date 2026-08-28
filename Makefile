@@ -169,10 +169,23 @@ guard-deploy-env:
 	@test -n "$(COGNITO_POOL_ID)" || { echo "deploy.env: COGNITO_POOL_ID unset"; exit 2; }
 	@test -n "$(COGNITO_CLIENT_ID)" || { echo "deploy.env: COGNITO_CLIENT_ID unset"; exit 2; }
 
+# Extra flags for the image build, empty by default. An escape hatch for a
+# broken *local* Docker network rather than a change to how the image is built:
+# Docker Desktop's embedded resolver has been seen answering AAAA-only for
+# pypi.org while the host resolves it to IPv4 fine, and a build container with no
+# IPv6 route then fails `uv sync` with "Network unreachable". `--network=host`
+# borrows the host's stack and the build proceeds:
+#
+#   make deploy DOCKER_BUILD_FLAGS=--network=host
+#
+# Left empty so CI, which builds with buildx on Linux and has working DNS, is
+# unaffected — the flag is not portable there.
+DOCKER_BUILD_FLAGS ?=
+
 image: guard-deploy-env
 	aws ecr get-login-password --region $(AWS_REGION) | \
 	  docker login --username AWS --password-stdin $(firstword $(subst /, ,$(ECR)))
-	docker build --platform linux/amd64 -t $(ECR):$(TAG) .
+	docker build --platform linux/amd64 $(DOCKER_BUILD_FLAGS) -t $(ECR):$(TAG) .
 	docker push $(ECR):$(TAG)
 
 # PUBLIC_URL and CERT are passed explicitly on purpose. `cloudformation deploy`
