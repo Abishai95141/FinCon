@@ -299,21 +299,6 @@ policy was **in force** or **caller-supplied** — because a verdict produced un
 a policy somebody brought with them must never come back indistinguishable from
 one produced under ours.
 
----
-
-## What it cannot do yet
-
-A README that lists only what works is a brochure.
-
-- **Validated at small scale** — hundreds of rows, two gateways, one currency.
-- **Four of seven breaks are still unnamed.** Reported, not guessed.
-- **The tail does not remember.** A break is content-fingerprinted, so the same
-  one is recognisable next month — but nothing yet says *"fourth month running"*.
-- **`settlement_3way` binds two legs, not three.** Gateway ↔ bank is done; order
-  register ↔ gateway is next, and that is where revenue leakage hides.
-- **One model, one prompt, one provider**, and the same author wrote the
-  generator and the engine — which is why the adversarial set is frozen and the
-  mutation suite exists.
 
 ---
 
