@@ -69,6 +69,13 @@ matched          20 of 23 anchors      87.0%
 The decomposition ships with the rate, always. A headline match rate with no
 tier split is gameable, and gameable is the same as false here.
 
+**Two denominators, and the difference is not cosmetic.** This screen divides by
+the 23 anchors *in scope* — 87.0%, what a controller sees. The benchmark divides
+by the 22 anchors that have a true pair at all — **90.9%**, the number in the
+README and on the scorecard, because one payout was never banked in the period
+and scoring a matcher for missing it would be scoring it against a pair that does
+not exist. Both are real, both ship decomposed, and neither is the other.
+
 ### **23 journal entries, balanced** — the thing they came for
 
 Double entry, asserted against the bank's own closing figure. Downloadable as
@@ -89,7 +96,7 @@ booking it would put a figure in the books the bank does not have.
 
 | | code | | what the engine says |
 |---|---|---|---|
-| ₹90,259.47 | `E14` | blocks | group `pout_00011` was claimed by no anchor |
+| ₹90,259.47 | `E06` | blocks | group `pout_00011` was claimed by no anchor — re-coded from `E14` by `R-DUP-06`, the first promoted rule |
 | ₹87,250.40 | `E09` | blocks | **2 distinct subsets sum to this credit** within tolerance |
 | ₹84,769.72 | `E14` | blocks | no strategy matched, and the engine cannot say why |
 | ₹39,780.45 | `E14` | blocks | group `pout_00005` was claimed by no anchor |
@@ -97,7 +104,7 @@ booking it would put a figure in the books the bank does not have.
 | ₹1,050.42 | `E04` | — | reference matched, credit is short — **declared, not absorbed** |
 | ₹290.07 | `E02` | — | 12 rows do not follow the relation the other 164 do |
 
-Four of seven are `E14` — *the engine does not know*. That is not a failure of
+Three of seven are `E14` — *the engine does not know*. That is not a failure of
 the write-up, it is the honest measure of how much this system still cannot name,
 and saying it out loud beats a plausible guess routed to the wrong desk.
 

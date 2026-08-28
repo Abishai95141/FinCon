@@ -2,6 +2,22 @@
 
 Date: 2026-08-20 · Follows [02-ARCHITECTURE-ADDENDUM.md](02-ARCHITECTURE-ADDENDUM.md)
 
+> **§2 (phases) is superseded from P6 onward by [06-PLAN-V2.md](06-PLAN-V2.md).**
+> **§1 (stack and model config) is superseded outright** — it described the stack
+> we planned to build on, and four of its choices did not survive contact. Named
+> here rather than rewritten, because §3's problem register is still live and
+> refers back to these choices:
+>
+> | §1 says | Actually |
+> |---|---|
+> | Model `claude-opus-5`, ~50¢/close at Opus pricing | `deepseek-v4-flash` (`triage/client.py`). The cost table below is Opus arithmetic and does not describe a close today. |
+> | polars · splink · postgresql + SQLAlchemy · ofxparse · calamine · beanquery · lxml | All removed from `pyproject.toml` on 2026-08-26 — declared and imported nowhere, which reads as capability this project does not have. `tests/property/test_dependencies.py` now fails if an unused one reappears. |
+> | Screens: FastAPI + HTMX | Server-rendered HTML with **no JavaScript at all** and no build step. |
+> | Store: postgresql 16 | No database. The durable record is a file; users live in Cognito. |
+>
+> §0 (declarative adapters), §3 (the 26 failure modes) and §4 (the two
+> irreversible decisions) stand unchanged.
+
 ---
 
 ## 0. One correction the research forced

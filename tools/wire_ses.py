@@ -19,12 +19,19 @@ owner's to make.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
-REGION = "ap-south-1"
-SENDER = "tarunstark3000@gmail.com"
-POOL = "ap-south-1_kNSrctMRo"
+REGION = os.environ.get("AWS_REGION", "ap-south-1")
 CONFIG_SET = "fincon-auth"
+
+#: The sender and the pool are this estate's coordinates, not this tool's. They
+#: come from `infra/deploy.env` the same way `make deploy` gets them: an
+#: identifier is not a credential, but the address of a live estate is free to
+#: keep out of a public repository. Absent, this refuses by name rather than
+#: wiring some default pool somewhere.
+SENDER = os.environ.get("SES_SENDER", "")
+POOL = os.environ.get("COGNITO_POOL_ID", "")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sender", default=SENDER)
     ap.add_argument("--pool", default=POOL)
     args = ap.parse_args(argv)
+
+    missing = [n for n, v in (("SES_SENDER", args.sender), ("COGNITO_POOL_ID", args.pool)) if not v]
+    if missing:
+        print(
+            f"unset: {', '.join(missing)}. These live in infra/deploy.env — "
+            f"cp infra/deploy.env.example infra/deploy.env and fill it in, or pass "
+            f"--sender/--pool. Refusing rather than guessing at an estate.",
+            file=sys.stderr,
+        )
+        return 2
 
     ses = boto3.client("sesv2", region_name=REGION)
     identity = ses.get_email_identity(EmailIdentity=args.sender)

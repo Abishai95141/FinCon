@@ -39,10 +39,15 @@ one CloudFormation stack named `fincon` · [infra/fincon.yaml](../infra/fincon.y
               CloudWatch Logs  ·  ECR (images by commit sha)
 ```
 
-**19 resources**, all in one template: a VPC with two public subnets and an
-internet gateway, three security groups, two IAM roles, the ALB and its two
-listeners, a target group, the ECS cluster / service / task definition, an EFS
-filesystem with two mount targets and two access points, and a log group.
+**27 resources**, all in one template: a VPC with two public subnets, an
+internet gateway and the five resources that route through it (attachment,
+route table, default route, two associations), three security groups, two IAM
+roles, the ALB and its two listeners, a target group, the ECS cluster / service
+/ task definition, an EFS filesystem with two mount targets and two access
+points, and a log group. That number is asserted against the template by
+`test_the_resource_count_in_this_document_matches_the_template`, because it is a
+count in prose and the only ones that stay right are the checked ones — this one
+read 19 for two days.
 
 ---
 
@@ -121,9 +126,9 @@ rule governs the write tools: the name on a decision comes off the credential.
 | **ALB** | 2 listeners | `:80` → 301 `:443`. Idle timeout raised above the 300s default — MCP over Streamable HTTP holds a connection open and the default cut long tool calls into transport errors |
 | **Target group** | `/healthz`, 30s, 2 healthy / 3 unhealthy | 60s grace period covers cold start |
 | **ACM** | TLS 1.3 (`ELBSecurityPolicy-TLS13-1-2-2021-06`) | DNS-validated |
-| **EFS** | `fs-056df8e0…`, 2 mount targets | One per AZ, both required for a task in either |
+| **EFS** | `$EFS_ID`, 2 mount targets | One per AZ, both required for a task in either |
 | **Access points** | `/fincon` (runs), `/uploads` (sources) | uid/gid `10001`, matching the container's non-root user |
-| **Cognito** | pool `ap-south-1_kNSrctMRo` | `USER_PASSWORD_AUTH` with `SECRET_HASH`; confidential client |
+| **Cognito** | pool `$COGNITO_POOL_ID` | `USER_PASSWORD_AUTH` with `SECRET_HASH`; confidential client |
 | **Secrets** | session key, Cognito client secret, DeepSeek key | Injected by ARN, read by the task role |
 | **Logs** | CloudWatch, `/ecs/fincon` | |
 | **DNS** | Cloudflare, `fincon.astutecomputer.com` | Proxy **off** — an orange-cloud proxy in front of an ALB with its own ACM cert doubles TLS termination for nothing |
@@ -137,8 +142,9 @@ cp infra/deploy.env.example infra/deploy.env   # once — account, pool, cert, u
 make deploy
 ```
 
-`infra/deploy.env` is gitignored and holds the estate's coordinates. They are
-identifiers rather than credentials — every real secret is fetched by ARN from
+`infra/deploy.env` is gitignored and holds the estate's coordinates; the `$NAME`
+placeholders in §3 above resolve from it. They are identifiers rather than
+credentials — every real secret is fetched by ARN from
 Secrets Manager at deploy time — but publishing the address of a live estate on
 a public repository is free to avoid.
 

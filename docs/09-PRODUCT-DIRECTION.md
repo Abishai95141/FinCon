@@ -113,8 +113,9 @@ above the form rather than stacking as a block nobody scrolls past.
 
 ## 6. AWS — probed, not assumed
 
-Account `531728396678`, `ap-south-1`, AdministratorAccess. **Shared with another
-project** (`fampire`: `c7i-flex.large`, RDS `db.t4g.micro`, ECR, S3, 3 secrets).
+Account `$AWS_ACCOUNT` (see `infra/deploy.env`), `ap-south-1`, AdministratorAccess.
+**Shared with another project** (`fampire`: `c7i-flex.large`, RDS `db.t4g.micro`,
+ECR, S3, 3 secrets).
 **App Runner is unavailable** — `SubscriptionRequiredException`.
 
 CloudFront (TLS, rate limit on `/verify`) → one always-warm ECS Fargate task

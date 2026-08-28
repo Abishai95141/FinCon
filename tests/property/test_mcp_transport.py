@@ -58,8 +58,17 @@ def unconfigured(monkeypatch: pytest.MonkeyPatch):
 
 #: The pool that actually exists. Tests using it need the network and are
 #: marked `live`; `make test` runs offline and deselects them.
-REAL_POOL = "ap-south-1_kNSrctMRo"
-REAL_CLIENT = "4scuq8j5s68siqgnikmnskcir6"
+#:
+#: Read from the environment rather than committed: an identifier is not a
+#: credential, but the coordinates of a live estate are free to keep out of a
+#: public repository — the same call `infra/deploy.env` makes. `PUBLIC` stays
+#: literal because it is the published address, printed in the README.
+#:
+#: Absent, the fixture below **fails**. It does not skip: a skip is a green tick
+#: over a control that never ran, and the mutation that removes the control is
+#: exactly what makes the subject absent.
+REAL_POOL = os.environ.get("COGNITO_POOL_ID", "")
+REAL_CLIENT = os.environ.get("COGNITO_CLIENT_ID", "")
 PUBLIC = "https://fincon.astutecomputer.com"
 
 
@@ -81,6 +90,12 @@ def _panel(html: str, panel_id: str) -> str:
 def real_pool(monkeypatch: pytest.MonkeyPatch):
     """Point at the deployed pool, so FastMCP's OIDC discovery succeeds and the
     routes it generates are the ones the deployment actually serves."""
+    assert REAL_POOL and REAL_CLIENT, (
+        "live Cognito coordinates are unset. Set COGNITO_POOL_ID and "
+        "COGNITO_CLIENT_ID (they live in infra/deploy.env — see "
+        "infra/deploy.env.example). Failing rather than skipping, because a "
+        "skipped test reads green and this one guards the deployed OAuth routes."
+    )
     monkeypatch.setenv("FINCON_PUBLIC_URL", PUBLIC)
     monkeypatch.setenv("RECON_COGNITO_POOL_ID", REAL_POOL)
     monkeypatch.setenv("RECON_COGNITO_CLIENT_ID", REAL_CLIENT)
@@ -298,10 +313,16 @@ def test_the_real_cognito_pool_answers_discovery():
     is what catches a pool id that was renamed or a region that is wrong, which
     the recorder above cannot see.
     """
-    pool = os.environ.get("RECON_COGNITO_POOL_ID")
-    region = os.environ.get("AWS_REGION")
-    if not (pool and region):
-        pytest.skip("no Cognito pool configured in this environment")
+    pool = REAL_POOL or os.environ.get("RECON_COGNITO_POOL_ID", "")
+    region = os.environ.get("AWS_REGION", "ap-south-1")
+    # Asserted, not skipped — the same call `gate_p13` makes above its own guard.
+    # This test exists to catch a pool id that was renamed; a skip when the id is
+    # absent is a green tick over precisely that failure.
+    assert pool, (
+        "live Cognito coordinates are unset. Set COGNITO_POOL_ID (infra/deploy.env "
+        "— see infra/deploy.env.example). This test catches a renamed pool, so "
+        "skipping it would report green on the thing it is here to find."
+    )
 
     url = f"https://cognito-idp.{region}.amazonaws.com/{pool}/.well-known/openid-configuration"
     with urllib.request.urlopen(url, timeout=10) as response:

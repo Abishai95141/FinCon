@@ -75,7 +75,8 @@ That is the class of finding worth having, and it needs `orders.csv` bound.
 
 ## 2. What practitioners expect after the match
 
-Four things, and we do roughly one and a half of them.
+Four things, and we do two and a half of them — 2.1 closed on 2026-08-26 and is
+struck through below rather than deleted.
 
 ### 2.1 A disposition, not a label
 
@@ -88,8 +89,11 @@ Timing differences are the exception that proves it — they are **tracked as
 reconciling items** rather than corrected, because they will clear themselves.
 Everything else ends in an entry.
 
-We produce the label, the evidence and the attestation, and no entry. See
-[10-THE-USER-FLOW.md](10-THE-USER-FLOW.md) §5.1 for the measurement.
+~~We produce the label, the evidence and the attestation, and no entry.~~
+**Closed 2026-08-26.** All four dispositions exist in `src/recon/disposition.py`
+and each writes double entry. [10-THE-USER-FLOW.md](10-THE-USER-FLOW.md) §5.1
+keeps the measurement that made the gap undeniable, because a gap that was
+measured and then closed is worth more as a record than one quietly removed.
 
 ### 2.2 Ageing — the thing we cannot say at all
 
@@ -148,8 +152,11 @@ should be minted, and it should stay `PROVISIONAL` until someone writes the
 definition — naming grants nothing.
 
 **Also worth stating plainly:** the benchmark quoted to Indian finance teams is
-moving from ~51% (manual VLOOKUP) to **88% or above**. We are at **87.0%**. We
-are at the line, not past it.
+moving from ~51% (manual VLOOKUP) to **88% or above**. We are at **87.0%** on
+the controller-facing denominator — 20 of 23 anchors in scope — and 90.9% on the
+benchmark's, which divides by the 22 anchors that have a true pair. The
+conservative one is the fair comparison here, so we are at the line, not past
+it.
 
 ---
 
@@ -185,7 +192,7 @@ No options. This is the flow.
 1  LOAD       the period's files                          exists
 2  CLOSE      deterministic: match, prove, post           exists
 3  TRIAGE     every unmatched item gets a code + owner    exists
-4  DECIDE     one of four dispositions, each an entry     ← BUILD THIS
+4  DECIDE     one of four dispositions, each an entry     exists (2026-08-26)
 5  SIGN       preparer signs, reviewer approves           half exists
 6  HAND OFF   journal + pack + carry-forward              two of three
 7  NEXT CLOSE carried items return, with an age           does not exist
@@ -193,8 +200,8 @@ No options. This is the flow.
 
 ### Step 4 — the four dispositions
 
-Each one produces a journal entry. Each one closes the exception. Nothing else
-does.
+**Built 2026-08-26**, as specified below and with the bounds intact. Each one
+produces a journal entry. Each one closes the exception. Nothing else does.
 
 | | when | the entry | tier |
 |---|---|---|---|
@@ -236,8 +243,9 @@ profession already uses:
 
 1. **Rename `settlement_3way` → `settlement_2way`.** One line, and it stops the
    file map lying. Do it before anything else.
-2. **The four dispositions**, with entries, on the existing 2-way loop. This is
-   the half of the product that is missing.
+2. ~~**The four dispositions**, with entries, on the existing 2-way loop.~~
+   **Done 2026-08-26** — `src/recon/disposition.py`, four endings, both
+   write-off bounds from policy, `make mutate SET=p21` 14/14.
 3. **Ageing** — `first_seen_at`, `occurrence_count`, and the three buckets on
    the pack.
 4. **Preparer ≠ reviewer.**

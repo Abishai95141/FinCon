@@ -3,6 +3,20 @@
 Date: 2026-08-20 · Status: nothing built. This is the thing to approve or reject.
 Evidence: [00-RESEARCH-DOSSIER.md](00-RESEARCH-DOSSIER.md)
 
+> **This is the document as approved on 2026-08-20, kept as the record of what was
+> decided.** It is not maintained against the build. Four things in it have since
+> changed, named here rather than edited in, because a spec silently updated to
+> match what got built stops being evidence that anything was decided:
+>
+> - **§3.1 lists `T3 unmatched` as a match tier.** It is not one — `T3` is a
+>   *state*, and the fourth tier is `T4` declared. See CLAUDE.md → Vocabulary.
+> - **§3.2 and §6 say twelve exception codes, `E01`–`E12`, a fixed vocabulary.**
+>   P11 replaced the closed enum with an open registry: 14 canonical codes plus 6
+>   provisional `X-` codes today, and anything discovered later is minted.
+> - **§5 says eight metrics.** Nine — `unprovable matches` was added at P10.
+> - **§7 carries "two languages (Python engine, TS harness)" as a risk.** The
+>   build is Python-only; the seam was never taken.
+
 ---
 
 ## 1. Problem statement

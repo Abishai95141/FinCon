@@ -173,8 +173,8 @@ record) is inexpressible. Evidence in STATUS.md.
 ### P13 — Substrate
 The old P8's other half.
 
-- [x] FastMCP server over the kernel; 16 tools, and **no tool schema accepts a policy, a tolerance,
-      a sign convention or a rule set**. Every finding in the control-plane audit reduces to "the
+- [x] FastMCP server over the kernel; 16 tools at this phase, **21 today**, and **no tool schema
+      accepts a policy, a tolerance, a sign convention or a rule set**. Every finding in the control-plane audit reduces to "the
       caller supplied its own permission", and a parameter is how a caller supplies anything — so
       the boundary is checked against the *generated schemas*, not promised in a comment. The one
       tool that takes a proposal returns a verdict and persists nothing.

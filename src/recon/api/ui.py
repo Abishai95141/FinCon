@@ -2989,7 +2989,7 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
     So: what it would do for you, then how to connect, then the part that is
     genuinely interesting — an assistant here can read everything and decide
     nothing, and that is enforced in the tool definitions rather than promised.
-    The eighteen-tool reference is real and belongs on the page; it does not
+    The twenty-one-tool reference is real and belongs on the page; it does not
     belong in the middle of it.
     """
     cli, block, raw = _mcp_config(user)

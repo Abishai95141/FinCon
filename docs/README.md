@@ -8,17 +8,18 @@ document below answers the question in front of you.
 | 00 | [Research dossier](00-RESEARCH-DOSSIER.md) | Why this problem. What the securo and qm code graphs showed. Benchmarks, OSS, the LLM-arithmetic evidence. |
 | 01 | [Decision spec](01-DECISION-SPEC.md) | Problem, existing solutions, our solution, user flow, impact, trade-offs. The approve-or-reject document. |
 | 02 | [Architecture addendum](02-ARCHITECTURE-ADDENDUM.md) | Why deterministic verification does not constrain intake. Proof tiers P0–P3. The MCP substrate. **Amends 01 §3 and §7.** |
-| 03 | [Build plan](03-BUILD-PLAN.md) | Ten phases with gates, the Python stack with per-choice risk, model config and cost, 26 named failure modes. |
+| 03 | [Build plan](03-BUILD-PLAN.md) | 26 named failure modes, still live. Phases superseded by 06; the stack and model config are superseded outright and its header says how. |
 | 04 | [Control-plane audit](04-CONTROL-PLANE-AUDIT.md) | Five reproducible bypasses found by attacking the system at P5, the single root cause, and the three-trust-class redesign. **Blocks P7.** |
 | 05 | [Failure register](05-FAILURE-REGISTER.md) | 19 probes: where a novel input crashes, finishes silently, or finishes wrong — plus invariant 8 and the disposition ladder that routes every case. |
 | 06 | [Plan v2](06-PLAN-V2.md) | **The working plan.** P6–P15 re-planned after the audits: control plane before the agent, decision log earlier, ship line at P10. Supersedes 03 from P6 onward. |
 | 07 | [Architecture audit](07-ARCHITECTURE-AUDIT.md) | The root cause: the certifying-algorithm discipline is applied to one decision type out of five. Graph + runtime tracing + five experiments. |
 | 08 | [As built](08-AS-BUILT.md) | The flow that **runs today** — input, processing, output — what a customer gets, and what is missing. Read beside 01's §4, which is the flow we intend. Revised when P13/P14 landed a product surface. |
 | 09 | [Product direction](09-PRODUCT-DIRECTION.md) | **PROPOSED, not approved.** The user journey, screen map, design system, auth and AWS deployment for the product surface. Nothing in §§2–6 is built. |
-| 10 | [The user flow](10-THE-USER-FLOW.md) | What a controller actually does with this, with the real numbers from batch A — and the four things missing, the largest being that an attested exception leads to no disposition. |
-| 11 | [What happens next](11-WHAT-HAPPENS-NEXT.md) | How many documents this engine can reconcile (two sides, any number of files), what practitioners expect after the match — ageing, suspense, preparer≠reviewer, a tax-deduction code we lack — and the one flow to build. |
+| 10 | [The user flow](10-THE-USER-FLOW.md) | What a controller actually does with this, with the real numbers from batch A — and the four things that were missing, two of which closed the same week and are struck through rather than deleted. |
+| 11 | [What happens next](11-WHAT-HAPPENS-NEXT.md) | How many documents this engine can reconcile (two sides, any number of files), what practitioners expect after the match — ageing, suspense, preparer≠reviewer, a tax-deduction code we lack — and the one flow to build. Its step 4, the four dispositions, landed 2026-08-26. |
 | 12 | [Signing in](12-AUTH.md) | The confirmation screen that did not exist, and what splitting sign-in from create-account costs: one enumeration oracle, bounded rather than hidden. |
 | 13 | [The screens](13-THE-SCREENS.md) | The journey start to finish, one question per screen, and the five rules they follow — plus what is still rough. |
+| 14 | [The AWS estate](14-AWS.md) | What runs where, what it costs, the four decisions worth arguing about, and what this estate deliberately lacks. |
 | — | [decisions/](decisions/) | ADRs. Two are irreversible: [ADR-001](decisions/ADR-001-declarative-adapters.md) declarative adapters, [ADR-002](decisions/ADR-002-semver-contracts.md) semver'd contracts. |
 
 ## Running it
@@ -28,7 +29,8 @@ Two surfaces, both real since 2026-08-25. Neither is a benchmark.
 ```bash
 make serve   # http://127.0.0.1:8000/ — close a period, work the tail, export the audit
              # http://127.0.0.1:8000/docs — OpenAPI, with the semver'd contracts in it
-make mcp     # 16 tools on stdio, for an agent
+make mcp     # 21 tools on stdio, for an agent
+make mcp-http # the same 21 behind Cognito OAuth
 ```
 
 `POST /v1/verify` (and the MCP `verify_proof`) is the one call worth knowing: it is stateless and
@@ -64,7 +66,7 @@ consistent (verified with a script at authoring time), not measurements. Real nu
 Measured, not projected. Regenerate with `python -m bench.run --batch A`.
 
 ```
-blocking: 150/506 pairs (70.4% reduction) :: amount=123 date=200 reference=19
+blocking: 271/506 pairs (46.4% reduction) :: amount=186 date=366 reference=19
           blocking recall 100.0% (21/21 reachable true pairs kept);
           1 true pair not reachable at all — the source declared no group
 

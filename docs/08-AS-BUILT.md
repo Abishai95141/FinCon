@@ -109,7 +109,7 @@ record        an append-only hash-chained decision log; the run refuses to finis
 | **Independent re-derivation** | `POST /v1/runs/{id}/reverify`, and a button on the page | **yes** |
 | **Stateless public verification** | `POST /v1/verify` · MCP `verify_proof` | **yes** |
 | **UI** | `make serve` → `http://127.0.0.1:8000/` | **yes** — server-rendered screens, no JavaScript |
-| **MCP** | `make mcp` → 18 tools on stdio · `make mcp-http` over Streamable HTTP + OAuth | **yes** |
+| **MCP** | `make mcp` → 21 tools on stdio · `make mcp-http` over Streamable HTTP + OAuth | **yes** |
 | Journal entries + balance assertion | `GET /v1/runs/{id}/journal` · CSV and beancount on the close pack | **yes** — and the beancount export is re-loaded by beancount itself, so a third party validates it |
 | Cross-close history on a break | — | **not built** — `fingerprint` is the precondition and landed; the store does not exist |
 

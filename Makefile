@@ -138,7 +138,7 @@ serve:
 mcp:
 	uv run recon-mcp
 
-# The same 18 tools over Streamable HTTP. Loopback with no auth; anywhere else
+# The same 21 tools over Streamable HTTP. Loopback with no auth; anywhere else
 # it refuses until Cognito is configured, and names the variables it wants.
 mcp-http:
 	uv run recon-mcp-http
@@ -200,7 +200,8 @@ deploy-logs:
 
 # Finish the Cognito -> SES wiring once the sender identity is verified.
 ses:
-	uv run python -m tools.wire_ses $(if $(CHECK),--check,)
+	SES_SENDER=$(SES_SENDER) COGNITO_POOL_ID=$(COGNITO_POOL_ID) AWS_REGION=$(AWS_REGION) \
+	  uv run python -m tools.wire_ses $(if $(CHECK),--check,)
 
 graph:
 	graphify update .

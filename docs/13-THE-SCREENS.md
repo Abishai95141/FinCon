@@ -169,7 +169,7 @@ accepts a policy", which is true and means nothing to the person deciding, but
 "it cannot sign off a close, because sign-off names a person and it cannot name
 one". Checked against the tool definitions on every render.
 
-The eighteen-tool reference is real and belongs on the page. It does not belong
+The twenty-one-tool reference is real and belongs on the page. It does not belong
 between why-you-would and how-to, so it is behind a disclosure, as is the
 run-it-locally case.
 

@@ -6,7 +6,7 @@
 |---|---|
 | **Current phase** | **The product surface**, beyond P14 — and **two loops**, which is what turned invariant 7 from an assertion into a measurement. FinCon is deployed at `https://fincon.astutecomputer.com`: login, sources, a close, a ranked worklist, four dispositions that write journal entries, human sign-off, a close pack, and MCP behind OAuth. |
 | **Last green gate** | **P15** — `make verify` runs P0–P11, P13, P14 and P15: 15 gates, **377 offline assertions**, plus 2 live ones deselected and named. `P12` is still **RED on the count**: one promoted rule against a gate that says three. |
-| **Tests** | **795 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **1 known-broken row** — `ReconException.leg` cannot name a side a second loop has. Contract **7.7.0**. |
+| **Tests** | **808 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **1 known-broken row** — `ReconException.leg` cannot name a side a second loop has. Contract **7.8.0**. |
 | **Mutation** | 15 sets, all caught: p9–p21. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
 | **Build runs?** | `make eval` closes A and B. `make serve` → `/` (login or the shell); `make mcp` → 18 tools on stdio, `make mcp-http` the same 18 behind Cognito OAuth. `make ses [CHECK=1]` finishes the Cognito→SES wiring. A model key loads from gitignored `data/dev/.env`. |
 | **Last verified numbers** | Ours vs `securo_grouped`: auto-match **90.9% / 86.4%**, false-match **0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. Live model: an `E14` classified as `E08` by `deepseek-v4-flash` in 2.1s, 2026-08-26. |
@@ -35,7 +35,7 @@ Status values: `not started` · `in progress` · `RED` (attempted, failing) · `
 | **P4** | Blocking recall measured against A's labels and printed on the scorecard | **`GREEN`** | [below](#p4--blocking--2026-08-20) |
 | **P5** | Planted ambiguous payout raises `E09`; solver timeouts surface as `E13`, never as silent non-matches | **`GREEN`** | [below](#p5--subset-sum--2026-08-21) |
 | — | **↓ re-planned 2026-08-21 — see [docs/06-PLAN-V2.md](docs/06-PLAN-V2.md)** | | |
-| **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | `not started` | — |
+| **P6** | The 4 crash and 3 silent cases each produce a disposition instead; a deliberately undisposed anchor makes the completeness audit **fail** | **`GREEN`** | [below](#p6--completeness--2026-08-21) |
 | **P7** | Every audit attack reproduced as a failing test, then green: forged tolerance `F1`, zero signs `F2`, rejection volume `F4`, sub-paisa drift | **`GREEN`** | [below](#p7--policy--2026-08-21) |
 | **P8** | The `R-EVIL` rule (tolerance ₹1,000,000, 0 broken, 93 cleared) is **refused**; a legitimate narrow rule still promotes | **`GREEN`** | [below](#p8--promotion-gate--2026-08-21) |
 | **P9** | Replay a full close from the decision log alone and reconstruct the same scorecard | **`GREEN`** | [below](#p9--the-record--2026-08-24) |

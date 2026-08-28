@@ -57,6 +57,24 @@ def resources(template) -> dict:
     return template["Resources"]
 
 
+def test_the_resource_count_in_this_document_matches_the_template(resources):
+    """`docs/14-AWS.md` opens with a resource count, and a count in prose rots.
+
+    It read **19** against a template of 27 for two days — nobody miscounted so
+    much as nobody recounted, which is the same failure as the known-broken table
+    whose generator sat unrun. A number in a document is a claim; this is the
+    test that fails when it stops being true.
+    """
+    doc = (ROOT / "docs" / "14-AWS.md").read_text(encoding="utf-8")
+    claimed = re.search(r"\*\*(\d+) resources\*\*", doc)
+    assert claimed, "docs/14-AWS.md no longer states a resource count in bold"
+    assert int(claimed.group(1)) == len(resources), (
+        f"docs/14-AWS.md says {claimed.group(1)} resources; the template has "
+        f"{len(resources)}. Update the document, or the template grew something "
+        f"nobody wrote down."
+    )
+
+
 # ------------------------------------------------------------------ the image
 
 

@@ -140,8 +140,10 @@ to pick. `E13` means we hit a compute bound — a capacity limit must never
 masquerade as a data finding. `E14` means no strategy matched and the engine
 cannot say why: it carries the facts it has and leaves classification to triage,
 because "I do not know" out loud beats a plausible guess routed to the wrong
-desk. Four of seven items in a current close are `E14`, which is the honest
-measure of how much this system still cannot name.
+desk. Three of seven items in a current close are `E14`, which is the honest
+measure of how much this system still cannot name. It was four until `R-DUP-06`
+was promoted: the first model-induced rule to act re-codes one of them to `E06`,
+which is the only measured evidence the compounding loop works.
 
 **Ingestion proofs** — five checks, no knowledge of format or domain required
 row conservation · control-total tie-out · balance roll-forward · type/domain validity · idempotence
@@ -173,7 +175,8 @@ docs/
   00-RESEARCH-DOSSIER.md      why this problem, what exists
   01-DECISION-SPEC.md         problem/solution/impact/trade-offs
   02-ARCHITECTURE-ADDENDUM.md open intake, verified commit; proof tiers; substrate
-  03-BUILD-PLAN.md            stack, model config, 26 failure modes (phases superseded by 06)
+  03-BUILD-PLAN.md            26 failure modes. Phases superseded by 06; stack and
+                              model config superseded outright — see its header
   04-CONTROL-PLANE-AUDIT.md   five reproducible control bypasses; the trust-class redesign
   05-FAILURE-REGISTER.md      19 probes — where a novel input crashes, goes silent, or goes wrong
   06-PLAN-V2.md               ← THE PLAN. P6–P15, re-planned after the audits.
@@ -212,7 +215,7 @@ src/recon/
                  over it, and a property test compares their bytes
   trust.py       signed authority bundles (Ed25519, key out of band) — OPA's shape
   profiles/settlement.py  the loop's own profile, policy, taxonomy, chart, period
-  mcp/           FastMCP server, 18 tools — `verify_proof` is stateless and
+  mcp/           FastMCP server, 21 tools — `verify_proof` is stateless and
                  public, and no tool schema accepts a policy, a tolerance, a
                  sign convention or a rule set. Two transports: `server.py` is
                  stdio (`make mcp`) and `http.py` is Streamable HTTP behind
@@ -236,7 +239,7 @@ bench/
   run.py         `make eval`
 tests/
   gates/         gate_pN.py — one file per phase, and where the unit tests live
-  property/      metamorphic relations and invariants, 31 files
+  property/      metamorphic relations and invariants, 32 files
   known_broken.py  xfail(strict) reproducers — one open: `ReconException.leg`
                  cannot name a side a second loop has. A fix turns it into an
                  XPASS and forces the row out. STATUS's table is *generated*
@@ -297,7 +300,7 @@ make status-table    # regenerate the known-broken table from the xfails
 # no offline mode, by rule 1
 make serve        # HTTP API + the screens        -> / (the screens) and /docs   [P14]
 make mcp          # MCP server on stdio                               [P13]
-make mcp-http     # the same 18 tools over Streamable HTTP + OAuth     [P22]
+make mcp-http     # the same 21 tools over Streamable HTTP + OAuth     [P22]
 make graph        # refresh the graphify code graph
 ```
 

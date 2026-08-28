@@ -1,6 +1,21 @@
 # Open Intake, Verified Commit — architecture addendum
 
 Date: 2026-08-20 · Amends [01-DECISION-SPEC.md](01-DECISION-SPEC.md) §3 and §7
+
+> **Design-era document, kept as the record.** §§1–4 describe the architecture as
+> built and stand. Two things in §5 do not, and are named rather than edited:
+>
+> - **The "MCP tool surface" block is the surface as designed, not as shipped.**
+>   Nine of those names do not exist (`propose_adapter`, `ingest`,
+>   `list_exceptions`, `resolve_exception`, `propose_rule`, `promote_rule`,
+>   `post_journal`, `export_bundle`, `import_bundle`). The 21 tools that do exist
+>   are in `src/recon/mcp/server.py`, listed on the agent screen, and none of them
+>   promotes a rule or posts a journal — a model drives that interface, so the
+>   write surface got narrower than this block, not wider.
+> - **"`[NeedsApproval]` = human gate, enforced by qm."** qm was never adopted;
+>   the decision to harvest its patterns instead is still open in STATUS.md.
+>   Approval is enforced by `engine/promotion.py` and `disposition.py`.
+
 Prompted by: the objection that a determinism claim costs us generalizability, and the requirement that this be a compoundable substrate for other AI.
 
 ---

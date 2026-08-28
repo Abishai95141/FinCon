@@ -24,7 +24,7 @@ re-derives without us.
 
 <br><br>
 
-<img src="https://img.shields.io/badge/tests-807%20passing-22C55E?style=flat-square" alt="807 tests">
+<img src="https://img.shields.io/badge/tests-808%20passing-22C55E?style=flat-square" alt="808 tests">
 <img src="https://img.shields.io/badge/false%20matches-0.00%25-22C55E?style=flat-square" alt="0.00% false matches">
 <img src="https://img.shields.io/badge/gates-15%20green-22C55E?style=flat-square" alt="15 gates green">
 <img src="https://img.shields.io/badge/contract-v7.8.0-2F7BFF?style=flat-square" alt="contract 7.8.0">
@@ -150,7 +150,7 @@ from the decision log alone:
 `TAN + section + quarter` over an April–March year — runs on the same engine
 with **zero changes to it**, asserted byte-for-byte by its gate.
 
-**Where it says it does not know.** Four of seven items in a real close are
+**Where it says it does not know.** Three of seven items in a real close are
 `E14` — *the engine cannot say why* — and that is printed at the top of the tail
 rather than smoothed into a plausible guess routed to the wrong desk. `E09` is
 the one to pause on: two distinct subsets sum to the same credit within
