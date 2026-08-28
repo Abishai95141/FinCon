@@ -261,7 +261,10 @@ def closed_run(tmp_path):
 
     src = Path("data/runs/A")
     if not src.exists():
-        pytest.fail("data/runs/A is absent — run `make eval` or `make gen` first")
+        pytest.fail(
+            "data/runs/A is absent — run `make eval` first. Not `make gen`:\n"
+            "that writes data/batches/. A run directory comes from a close."
+        )
     runs_dir = tmp_path / "runs"
     (runs_dir).mkdir(parents=True)
     shutil.copytree(src, runs_dir / "A")

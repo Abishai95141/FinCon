@@ -57,6 +57,13 @@ jobs:
         # verify. The dev signing key is committed and labelled as one.
         run: make sign SIGNER='ci@github'
 
+      - name: Close a batch
+        # `make gen` writes `data/batches/`; a close writes `data/runs/`, and four
+        # tests read a real decision log off disk rather than constructing one.
+        # Locally those pass on a run left over from an earlier session, which is
+        # exactly why CI is worth having.
+        run: make eval
+
       - name: Tests
         run: make test
 
