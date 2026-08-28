@@ -53,6 +53,13 @@ class ArmResult:
     run: object | None = None
     """The engine's own `MatchRun`, when there is one."""
 
+    candidates: object | None = None
+    """The `CandidateSet` this arm actually matched over.
+
+    Reported rather than recomputed. The runner used to build its own beside the
+    arm's and print that one, so the scorecard's blocking line and its recall
+    both described a narrowing no close performed — see `bench/run.py`."""
+
     absent: str | None = None
     """Why this arm produced nothing — set only when the arm was never run. An
     absent arm is rendered as absent and refuses to produce a rate. A zero would

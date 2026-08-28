@@ -14,7 +14,6 @@ from pathlib import Path
 
 from recon.contracts import Policy, ProofTier, Record
 from recon.contracts.rule import Rule
-from recon.engine.blocking import CandidateSet
 from recon.engine.tiers import MatchProfile
 
 from . import ArmResult
@@ -26,7 +25,6 @@ def run(
     profile: MatchProfile,
     policy: Policy,
     provenance: ProofTier = ProofTier.P0_ARITHMETIC,
-    candidates: CandidateSet | None = None,
     out_of_scope: Mapping[str, str] | None = None,
     rules: list[Rule] | None = None,
 ) -> ArmResult:
@@ -38,9 +36,16 @@ def run(
     now the only one, and this function is what the benchmark wraps around it —
     a driving adapter, in the shape the scorecard wants.
 
-    `candidates` is accepted and ignored: the stage builds its own candidate set
-    from the same `BlockingPolicy`, so an arm cannot hand in a wider or narrower
-    one than a close would use. Callers pass it for the old signature's sake.
+    The stage builds its own candidate set from the loop's `BlockingPolicy`, and
+    that set travels back on `ArmResult.candidates` so the runner can report the
+    narrowing that actually happened.
+
+    This used to take a `candidates` argument and ignore it, on the stated
+    grounds that "the stage builds its own from the same `BlockingPolicy`, so an
+    arm cannot hand in a wider or narrower one". The premise was false — the
+    runner built its with a bare `BlockingPolicy()` and no counterparty key, so
+    it was wider — and a parameter nothing reads cannot be what keeps the two
+    honest. Removed, so there is one candidate set and nowhere to disagree.
     """
     from recon.close import CloseRequest, match_and_verify
 
@@ -92,6 +97,7 @@ def run(
         tiers=tiers,
         notes=notes,
         exceptions=exceptions,
+        candidates=outcome.candidates,
         completeness=outcome.completeness,
         scope=outcome.scope,
         matches=kept,

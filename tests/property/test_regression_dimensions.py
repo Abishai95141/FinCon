@@ -36,8 +36,6 @@ from hypothesis import strategies as st
 
 from recon.contracts import ProofTier
 from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
-from recon.engine.blocking import BlockingPolicy
-from recon.engine.blocking import build as build_candidates
 from recon.engine.promotion import MatchHistory, evaluate, regress
 
 SLOW = settings(
@@ -57,14 +55,12 @@ def _batches_exist():
 def history():
     sides = load_sides("A")
     rows = [r for _, r in sides.settlement]
-    candidates = build_candidates([r for _, r in sides.anchors], rows, BlockingPolicy())
     base = deterministic.run(
         sides.bank,
         sides.settlement,
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         ProofTier.P0_ARITHMETIC,
-        candidates,
         sides.scope,
     )
     return MatchHistory(

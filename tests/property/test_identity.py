@@ -38,8 +38,6 @@ from bench.run import SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
 
 from recon.contracts import ProofTier
 from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
-from recon.engine.blocking import BlockingPolicy
-from recon.engine.blocking import build as build_candidates
 from recon.engine.promotion import MatchHistory, evaluate, generalises, regress
 from recon.engine.rules import select
 from recon.engine.tiers import run as run_tiers
@@ -242,14 +240,12 @@ def test_the_duplicate_rule_clears_every_control_but_the_one_that_matters(sides)
     """
     a, b = sides["A"], sides["B"]
     rows = [r for _, r in a.settlement]
-    candidates = build_candidates([r for _, r in a.anchors], rows, BlockingPolicy())
     base = deterministic.run(
         a.bank,
         a.settlement,
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         ProofTier.P0_ARITHMETIC,
-        candidates,
         a.scope,
     )
     history = MatchHistory(
@@ -341,20 +337,13 @@ def test_the_deterministic_arm_reports_no_unprovable_match(sides):
     from bench.arms import deterministic
     from bench.metrics import unprovable_matches
 
-    from recon.engine.blocking import BlockingPolicy
-    from recon.engine.blocking import build as build_candidates
-
     a = sides["A"]
-    candidates = build_candidates(
-        [r for _, r in a.anchors], [r for _, r in a.settlement], BlockingPolicy()
-    )
     result = deterministic.run(
         a.bank,
         a.settlement,
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         ProofTier.P0_ARITHMETIC,
-        candidates,
         a.scope,
     )
     from bench.metrics import declared_gaps

@@ -51,8 +51,6 @@ from hypothesis import strategies as st
 
 from recon.contracts import ProofTier, Record
 from recon.contracts.rule import ActionKind, Operator, Predicate, Rule, RuleAction
-from recon.engine.blocking import BlockingPolicy
-from recon.engine.blocking import build as build_candidates
 from recon.engine.promotion import MatchHistory, evaluate, generalises, regress
 
 BATCHES = pytest.importorskip("pathlib").Path("data/batches")
@@ -75,15 +73,12 @@ def sides():
 
 
 def _close(bank, settlement, scope):
-    anchors = [rec for _, rec in bank if rec.record_id not in scope]
-    candidates = build_candidates(anchors, [r for _, r in settlement], BlockingPolicy())
     return deterministic.run(
         bank,
         settlement,
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         ProofTier.P0_ARITHMETIC,
-        candidates,
         scope,
     )
 

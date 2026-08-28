@@ -584,7 +584,6 @@ def test_a_match_the_verifier_refuses_never_reaches_the_scorecard(monkeypatch):
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         sides.provenance,
-        None,
         sides.scope,
     )
     assert result.pairs == {}

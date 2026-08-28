@@ -66,7 +66,7 @@ consistent (verified with a script at authoring time), not measurements. Real nu
 Measured, not projected. Regenerate with `python -m bench.run --batch A`.
 
 ```
-blocking: 271/506 pairs (46.4% reduction) :: amount=186 date=366 reference=19
+blocking: 150/572 pairs (73.8% reduction) :: amount=123 date=200 reference=19
           blocking recall 100.0% (21/21 reachable true pairs kept);
           1 true pair not reachable at all — the source declared no group
 

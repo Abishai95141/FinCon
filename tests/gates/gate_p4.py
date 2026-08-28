@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 from bench.arms import deterministic
-from bench.metrics import score, truth_groups, truth_pairs
+from bench.metrics import truth_groups
 from bench.run import BATCHES, SETTLEMENT_3WAY, SETTLEMENT_POLICY, load_sides
 
 from recon.engine.blocking import (
@@ -29,6 +29,7 @@ from recon.engine.blocking import (
     recall,
     summarise_groups,
 )
+from recon.engine.tiers import run as run_tiers
 
 pytestmark = pytest.mark.gate
 
@@ -52,10 +53,14 @@ def _parts(sides, batch):
     return bank, settlement, provenance, anchors, groups, declared
 
 
-#: The settlement loop's own counterparty key. Named here because `BlockingPolicy`
-#: no longer defaults to it — `"gateway"` sat in the kernel as the value every
-#: other loop silently inherited, which is why the TDS loop blocked nothing.
-SETTLEMENT_BLOCKING = BlockingPolicy(counterparty_key="gateway")
+#: The settlement loop's own blocking policy, read from the loop rather than
+#: retyped. `BlockingPolicy` no longer defaults to `"gateway"` — that key sat in
+#: the kernel as the value every other loop silently inherited, which is why the
+#: TDS loop blocked nothing. Naming it again here would just move the copy.
+SETTLEMENT_BLOCKING = BlockingPolicy(
+    counterparty_key=SETTLEMENT_3WAY.counterparty_key,
+    date_window_days=SETTLEMENT_3WAY.tolerance.date_window_days or 3,
+)
 
 
 def _measure(sides, batch, policy: BlockingPolicy | None = None):
@@ -128,27 +133,69 @@ def test_unreachable_cannot_absorb_a_real_blocking_failure(sides):
 def test_blocking_does_not_change_any_p3_number(sides, batch):
     """A blocker narrows the search. If it changes the answer it is not a
     blocker — it is a matching rule wearing one's clothes."""
-    bank, settlement, provenance, anchors, groups, _declared = _parts(sides, batch)
-    truth = truth_pairs(BATCHES / batch / "labels.json")
+    _bank, _settlement, provenance, anchors, groups, _declared = _parts(sides, batch)
 
-    without = deterministic.run(
-        bank, settlement, SETTLEMENT_3WAY, SETTLEMENT_POLICY, provenance, None
+    # Asserted against `engine.tiers.run`, which is the seam that actually honours
+    # a candidate set. This test used to call `deterministic.run` twice, passing
+    # `None` and then a set — and that arm ignored the argument, so both calls
+    # were the same call and the assertion could not fail. A gate over an effect
+    # that never happens; found 2026-08-28 while tracing why the scorecard
+    # printed two different blocking figures.
+    without = run_tiers(anchors, groups, SETTLEMENT_3WAY, provenance, None, SETTLEMENT_POLICY)
+    with_blocking = run_tiers(
+        anchors,
+        groups,
+        SETTLEMENT_3WAY,
+        provenance,
+        build(anchors, groups, SETTLEMENT_BLOCKING),
+        SETTLEMENT_POLICY,
     )
-    with_blocking = deterministic.run(
-        bank,
-        settlement,
+
+    def pairing(outcome):
+        return {m.anchor_id: frozenset(m.group_ids) for m in outcome.matches}
+
+    assert pairing(with_blocking) == pairing(without), (
+        "blocking changed the answer, which makes it a matching rule rather than "
+        "a narrowing of the search"
+    )
+    assert {e.code for e in with_blocking.exceptions} == {e.code for e in without.exceptions}
+
+
+@pytest.mark.parametrize("batch", ["A", "B"])
+def test_the_reported_blocking_is_the_blocking_that_happened(sides, batch):
+    """Invariant 6 must be measured on the set the matcher actually used.
+
+    `bench/run.py` built its own candidate set with a bare `BlockingPolicy()`,
+    printed *that* on the scorecard, and measured recall against it — while the
+    close narrowed with the loop's own policy. Two numbers for one fact: 271
+    pairs reported, 150 considered, and 121 the recall counted reachable that no
+    close ever looked at. Recall read 100% on a superset of the real one, which
+    can only ever overstate.
+
+    So: the arm reports the set it matched over, and this asserts it is the
+    loop's, not the kernel default. The second assertion is the one that matters
+    — without it the first passes on any two sets that happen to agree.
+    """
+    anchors = [rec for _, rec in sides[batch].bank]
+    groups = [rec for _, rec in sides[batch].settlement]
+
+    result = deterministic.run(
+        sides[batch].bank,
+        sides[batch].settlement,
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
-        provenance,
-        build(anchors, groups, BlockingPolicy()),
+        sides[batch].provenance,
+        sides[batch].scope,
     )
 
-    assert with_blocking.pairs == without.pairs
-    before, after = score(without, truth), score(with_blocking, truth)
-    assert (before.correct, before.false_matches, before.produced) == (
-        after.correct,
-        after.false_matches,
-        after.produced,
+    assert result.candidates is not None, "an arm that blocks must report what it blocked with"
+    assert result.candidates.pairs == build(anchors, groups, SETTLEMENT_BLOCKING).pairs, (
+        "the arm matched over a different candidate set than the loop's policy builds"
+    )
+    kernel_default = build(anchors, groups, BlockingPolicy())
+    assert result.candidates.pairs != kernel_default.pairs, (
+        "the loop's blocking is indistinguishable from the kernel default here, so "
+        "this test cannot tell the two apart and the regression it guards would pass"
     )
 
 

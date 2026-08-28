@@ -41,8 +41,7 @@ from recon.contracts import (
 )
 from recon.contracts.rule import Rule
 from recon.engine import rulestore
-from recon.engine.blocking import BlockingPolicy, CandidateSet, RecallReport, recall
-from recon.engine.blocking import build as build_candidates
+from recon.engine.blocking import CandidateSet, RecallReport, recall
 from recon.engine.completeness import CompletenessReport
 from recon.journal.derive import Decisions
 from recon.ledger.beancount_io import CloseResult as LedgerResult
@@ -187,13 +186,6 @@ def close(
 
     anchors = [rec for _, rec in sides.anchors]
     group_records = [rec for _, rec in sides.settlement]
-    candidates = build_candidates(anchors, group_records, BlockingPolicy())
-    blocking = recall(
-        candidates,
-        truth_groups(labels),
-        {ext: rec.record_id for ext, rec in sides.bank},
-        declared_groups={rec.group_ref for rec in group_records if rec.group_ref},
-    )
 
     external_of = {rec.record_id: ext for ext, rec in sides.bank + sides.settlement}
     planted = load_planted(labels, external_of)
@@ -213,12 +205,30 @@ def close(
         SETTLEMENT_3WAY,
         SETTLEMENT_POLICY,
         sides.provenance,
-        candidates,
         sides.scope,
         # Promoted rules are part of the system, not an experiment beside it:
         # the default close reads the store, so a rule that changes nothing
         # shows up as a scorecard that did not move.
         active_rules,
+    )
+
+    # Invariant 6, measured on the set the matcher actually used. Until
+    # 2026-08-28 the runner built its own here with a bare `BlockingPolicy()` and
+    # measured recall against that: 271 pairs where the close considers 150, so
+    # 121 pairs were reported reachable that no close ever looked at. Recall read
+    # 100% on a superset of the real one, which is an upper bound wearing the
+    # costume of a measurement — and invariant 6 exists because an unmeasured
+    # blocker silently caps everything below it.
+    candidates = ours.candidates
+    blocking = (
+        recall(
+            candidates,
+            truth_groups(labels),
+            {ext: rec.record_id for ext, rec in sides.bank},
+            declared_groups={rec.group_ref for rec in group_records if rec.group_ref},
+        )
+        if candidates is not None
+        else None
     )
 
     by_external = {ext: rec for ext, rec in sides.bank + sides.settlement}
