@@ -27,13 +27,15 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Match, NoMatchFound
 
 from .. import service
 from ..contracts import CONTRACT_VERSION, Policy, Proof, Record
 from ..loop import LoopError
-from . import ui
+from . import auth, ui
 
 DESCRIPTION = """\
 A reconciliation controller. It closes a three-way match, writes double-entry
@@ -91,6 +93,61 @@ def workspace(request: Request) -> Path:
 
 
 WORKSPACE = Depends(workspace)
+
+
+@app.middleware("http")
+async def _csrf_cookie(request: Request, call_next):
+    """Every request carries a CSRF token, and browsing keeps it alive.
+
+    Two failures met here on the deployed instance. `_csrf_field` read the cookie
+    and rendered an empty value when it was missing, so the page shipped a form
+    that could only be refused; and nothing re-issued the cookie after login, so
+    a non-httponly cookie cleared by a browser, an extension or a privacy setting
+    left the httponly session alive with every form on the product dead — logout
+    included, which is the one people press when something is wrong.
+
+    Minting here rather than in the renderer is what makes the token in the form
+    and the token in the cookie the same decision. Re-setting it on every HTML
+    response is what stops it aging out from under a live session.
+    """
+    existing = request.cookies.get(auth.CSRF_COOKIE)
+    request.state.csrf = existing or auth.new_csrf()
+    response = await call_next(request)
+    html = response.headers.get("content-type", "").startswith("text/html")
+    if existing != request.state.csrf or html:
+        response.set_cookie(
+            auth.CSRF_COOKIE,
+            request.state.csrf,
+            max_age=auth.CSRF_TTL,
+            httponly=False,
+            secure=not auth.is_dev(),
+            samesite="lax",
+            path="/",
+        )
+    return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
+    """A browser gets a page. A client gets JSON.
+
+    `{"detail":"This form expired. Reload and try again."}` on a black page is
+    what a controller saw for pressing *Sign out*, and it is the failure
+    `docs/13-THE-SCREENS.md` calls a screen shrugging at whoever is reading it:
+    true, useless, and offering nothing to do next.
+
+    Redirects raised as exceptions (`signed_in` raises a 303 to the login) pass
+    through untouched — they are control flow, not an error.
+    """
+    if exc.status_code in (301, 302, 303, 307, 308) or (
+        exc.headers and exc.headers.get("Location")
+    ):
+        return await http_exception_handler(request, exc)
+    wants_html = "text/html" in request.headers.get("accept", "")
+    api = request.url.path.startswith(("/v1", "/mcp", "/docs", "/openapi", "/healthz"))
+    if not wants_html or api:
+        return await http_exception_handler(request, exc)
+    return ui.error_page(request, exc.status_code, str(exc.detail))
 
 
 @app.exception_handler(service.ServiceError)

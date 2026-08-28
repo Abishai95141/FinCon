@@ -23,6 +23,7 @@ edited, where the page says so rather than rendering something clean.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -54,6 +55,8 @@ router = APIRouter(include_in_schema=False)
 #: loops are for, and somebody arriving for the first time has no periods to
 #: look at anyway. It is also the first step of the tour, so the guided path and
 #: the default path are the same path.
+LOG = logging.getLogger("recon.ui")
+
 LANDING = "/sources"
 
 NAV = (
@@ -128,7 +131,16 @@ def _check_csrf(request: Request, token: str | None) -> None:
         raise HTTPException(status_code=403, detail="This form expired. Reload and try again.")
 
 
-def _with_session(response: Response, user: User) -> Response:
+def _with_session(response: Response, user: User, request: Request) -> Response:
+    """Issue the session, and rotate the CSRF token with it.
+
+    The rotation is a *request* mutation rather than a second `set_cookie`,
+    because the CSRF cookie has exactly one writer — the middleware in
+    `app.py` — and two writers for one cookie is how this broke before: a
+    page minted one value into its form and another into the header, and the
+    first submit was a 403. Setting it here as well would put the two back.
+    """
+    request.state.csrf = auth.new_csrf()
     secure = not auth.is_dev()
     response.set_cookie(
         auth.SESSION_COOKIE,
@@ -139,20 +151,19 @@ def _with_session(response: Response, user: User) -> Response:
         samesite="lax",
         path="/",
     )
-    response.set_cookie(
-        auth.CSRF_COOKIE,
-        auth.new_csrf(),
-        max_age=auth.SESSION_TTL,
-        httponly=False,
-        secure=secure,
-        samesite="lax",
-        path="/",
-    )
     return response
 
 
 def _csrf_field(request: Request) -> str:
-    token = request.cookies.get(auth.CSRF_COOKIE) or ""
+    """The token for this request — minted by the middleware if none arrived.
+
+    This read the cookie and rendered `value=''` when it was missing, which is a
+    form born broken: the page had the one chance to fix itself and shipped a
+    submit that could only 403. Every form on the product is behind this, so the
+    symptom was whichever one the person pressed — usually *Sign out*, because
+    that is what you press when something is wrong.
+    """
+    token = getattr(request.state, "csrf", "") or request.cookies.get(auth.CSRF_COOKIE) or ""
     return f"<input type='hidden' name='csrf' value='{escape(token)}'>"
 
 
@@ -266,6 +277,57 @@ PROOF_CARD = (
     "font-size:11.5px;color:#15803D;display:flex;align-items:center;gap:.35rem'>"
     "&#10003; Re-derived from the source files</div></div>"
 )
+
+
+#: What each status means to the person who hit it, in their words. A code is a
+#: fact about HTTP; this is a fact about what to do next.
+_WHAT_HAPPENED: dict[int, tuple[str, str]] = {
+    403: (
+        "That form had gone stale",
+        "The page had been open a while and the token in it expired. Nothing was "
+        "changed. Open the screen again and the same action will go through.",
+    ),
+    404: (
+        "There is nothing at that address",
+        "The link may be from an older version of the product, or the run it "
+        "points at belongs to a different account.",
+    ),
+    413: (
+        "That file is too large",
+        "A bank statement is a text file. Anything past 25 MB is a mistake or an "
+        "attack, and both get the same answer.",
+    ),
+    429: (
+        "Too many attempts, too quickly",
+        "The limit is per caller and it resets on its own in a few minutes.",
+    ),
+}
+
+
+def error_page(request: Request, status: int, detail: str) -> HTMLResponse:
+    """An HTML answer for a browser, with somewhere to go from here.
+
+    A form post that fails used to render FastAPI's `{"detail": ...}` on a black
+    page. It was accurate and it was a dead end — no navigation, no way back, and
+    for the one form that signs you out, no way to leave at all.
+    """
+    heading, says = _WHAT_HAPPENED.get(
+        status, ("Something went wrong", "The request was not completed.")
+    )
+    where = LANDING if visitor(request) else "/login"
+    body = (
+        f"<p class='cap' style='margin:0 0 1.4rem'>{escape(detail)}</p>"
+        f"<div style='display:flex;gap:.6rem;flex-wrap:wrap'>"
+        f"<a class='btn btn-primary' href='{escape(where)}'>{icon('arrow', 15)}"
+        f"Back to the product</a></div>"
+    )
+    return HTMLResponse(
+        document(
+            f"{heading} · FinCon",
+            _auth_shell(title=heading, heading=heading, lede=says, body=body),
+        ),
+        status_code=status,
+    )
 
 
 def _auth_shell(*, title: str, heading: str, lede: str, body: str) -> str:
@@ -431,18 +493,8 @@ def _auth_response(html: str, request: Request, *, status: int = 200) -> Respons
     # `new_csrf()` twice for one page and a first-time visitor got a 403 on
     # their very first submit. Nothing else caught it: every other test starts
     # from a client that already holds a cookie.
-    token = request.cookies.get(auth.CSRF_COOKIE) or auth.new_csrf()
-    page = HTMLResponse(html.replace(CSRF_SLOT, escape(token)), status_code=status)
-    page.set_cookie(
-        auth.CSRF_COOKIE,
-        token,
-        max_age=auth.SESSION_TTL,
-        httponly=False,
-        secure=not auth.is_dev(),
-        samesite="lax",
-        path="/",
-    )
-    return page
+    token = getattr(request.state, "csrf", "") or request.cookies.get(auth.CSRF_COOKIE) or ""
+    return HTMLResponse(html.replace(CSRF_SLOT, escape(token)), status_code=status)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -493,7 +545,7 @@ def login_submit(
         )
 
     throttle.THROTTLE.forget("signin", caller)
-    return _with_session(RedirectResponse(LANDING, status_code=303), user)
+    return _with_session(RedirectResponse(LANDING, status_code=303), user, request)
 
 
 @router.post("/signup")
@@ -627,7 +679,20 @@ def confirm_resend(request: Request, email: str = Form(...), csrf: str = Form(""
 
 @router.post("/logout")
 def logout(request: Request, csrf: str = Form("")) -> Response:
-    _check_csrf(request, csrf)
+    """Clears the session whether or not the token checks out.
+
+    The trade is stated rather than assumed. What a CSRF check on logout buys is
+    protection from a page that force-signs-you-out, whose worst outcome is that
+    you sign in again. What it cost was a controller with a stale token trapped
+    in an account they were trying to leave, because the only way out is a form
+    post and the form post is the broken thing. Destroying your own session is
+    not a privilege anyone escalates to.
+
+    A stale token is still *recorded* — it means a cookie went missing under a
+    live session, which is worth knowing about rather than swallowing.
+    """
+    if not auth.csrf_ok(request.cookies.get(auth.CSRF_COOKIE), csrf):
+        LOG.warning("logout with a stale csrf token; signing out anyway")
     out = RedirectResponse("/login", status_code=303)
     out.delete_cookie(auth.SESSION_COOKIE, path="/")
     return out

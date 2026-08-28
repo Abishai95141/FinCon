@@ -24,7 +24,7 @@ re-derives without us.
 
 <br><br>
 
-<img src="https://img.shields.io/badge/tests-830%20passing-22C55E?style=flat-square" alt="830 tests">
+<img src="https://img.shields.io/badge/tests-835%20passing-22C55E?style=flat-square" alt="835 tests">
 <img src="https://img.shields.io/badge/false%20matches-0.00%25-22C55E?style=flat-square" alt="0.00% false matches">
 <img src="https://img.shields.io/badge/gates-15%20green-22C55E?style=flat-square" alt="15 gates green">
 <img src="https://img.shields.io/badge/contract-v7.8.0-2F7BFF?style=flat-square" alt="contract 7.8.0">

@@ -41,6 +41,13 @@ from typing import Protocol
 SESSION_COOKIE = "fincon_session"
 CSRF_COOKIE = "fincon_csrf"
 SESSION_TTL = 12 * 60 * 60
+
+#: The CSRF cookie lives longer than the session on purpose. Expiring first
+#: leaves an account signed in with every form dead — including logout, so the
+#: app has no exit. Expiring second means the session goes and the answer is a
+#: redirect to the login. One hour of slack covers clock skew between the
+#: browser dropping a cookie and the token inside the session going stale.
+CSRF_TTL = SESSION_TTL + 60 * 60
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 
 

@@ -26,6 +26,8 @@ from fastapi.testclient import TestClient
 
 from recon.api import auth, throttle
 from recon.api.app import app
+from recon.api.ui import LANDING
+from tests.conftest import signed_in_client
 
 
 @pytest.fixture
@@ -352,3 +354,96 @@ def test_a_first_time_visitor_can_submit_the_very_first_form(client):
             f"{path} put one token in the form and another in the cookie, so the "
             f"first submit by a first-time visitor is a 403"
         )
+
+
+# ------------------------------------------- the cookie that went missing
+#
+# Reported from the deployed instance: pressing *Sign out* answered
+# `{"detail":"This form expired. Reload and try again."}` on a black page.
+# Three faults met, and the shape is worth keeping because each one alone is
+# survivable and together they are a locked room.
+
+
+def test_a_page_never_ships_a_form_it_knows_cannot_submit(tmp_path, monkeypatch):
+    """`_csrf_field` rendered `value=''` when the cookie was absent.
+
+    The page had its one chance to fix the problem and shipped a submit that
+    could only be refused. Every form on the product is behind that helper, so
+    the symptom was whichever one the person pressed.
+    """
+    made, _user, _root = signed_in_client(monkeypatch, tmp_path)
+    made.cookies.delete(auth.CSRF_COOKIE)
+
+    page = made.get("/sources")
+    token = re.search(r"name='csrf' value='([^']*)'", page.text).group(1)
+    assert token, "rendered a form whose token is the empty string"
+    assert token == made.cookies.get(auth.CSRF_COOKIE), (
+        "the form and the cookie disagree, so the next submit is a 403"
+    )
+
+
+def test_signing_out_works_when_the_csrf_cookie_is_gone(tmp_path, monkeypatch):
+    """Sign out is the escape hatch and cannot need a live token to work.
+
+    The session cookie is `httponly`; the CSRF cookie is not, so a browser, an
+    extension or a privacy setting can clear the second and leave the first. That
+    left an account signed in with every form dead — including the only way out.
+    """
+    made, _user, _root = signed_in_client(monkeypatch, tmp_path)
+    made.cookies.delete(auth.CSRF_COOKIE)
+
+    out = made.post("/logout", data={"csrf": ""}, follow_redirects=False)
+    assert out.status_code == 303, out.text[:200]
+    assert out.headers["location"] == "/login"
+    assert not made.cookies.get(auth.SESSION_COOKIE), "still signed in after signing out"
+
+
+def test_the_csrf_cookie_outlives_the_session(tmp_path, monkeypatch):
+    """Ordering, asserted rather than assumed.
+
+    Expiring first leaves a live session with no working form. Expiring second
+    means the session goes and the answer is a redirect to the login, which is
+    something a person can act on. Only one of those is a product.
+    """
+    assert auth.CSRF_TTL > auth.SESSION_TTL
+
+    made, _user, _root = signed_in_client(monkeypatch, tmp_path)
+    jar = {c.name: c for c in made.cookies.jar}
+    assert jar[auth.CSRF_COOKIE].expires > jar[auth.SESSION_COOKIE].expires, (
+        "the browser will drop the CSRF cookie while the session is still valid"
+    )
+
+
+def test_a_refused_form_answers_a_browser_with_a_page(tmp_path, monkeypatch):
+    """`{"detail": ...}` on a black page is a screen shrugging at its reader.
+
+    True, useless, and offering nothing to do next — the failure
+    `docs/13-THE-SCREENS.md` names. A client that asked for JSON still gets JSON.
+    """
+    made, _user, _root = signed_in_client(monkeypatch, tmp_path)
+
+    html = made.post(
+        "/sources/sample", data={"csrf": "not-the-token"}, headers={"accept": "text/html"}
+    )
+    assert html.status_code == 403
+    assert html.headers["content-type"].startswith("text/html"), "a browser got JSON"
+    assert "That form had gone stale" in html.text, "no plain-language explanation"
+    assert f"href='{LANDING}'" in html.text, "a dead end — no way back into the product"
+    assert "<script" not in html.text.lower(), "the error page ships JavaScript"
+
+    api = made.post(
+        "/sources/sample", data={"csrf": "not-the-token"}, headers={"accept": "application/json"}
+    )
+    assert api.headers["content-type"].startswith("application/json")
+
+
+def test_a_redirect_raised_as_an_exception_is_still_a_redirect(tmp_path, monkeypatch):
+    """`signed_in` raises a 303 to the login. That is control flow, and an error
+    handler that rendered it as a page would strand every signed-out visitor."""
+    monkeypatch.setenv("RECON_ENV", "dev")
+    monkeypatch.setenv("RECON_AUTH", "local")
+    monkeypatch.setenv("RECON_DEV_USERS", str(tmp_path / "users.json"))
+    with TestClient(app, follow_redirects=False) as anon:
+        landed = anon.get("/sources", headers={"accept": "text/html"})
+        assert landed.status_code == 303
+        assert landed.headers["location"] == "/login"

@@ -6,7 +6,7 @@
 |---|---|
 | **Current phase** | **The product surface**, beyond P14 — and **two loops**, which is what turned invariant 7 from an assertion into a measurement. FinCon is deployed at `https://fincon.astutecomputer.com`: login, sources, a close, a ranked worklist, four dispositions that write journal entries, human sign-off, a close pack, and MCP behind OAuth. |
 | **Last green gate** | **P15** — `make verify` runs P0–P11, P13, P14 and P15: 15 gates, **379 offline assertions**, plus 2 live ones deselected and named. `P12` is still **RED on the count**: one promoted rule against a gate that says three. |
-| **Tests** | **830 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **1 known-broken row** — `ReconException.leg` cannot name a side a second loop has. Contract **7.8.0**. |
+| **Tests** | **835 offline** (`make test`) + live gates needing `DEEPSEEK_API_KEY`. **1 known-broken row** — `ReconException.leg` cannot name a side a second loop has. Contract **7.8.0**. |
 | **Mutation** | 15 sets, all caught: p9–p21. `make mutate SET=pN`; rewrites `src/` in place, so run nothing else alongside it. |
 | **Build runs?** | `make eval` closes A and B. `make serve` → `/` (login or the shell); `make mcp` → 18 tools on stdio, `make mcp-http` the same 18 behind Cognito OAuth. `make ses [CHECK=1]` finishes the Cognito→SES wiring. A model key loads from gitignored `data/dev/.env`. |
 | **Last verified numbers** | Ours vs `securo_grouped`: auto-match **90.9% / 86.4%**, false-match **0.00%**, coverage **100% (6/6) / 0%**, classification **66.7% (4/6) / 0%**, ambiguity **100% / 0%**. `outcome_digest` A `5d5a6958f5d17aeb` · B `51ae44dea18b4c6e`. Live model: an `E14` classified as `E08` by `deepseek-v4-flash` in 2.1s, 2026-08-26. |
