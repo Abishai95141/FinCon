@@ -186,6 +186,59 @@ this without us*.
 
 ---
 
+## The guided tour
+
+*Added 2026-08-28. `src/recon/api/tour.py`.*
+
+Everything above is the design. The tour is the same thing said out loud to
+somebody standing on the screen, in the order this document already puts them
+in — and signing in now lands on **Data sources**, which is step one, so the
+guided path and the default path are the same path.
+
+Eight steps: three on Data sources, then Periods, Worklist, Verify, Agent
+access, Settings. It stops there deliberately. An item, a signature and a close
+pack need a `run_id`, and a tour that dead-ends on *"no period yet"* teaches
+that the product is broken; the last step names them as what comes next
+instead.
+
+**It is a URL, not a state machine.** `?tour=3` is the whole thing. *Next* is a
+link to the next step's route, *Skip* a link to the route with nothing on it.
+That means it survives a reload, it can be sent to somebody, and the back
+button walks it backwards for free. It also means **no JavaScript** —
+`gate_p14` asserts the product needs none and a tour is not the reason to
+start. The highlight is a CSS rule keyed on a class the server puts on `<body>`;
+those rules are *generated* from the step list, because a step nobody styled
+would dim the page and light nothing, and that failure is silent.
+
+*Next* carries a fragment — `/periods?tour=3#periods-list` — so the browser
+scrolls the highlighted element into view by itself. That is what makes the
+tour work on a narrow screen, where the rail stacks above the content and the
+highlight would otherwise be a thousand pixels below the fold.
+
+### What the highlight does
+
+| | |
+|---|---|
+| **The veil** | Everything dims to `rgba(11,30,69,.44)`. Not decoration — it is the only thing that makes one panel on a page of panels read as *the* panel. |
+| **The spotlight** | The element rises above the veil, takes an opaque `--surface` background (a translucent panel over a dark veil goes muddy), a 2px accent outline, and a ring that pulses out every 2.6s. |
+| **The callout** | Fixed, bottom-right, with an accent top edge and a real border — the spotlit thing is usually a white panel, and white-on-white separated by a soft shadow alone reads as one surface. |
+| **Motion** | A 380ms rise-and-settle on the callout, a 500ms scale on the spotlight, then the ring. All of it off under `prefers-reduced-motion`. |
+| **Never the rail** | `.rail` is `position: sticky`, which creates a stacking context its children cannot escape. The rail dimming while the stage lights up is the correct reading anyway: the tour is about the page, and `aria-current` already says where you are. |
+
+### What it says
+
+One idea per step, in a controller's words, and the same voice as the screen it
+is standing on — *"what this thing does"*, not *"the Data Sources module"*. Each
+step says what the thing in front of them is **for** before it says what it is
+called. The copy is authored beside the step, not fetched from a heading, so a
+screen can be rewritten without the tour quietly starting to describe something
+that is no longer there.
+
+`tests/property/test_tour.py` walks every step against its real route and fails
+if the highlight has nothing to land on.
+
+---
+
 ## The rules the screens follow
 
 **One question per screen.** Named at the top, in the words a controller would
@@ -211,3 +264,8 @@ a posting. An ambiguity names both candidates rather than picking.
 
 - Nothing on any screen explains *why* a close is worth running to somebody who
   has not already decided to run one. That is a landing page, and there is none.
+  The tour narrows this — it says what each screen is for — but it still assumes
+  somebody who has already decided to sign in.
+- The tour stops before the three screens that need a closed period. The right
+  fix is to run it again from the close pack once one exists, not to fake a
+  period so the tour has somewhere to stand.

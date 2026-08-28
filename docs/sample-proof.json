@@ -1,0 +1,704 @@
+{
+ "proof": {
+  "contract_version": "7.8.0",
+  "proof_id": "PRF-M-00001",
+  "match_id": "M-00001",
+  "tier": "T0",
+  "provenance": "P0",
+  "legs": [
+   {
+    "side": "bank",
+    "record_ids": [
+     "icici-camt:5c6f18c3c320:0"
+    ],
+    "subtotal": "51990.42"
+   },
+   {
+    "side": "settlement",
+    "record_ids": [
+     "gateway-settlement:00c95fc09985:0",
+     "gateway-settlement:09bbf4751377:0",
+     "gateway-settlement:0cb61f9fa766:0",
+     "gateway-settlement:0ccd6ab65378:0",
+     "gateway-settlement:2549ebe0d08f:0",
+     "gateway-settlement:332334fde1fd:0",
+     "gateway-settlement:3583639a939a:0",
+     "gateway-settlement:4494843be57b:0",
+     "gateway-settlement:4aff3b31a689:0",
+     "gateway-settlement:a283b19272df:0",
+     "gateway-settlement:b2405387415a:0",
+     "gateway-settlement:c5e9611d3a87:0",
+     "gateway-settlement:c6f2bae77d9f:0",
+     "gateway-settlement:cc5f8faa9322:0",
+     "gateway-settlement:d20f60b31170:0",
+     "gateway-settlement:d771c2a87eb9:0",
+     "gateway-settlement:d8737eb25b89:0",
+     "gateway-settlement:d98aa56c5203:0",
+     "gateway-settlement:e178f1b7d794:0",
+     "gateway-settlement:f1d2d3ab355b:0",
+     "gateway-settlement:fa23e291800e:0",
+     "gateway-settlement:fcdf5f4cfb6f:0"
+    ],
+    "subtotal": "51990.42"
+   }
+  ],
+  "residual": "0.00",
+  "tolerance_allowed": "0.50",
+  "tolerance_used": "0.00",
+  "rule_bundle_digest": "390084c1407b925d",
+  "rule_id": null,
+  "rule_version": null,
+  "attested_by": null,
+  "attested_at": null,
+  "declared_amount": null,
+  "declared_gap": null,
+  "entry_id": null,
+  "created_at": null,
+  "notes": []
+ },
+ "records": [
+  {
+   "record_id": "gateway-settlement:00c95fc09985:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00073",
+   "row_ordinal": 149,
+   "posted_on": "2026-07-30",
+   "amount": "-143.14",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00145",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00073",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00145",
+    "value_date": "2026-07-30",
+    "amount": "-143.14"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00145|-143.14",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:09bbf4751377:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00078",
+   "row_ordinal": 159,
+   "posted_on": "2026-08-01",
+   "amount": "-96.17",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00155",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00078",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00155",
+    "value_date": "2026-08-01",
+    "amount": "-96.17"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00155|-96.17",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:0cb61f9fa766:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00077",
+   "row_ordinal": 157,
+   "posted_on": "2026-07-31",
+   "amount": "-116.30",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00153",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00077",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00153",
+    "value_date": "2026-07-31",
+    "amount": "-116.30"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00153|-116.30",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:0ccd6ab65378:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00160",
+   "row_ordinal": 162,
+   "posted_on": "2026-07-30",
+   "amount": "1917.60",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00159",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00160",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00159",
+    "value_date": "2026-07-30",
+    "amount": "1917.60"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00159|1917.60",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:2549ebe0d08f:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00156",
+   "row_ordinal": 158,
+   "posted_on": "2026-08-01",
+   "amount": "3923.93",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00155",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00156",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00155",
+    "value_date": "2026-08-01",
+    "amount": "3923.93"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00155|3923.93",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:332334fde1fd:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00082",
+   "row_ordinal": 167,
+   "posted_on": "2026-08-01",
+   "amount": "-185.64",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00163",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00082",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00163",
+    "value_date": "2026-08-01",
+    "amount": "-185.64"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00163|-185.64",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:3583639a939a:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00154",
+   "row_ordinal": 156,
+   "posted_on": "2026-07-31",
+   "amount": "4762.39",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00153",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00154",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00153",
+    "value_date": "2026-07-31",
+    "amount": "4762.39"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00153|4762.39",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:4494843be57b:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00152",
+   "row_ordinal": 154,
+   "posted_on": "2026-08-01",
+   "amount": "5477.81",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00151",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00152",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00151",
+    "value_date": "2026-08-01",
+    "amount": "5477.81"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00151|5477.81",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:4aff3b31a689:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00144",
+   "row_ordinal": 146,
+   "posted_on": "2026-07-30",
+   "amount": "353.35",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00143",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00144",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00143",
+    "value_date": "2026-07-30",
+    "amount": "353.35"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00143|353.35",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:a283b19272df:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00080",
+   "row_ordinal": 163,
+   "posted_on": "2026-07-30",
+   "amount": "-48.02",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00159",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00080",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00159",
+    "value_date": "2026-07-30",
+    "amount": "-48.02"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00159|-48.02",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:b2405387415a:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00079",
+   "row_ordinal": 161,
+   "posted_on": "2026-07-30",
+   "amount": "-214.03",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00157",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00079",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00157",
+    "value_date": "2026-07-30",
+    "amount": "-214.03"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00157|-214.03",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:c5e9611d3a87:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00164",
+   "row_ordinal": 166,
+   "posted_on": "2026-08-01",
+   "amount": "7651.83",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00163",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00164",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00163",
+    "value_date": "2026-08-01",
+    "amount": "7651.83"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00163|7651.83",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:c6f2bae77d9f:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00158",
+   "row_ordinal": 160,
+   "posted_on": "2026-07-30",
+   "amount": "8834.55",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00157",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00158",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00157",
+    "value_date": "2026-07-30",
+    "amount": "8834.55"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00157|8834.55",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:cc5f8faa9322:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00081",
+   "row_ordinal": 165,
+   "posted_on": "2026-08-01",
+   "amount": "-123.43",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00161",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00081",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00161",
+    "value_date": "2026-08-01",
+    "amount": "-123.43"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00161|-123.43",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:d20f60b31170:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00076",
+   "row_ordinal": 155,
+   "posted_on": "2026-08-01",
+   "amount": "-133.47",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00151",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00076",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00151",
+    "value_date": "2026-08-01",
+    "amount": "-133.47"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00151|-133.47",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:d771c2a87eb9:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00150",
+   "row_ordinal": 152,
+   "posted_on": "2026-08-01",
+   "amount": "1533.65",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00149",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00150",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00149",
+    "value_date": "2026-08-01",
+    "amount": "1533.65"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00149|1533.65",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:d8737eb25b89:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00148",
+   "row_ordinal": 150,
+   "posted_on": "2026-07-31",
+   "amount": "7895.90",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00147",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00148",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00147",
+    "value_date": "2026-07-31",
+    "amount": "7895.90"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00147|7895.90",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:d98aa56c5203:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00162",
+   "row_ordinal": 164,
+   "posted_on": "2026-08-01",
+   "amount": "5059.58",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00161",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00162",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00161",
+    "value_date": "2026-08-01",
+    "amount": "5059.58"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00161|5059.58",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:e178f1b7d794:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00075",
+   "row_ordinal": 153,
+   "posted_on": "2026-08-01",
+   "amount": "-38.81",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00149",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00075",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00149",
+    "value_date": "2026-08-01",
+    "amount": "-38.81"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00149|-38.81",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:f1d2d3ab355b:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00072",
+   "row_ordinal": 147,
+   "posted_on": "2026-07-30",
+   "amount": "-10.48",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00143",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00072",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00143",
+    "value_date": "2026-07-30",
+    "amount": "-10.48"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00143|-10.48",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:fa23e291800e:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "ch_00146",
+   "row_ordinal": 148,
+   "posted_on": "2026-07-30",
+   "amount": "5880.82",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00145",
+    "gateway": "razorpay",
+    "row_type": "charge"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "ch_00146",
+    "row_type": "CHARGE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00145",
+    "value_date": "2026-07-30",
+    "amount": "5880.82"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "charge|pay_00145|5880.82",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "gateway-settlement:fcdf5f4cfb6f:0",
+   "side": "settlement",
+   "source": "gateway-settlement",
+   "source_row_id": "fee_00074",
+   "row_ordinal": 151,
+   "posted_on": "2026-07-31",
+   "amount": "-191.50",
+   "currency": "INR",
+   "keys": {
+    "payment_id": "pay_00147",
+    "gateway": "razorpay",
+    "row_type": "fee"
+   },
+   "group_ref": "pout_00007",
+   "raw": {
+    "row_id": "fee_00074",
+    "row_type": "FEE",
+    "payout_id": "pout_00007",
+    "gateway": "razorpay",
+    "payment_id": "pay_00147",
+    "value_date": "2026-07-31",
+    "amount": "-191.50"
+   },
+   "doc_hash": "71d7a9bc1bb5724c4580511bc9772ffe055edc5bb703d8bf3653b89310491eba",
+   "natural_key": "fee|pay_00147|-191.50",
+   "key_occurrence": 0
+  },
+  {
+   "record_id": "icici-camt:5c6f18c3c320:0",
+   "side": "bank",
+   "source": "icici-camt",
+   "source_row_id": "pout_00007",
+   "row_ordinal": 0,
+   "posted_on": "2026-08-02",
+   "amount": "51990.42",
+   "currency": "INR",
+   "keys": {
+    "gateway": "razorpay",
+    "entry_ref": "bl_00006"
+   },
+   "group_ref": null,
+   "raw": {
+    "NtryRef": "bl_00006",
+    "Amt": "51990.42",
+    "Ccy": "INR",
+    "CdtDbtInd": "CRDT",
+    "BookgDt": "2026-08-02",
+    "AddtlNtryInf": "NEFT/RAZORPAY/pout_00007/SETTLEMENT"
+   },
+   "doc_hash": "45e9b2ec6331fb7d824cea97e82b30bdf253d951cf280c92623d7a7472b203f3",
+   "natural_key": "bl_00006",
+   "key_occurrence": 0
+  }
+ ],
+ "loop": "settlement_3way"
+}

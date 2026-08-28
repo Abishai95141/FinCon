@@ -562,12 +562,18 @@ FONT_LINK = (
 )
 
 
-def document(title: str, body: str, *, body_class: str = "") -> str:
+def document(title: str, body: str, *, body_class: str = "", extra_css: str = "") -> str:
+    """`extra_css` is appended to the one stylesheet rather than opening a second.
+
+    Used by the tour, whose rules are generated from its own step list and are
+    dead weight on every page that is not running one. A page with no tour is
+    byte-identical to what it was before the tour existed.
+    """
     cls = f' class="{escape(body_class)}"' if body_class else ""
     return (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{escape(title)}</title>{FONT_LINK}<style>{CSS}</style></head>"
+        f"<title>{escape(title)}</title>{FONT_LINK}<style>{CSS}{extra_css}</style></head>"
         f"<body{cls}>{body}</body></html>"
     )
 

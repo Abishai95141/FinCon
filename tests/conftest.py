@@ -141,7 +141,12 @@ def signed_in_client(
         "/login",
         data={"email": email, "password": "reconcile-october-2026", "csrf": csrf},
     )
-    assert reply.status_code == 200 and "/periods" in str(reply.url), reply.text[:400]
+    # Where a signed-in visitor lands is a product decision, so it is read from
+    # the product rather than retyped — this said "/periods" until the landing
+    # moved to Data sources, which is the screen that says what any of this is.
+    from recon.api.ui import LANDING
+
+    assert reply.status_code == 200 and LANDING in str(reply.url), reply.text[:400]
 
     from recon.api import auth
 

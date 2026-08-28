@@ -24,7 +24,7 @@ re-derives without us.
 
 <br><br>
 
-<img src="https://img.shields.io/badge/tests-810%20passing-22C55E?style=flat-square" alt="810 tests">
+<img src="https://img.shields.io/badge/tests-830%20passing-22C55E?style=flat-square" alt="830 tests">
 <img src="https://img.shields.io/badge/false%20matches-0.00%25-22C55E?style=flat-square" alt="0.00% false matches">
 <img src="https://img.shields.io/badge/gates-15%20green-22C55E?style=flat-square" alt="15 gates green">
 <img src="https://img.shields.io/badge/contract-v7.8.0-2F7BFF?style=flat-square" alt="contract 7.8.0">
@@ -291,8 +291,22 @@ account and touches none of our state:
 
 ```bash
 curl -X POST https://fincon.astutecomputer.com/v1/verify \
-     -H 'content-type: application/json' -d @proof.json
+     -H 'content-type: application/json' -d @docs/sample-proof.json
 ```
+
+[`docs/sample-proof.json`](docs/sample-proof.json) is a real one, lifted out of
+batch A's decision log — a proof and the 23 records it cites. It answers
+`"proven": true`. Change one `amount` in it and it comes back **refuted**, with
+the recomputed residual and the leg whose subtotal stopped adding up:
+
+```jsonc
+{"proven": false, "recomputed_residual": "-50.00", "reasons": [
+  "leg 'settlement': claimed subtotal 51990.42 but its 22 record(s) sum to 52040.42 (delta 50.00)",
+  "claimed residual 0.00 but the records give -50.00 (delta -50.00)"]}
+```
+
+Your own proofs come out of `GET /v1/runs/{id}/export`, which returns every
+decision in a close beside the records it rests on.
 
 Every verdict names the policy it was produced under and stamps whether that
 policy was **in force** or **caller-supplied** — because a verdict produced under

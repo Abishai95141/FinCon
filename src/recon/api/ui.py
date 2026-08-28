@@ -40,7 +40,7 @@ from .. import loop as looplib
 from .. import progress, review, service
 from ..mcp import probe as mcpprobe
 from ..triage import classify as classify_mod
-from . import auth, throttle
+from . import auth, throttle, tour
 from .auth import AuthError, User
 from .theme import document, icon, money, wordmark
 
@@ -49,6 +49,13 @@ router = APIRouter(include_in_schema=False)
 #: Order is the order of work. Data sources comes first because a new account
 #: has nothing to close and the rail should say so by its shape, not only by an
 #: empty state three clicks in.
+#: Where a signed-in visitor lands. Data sources rather than Periods: it is the
+#: only screen that opens by saying what a reconciliation *is* and what the two
+#: loops are for, and somebody arriving for the first time has no periods to
+#: look at anyway. It is also the first step of the tour, so the guided path and
+#: the default path are the same path.
+LANDING = "/sources"
+
 NAV = (
     ("sources", "/sources", "Data sources"),
     ("periods", "/periods", "Periods"),
@@ -62,6 +69,11 @@ NAV = (
 # --------------------------------------------------------------------------
 # session plumbing
 # --------------------------------------------------------------------------
+
+
+def _step(request: Request) -> int | None:
+    """The tour step this request is on, if any. Junk is no tour, not step 0."""
+    return tour.parse(request.query_params.get("tour"))
 
 
 def visitor(request: Request) -> User | None:
@@ -194,7 +206,21 @@ def _crumb_row(crumb: str, worklist: int) -> str:
     )
 
 
-def shell(user: User, *, active: str, crumb: str, body: str, worklist: int = 0) -> HTMLResponse:
+def shell(
+    user: User,
+    *,
+    active: str,
+    crumb: str,
+    body: str,
+    worklist: int = 0,
+    step: int | None = None,
+) -> HTMLResponse:
+    """The frame. `step` runs the guided tour over whatever this page rendered.
+
+    The route the tour matches against is the one this screen occupies in the
+    rail, so a step and its highlight cannot drift onto different pages.
+    """
+    route = next((href for key, href, _ in NAV if key == active), "")
     banner = ""
     if not auth.is_dev():
         banner = ""
@@ -203,11 +229,19 @@ def shell(user: User, *, active: str, crumb: str, body: str, worklist: int = 0) 
             "<div class='devbanner'>Development credential store &mdash; accounts live "
             "in a local file, not in Cognito. <code>RECON_ENV=dev</code>.</div>"
         )
+    guide = tour.overlay(step, route) if step is not None else ""
     inner = (
         f"{banner}<div class='shell'>{_rail(user, active, worklist)}"
-        f"<main class='stage'>{_crumb_row(crumb, worklist)}{body}</main></div>"
+        f"<main class='stage'>{_crumb_row(crumb, worklist)}{body}</main></div>{guide}"
     )
-    return HTMLResponse(document("FinCon", inner))
+    return HTMLResponse(
+        document(
+            "FinCon",
+            inner,
+            body_class=tour.body_class(step, route) if step is not None else "",
+            extra_css=tour.css() if guide else "",
+        )
+    )
 
 
 # --------------------------------------------------------------------------
@@ -414,7 +448,7 @@ def _auth_response(html: str, request: Request, *, status: int = 200) -> Respons
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, create: str = "") -> Response:
     if visitor(request) is not None:
-        return RedirectResponse("/periods", status_code=303)
+        return RedirectResponse(LANDING, status_code=303)
     return _auth_response(_login_page(create=bool(create)), request)
 
 
@@ -459,7 +493,7 @@ def login_submit(
         )
 
     throttle.THROTTLE.forget("signin", caller)
-    return _with_session(RedirectResponse("/periods", status_code=303), user)
+    return _with_session(RedirectResponse(LANDING, status_code=303), user)
 
 
 @router.post("/signup")
@@ -509,7 +543,7 @@ def signup_submit(
 @router.get("/confirm", response_class=HTMLResponse)
 def confirm_form(request: Request, email: str = "") -> Response:
     if visitor(request) is not None:
-        return RedirectResponse("/periods", status_code=303)
+        return RedirectResponse(LANDING, status_code=303)
     if not email:
         return RedirectResponse("/login", status_code=303)
     return _auth_response(_confirm_page(email=email), request)
@@ -601,7 +635,7 @@ def logout(request: Request, csrf: str = Form("")) -> Response:
 
 @router.get("/", response_class=HTMLResponse)
 def root(request: Request) -> Response:
-    return RedirectResponse("/periods" if visitor(request) else "/login", status_code=303)
+    return RedirectResponse(LANDING if visitor(request) else "/login", status_code=303)
 
 
 # --------------------------------------------------------------------------
@@ -720,10 +754,17 @@ def periods(request: Request, user: User = CURRENT_USER) -> Response:
         f"matches what it can prove, writes the journal entries, and hands back "
         f"everything it could not match. It takes a few seconds. Nothing here has run "
         f"yet &mdash; this page is read from disk.</p>"
-        f"{''.join(cards)}"
+        f"<div id='periods-list' data-tour='periods-list'>{''.join(cards)}</div>"
         f"<p class='sec' style='margin-top:2rem'>Closes you have run</p>{closes}"
     )
-    return shell(user, active="periods", crumb="<b>Periods</b>", body=body, worklist=open_items)
+    return shell(
+        user,
+        active="periods",
+        crumb="<b>Periods</b>",
+        body=body,
+        worklist=open_items,
+        step=_step(request),
+    )
 
 
 def _run_row(run_id: str, view: service.CloseView | None, signed: str = "") -> str:
@@ -1471,10 +1512,10 @@ def verify_page(request: Request) -> Response:
     Every match this system commits is re-derivable from the raw files by anyone who
     has them. Not "trust the audit trail" &mdash; work it out again and see whether it
     lands in the same place.</p>
-  {mine}{stranger}"""
+  <div id='verify-how' data-tour='verify-how'>{mine}{stranger}</div>"""
 
     if user is not None:
-        return shell(user, active="verify", crumb="<b>Verify</b>", body=inner)
+        return shell(user, active="verify", crumb="<b>Verify</b>", body=inner, step=_step(request))
 
     body = (
         f"<div style='max-width:46rem;margin:0 auto;padding:3rem 1.5rem'>"
@@ -1671,11 +1712,11 @@ def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) 
     )
 
     table = (
-        f"<div class='tbl'><table><tr><th>Run</th><th>Exception</th>"
+        f"<div class='tbl' id='worklist-table' data-tour='worklist-table'><table><tr><th>Run</th><th>Exception</th>"
         f"<th class='right'>Amount</th><th class='right'>Age</th><th>Break</th>"
         f"<th>Owner</th></tr>{''.join(html for _, html in rows)}</table></div>"
         if rows
-        else _worklist_empty(closes, owner, owners)
+        else f"<div id='worklist-table' data-tour='worklist-table'>{_worklist_empty(closes, owner, owners)}</div>"
     )
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Worklist</h1>"
@@ -1689,6 +1730,7 @@ def worklist_page(request: Request, owner: str = "", user: User = CURRENT_USER) 
         crumb="<b>Worklist</b>",
         body=body,
         worklist=sum(owners.values()),
+        step=_step(request),
     )
 
 
@@ -1928,8 +1970,9 @@ def sources_page(
             f"<code>{escape(src.spec_id)}</code></p></div>"
             for src in lp.sources
         )
+        spot = " id='sources-periods' data-tour='sources-periods'" if not cards else ""
         cards.append(
-            f"<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
+            f"<div class='panel'{spot} style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
             f"<h3 style='margin:0 0 .2rem'>{escape(lp.title)}</h3>"
             f"<p class='cap' style='margin:0 0 1.2rem'>{escape(lp.question)}</p>"
             f"<p class='sec' style='margin-bottom:.5rem'>Periods on this account</p>"
@@ -1960,7 +2003,8 @@ def sources_page(
     # upload boxes and never said what any of it was — a person arriving here
     # could not tell which file went where, or why there were two of anything.
     explainer = (
-        "<div class='panel' style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
+        "<div class='panel' id='sources-what' data-tour='sources-what' "
+        "style='padding:1.4rem 1.5rem;margin-bottom:1.2rem'>"
         "<p class='sec'>What this is</p>"
         "<p class='lede' style='margin:0 0 .9rem'>A reconciliation compares two "
         "independent records of the same money and proves every match from the raw "
@@ -1975,12 +2019,12 @@ def sources_page(
             for lp in service.loops()
         )
         + (
-            f"<div style='margin-top:1.2rem'>{sample}"
+            f"<div id='sources-sample' data-tour='sources-sample' style='margin-top:1.2rem'>{sample}"
             f"<p class='cap' style='margin:.6rem 0 0'>One button, both reconciliations "
             f"&mdash; real files with known answers, so you can run a close end to end "
             f"before bringing your own.</p></div>"
             if not have_any
-            else f"<div style='margin-top:1.2rem'>{sample}"
+            else f"<div id='sources-sample' data-tour='sources-sample' style='margin-top:1.2rem'>{sample}"
             f"<p class='cap' style='margin:.6rem 0 0'>Reloads any example period that is "
             f"not already here. It never touches a file you uploaded.</p></div>"
         )
@@ -1990,10 +2034,12 @@ def sources_page(
     body = (
         f"<div class='pagehead'><div class='lhs'><h1>Data sources</h1>"
         f"<p class='sub'>The records a close reads. Two per reconciliation, "
-        f"per period.</p></div></div>"
+        f"per period.</p></div><div class='rhs'>{tour.start_link()}</div></div>"
         f"{banner}{explainer}{''.join(cards)}"
     )
-    return shell(user, active="sources", crumb="<b>Data sources</b>", body=body)
+    return shell(
+        user, active="sources", crumb="<b>Data sources</b>", body=body, step=_step(request)
+    )
 
 
 @router.get("/periods/{run_id}/pack", response_class=HTMLResponse)
@@ -2772,7 +2818,7 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
         f"<span class='v num'>{escape(user.user_id)}</span></div>"
         f"</div></div>"
         # ---- the rules ----------------------------------------------------
-        f"<div class='panel' style='padding:1.3rem 1.4rem'>"
+        f"<div class='panel' id='settings-authority' data-tour='settings-authority' style='padding:1.3rem 1.4rem'>"
         f"<p class='sec'>The rules a close is judged by</p>"
         f"<p class='cap' style='margin:0 0 1rem'>Tolerances, the exception vocabulary "
         f"and the promoted rules arrive as <b>signed bundles</b>, supplied out of band. "
@@ -2810,7 +2856,7 @@ def settings_page(request: Request, user: User = CURRENT_USER) -> Response:
         f"<div class='tbl'><table><tr><th>Code</th><th>State</th><th>Whose desk</th>"
         f"<th>May direct a posting</th></tr>{codes}</table></div></div></div>"
     )
-    return shell(user, active="settings", crumb="<b>Settings</b>", body=body)
+    return shell(user, active="settings", crumb="<b>Settings</b>", body=body, step=_step(request))
 
 
 # --------------------------------------------------------------------------
@@ -3014,7 +3060,7 @@ def _mcp_body(user: User, request: Request, result: mcpprobe.Probe | None) -> st
         "It can read everything and decide nothing.</p></div></div>"
         "<div style='display:grid;gap:1.2rem;grid-template-columns:minmax(0,1fr)'>"
         # ---- why you would ------------------------------------------------
-        "<div class='panel' style='padding:1.3rem 1.4rem'>"
+        "<div class='panel' id='agent-what' data-tour='agent-what' style='padding:1.3rem 1.4rem'>"
         "<p class='sec'>What it can do for you</p>"
         "<p class='lede' style='margin:0 0 1rem'>MCP is a standard way for an AI "
         "assistant to use a tool. Connect this one and you can ask, in your own words, "
@@ -3103,7 +3149,7 @@ def mcp_page(request: Request, user: User = CURRENT_USER) -> Response:
     client's POST reached whichever happened to be first.
     """
     body = _mcp_body(user, request, None).replace("{csrf}", _csrf_field(request))
-    return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body)
+    return shell(user, active="mcp", crumb="<b>Agent access</b>", body=body, step=_step(request))
 
 
 @router.post("/agent/check", response_class=HTMLResponse)
