@@ -5,7 +5,11 @@ __pycache__/
 data/batches/*
 !data/batches/MANIFEST.json
 .venv/
-uv.lock
+# uv.lock is COMMITTED. It was ignored until 2026-08-28, which meant CI could
+# never run: every job starts `uv sync --frozen`, the Dockerfile does
+# `COPY pyproject.toml uv.lock ./`, and both need the file to exist in the
+# repository. A lockfile that is not committed is not a lockfile — it pins
+# nothing for anyone but the machine that generated it.
 .pytest_cache/
 .ruff_cache/
 
