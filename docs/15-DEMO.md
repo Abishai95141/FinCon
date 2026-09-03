@@ -1,8 +1,12 @@
 # The demo film
 
-*Eleven shots, about 4:35. The voiceover is recorded last, against picture.*
+*Eleven shots, 4:23. The voiceover is recorded last, against picture.*
 
-Plan and full script: <https://claude.ai/code/artifact/4940ca23-6c75-4f8f-a0a8-cd12328b0f18>
+**The script is [16-SCRIPT.md](16-SCRIPT.md)** — a line per shot, timed against
+the real cut. `make script-check` fails on any line that no longer fits its
+shot, which is the thing that goes wrong when a beat is retuned.
+
+Shot-by-shot planning notes: <https://claude.ai/code/artifact/4940ca23-6c75-4f8f-a0a8-cd12328b0f18>
 
 ---
 
@@ -12,6 +16,7 @@ Plan and full script: <https://claude.ai/code/artifact/4940ca23-6c75-4f8f-a0a8-c
 make demo-seed     # a tenant with nothing in it, batches on disk, authority signed
 make serve         # in another shell, with DEEPSEEK_API_KEY set — shot 6 is a real call
 make demo-film     # graphics + scripted capture + cut
+make script-check  # does each voiceover line still fit its shot
 ```
 
 Out the other end:

@@ -327,6 +327,8 @@ one produced under ours.
 | [docs/10-THE-USER-FLOW.md](docs/10-THE-USER-FLOW.md) | The flow, and what it is worth |
 | [docs/13-THE-SCREENS.md](docs/13-THE-SCREENS.md) | Every screen, and the question it answers |
 | [docs/14-AWS.md](docs/14-AWS.md) | The AWS estate, in full |
+| [docs/15-DEMO.md](docs/15-DEMO.md) | The demo film — how it is shot, cut and re-shot |
+| [docs/16-SCRIPT.md](docs/16-SCRIPT.md) | The voiceover, timed against the cut |
 | [docs/decisions/](docs/decisions/) | ADRs — two of them irreversible |
 
 <div align="center">

@@ -14,7 +14,7 @@ LIVE_GATES := 12 12b 12c
 # `demo` and `demo/` collide: the directory exists, so without .PHONY make
 # reports the target up to date and silently records nothing.
 .PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status \
-        demo demo-seed demo-motion demo-cut demo-film logo shots
+        demo demo-seed demo-motion demo-cut demo-film script-check logo shots
 
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
@@ -37,6 +37,7 @@ help:
 	@echo "  logo      re-render the README lockup from the shipped mark"
 	@echo "  shots     capture the product screenshots  [needs a local close]"
 	@echo "  demo-film graphics + scripted capture + cut   [demo-seed first]"
+	@echo "  script-check  does each voiceover line still fit its shot"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
@@ -246,6 +247,12 @@ demo-motion:
 
 demo-cut:
 	uv run python -m tools.demo_assemble
+
+# Does each line still fit its shot? Reads docs/16-SCRIPT.md against the real
+# durations in demo/shots.json, because a beat retune silently invalidates a
+# script written against the previous cut.
+script-check:
+	uv run python -m tools.script_check
 
 # Seeds first, deliberately: the recording closes a period, disposes an item
 # and signs the close, so a second take over the first take's state is

@@ -58,9 +58,9 @@ def closed(tmp_path, monkeypatch):
 
 def _card(body: str) -> int:
     """The metric card's number, off the rendered page."""
-    m = re.search(
-        r"Awaiting sign-off.*?<div class='v[^']*'>(\d+)</div>", body, re.S
-    ) or re.search(r"Awaiting sign-off.*?>(\d+)<", body, re.S)
+    m = re.search(r"Awaiting sign-off.*?<div class='v[^']*'>(\d+)</div>", body, re.S) or re.search(
+        r"Awaiting sign-off.*?>(\d+)<", body, re.S
+    )
     assert m, "the close page no longer renders an 'Awaiting sign-off' metric"
     return int(m.group(1))
 
