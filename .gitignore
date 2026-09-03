@@ -35,3 +35,8 @@ motion/out/
 
 # real deploy coordinates; the .example is the committed one
 infra/deploy.env
+
+# demo film renders — regenerate with `make demo-film`. The capture alone is
+# 17MB and the cuts are 25MB each; the tooling is the artifact, not the output.
+demo/
+motion/out/

@@ -33,6 +33,7 @@ help:
 	@echo "  graph     refresh the graphify code graph"
 	@echo "  logo      re-render the README lockup from the shipped mark"
 	@echo "  shots     capture the product screenshots  [needs a local close]"
+	@echo "  demo-film graphics + scripted capture + cut   [demo-seed first]"
 	@echo "  replay    re-derive a close from its decision log alone         [P9]"
 	@echo "  sign      sign the authority bundles                        SIGNER='name'"
 	@echo "            (verify with RECON_BUNDLE_PUBKEY=$$(cat data/trust/authorized-key.hex))"
@@ -221,6 +222,30 @@ graph:
 
 logo:
 	uv run python -m tools.logo
+
+# ---- the demo film -------------------------------------------------------
+# Four tracks: Remotion graphics, a scripted product capture, a terminal shot,
+# and an ffmpeg assembly. `make demo-film` runs the lot.
+demo-seed:
+	uv run python -m tools.demo_seed
+
+# Scripted, so it cannot fumble. SCALE=0.25 rehearses the whole path in a
+# quarter of the time — enough to prove every selector still resolves.
+demo:
+	uv run --with playwright python -m tools.demo \
+	  $(if $(BASE),--base $(BASE),) $(if $(SCALE),--scale $(SCALE),)
+
+demo-motion:
+	cd motion && npx remotion render ThePlug out/ThePlug.mp4
+	cd motion && npx remotion render SolvedAndNotSolved out/SolvedAndNotSolved.mp4
+	cd motion && npx remotion render Fence out/Fence.mp4
+	cd motion && npx remotion render Card out/Card.mp4
+
+demo-cut:
+	uv run python -m tools.demo_assemble
+
+demo-film: demo-motion demo demo-cut
+	@echo "picture cut is in demo/. Record the voiceover against cut-timecoded.mp4."
 
 # Screenshots for the README and the landing page. Needs a local server with a
 # close already run, and a session cookie minted against the same secret it is
