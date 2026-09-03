@@ -65,7 +65,9 @@ FILM: list[dict] = [
         "to": "dispose",
         "title": "the tail, and the model",
     },
-    {"shot": 7, "kind": "capture", "from": "dispose", "to": "signoff", "title": "four endings"},
+    # `settle`, not `signoff`: the span between them is the rest of the desk
+    # being cleared so sign-off can succeed, and no shot spans it.
+    {"shot": 7, "kind": "capture", "from": "dispose", "to": "settle", "title": "four endings"},
     {
         "shot": 8,
         "kind": "capture",

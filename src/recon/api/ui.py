@@ -1074,6 +1074,20 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     csrf = _csrf_field(request)
+
+    # What still needs a person, read from the REVIEW log rather than from the
+    # close record. `view.blocking_exceptions` is what the close *raised*, and it
+    # cannot know that four of them have since been taken and one disposed — so
+    # a signed close rendered the badge "Signed off by …" beside the metric
+    # "Awaiting sign-off: 5", which is the page contradicting itself.
+    #
+    # This is the same defect already fixed once for the worklist: an exception
+    # is raised in the close's record and ended in the review log, and reading
+    # only the first makes resolving invisible. One answer, computed once, and
+    # `review.blockers` is the function sign-off itself refuses on.
+    state = review.state(run_id, runs_dir)
+    open_blockers = review.blockers([e.exception for e in view.exceptions], state)
+
     tiers = view.tiers
     by_match = " ".join(f"{k}={v}" for k, v in sorted(tiers.by_match_tier.items())) or "&mdash;"
     by_proof = " ".join(f"{k}={v}" for k, v in sorted(tiers.by_proof_tier.items())) or "&mdash;"
@@ -1118,7 +1132,7 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         )
         + _metric(
             "Awaiting sign-off",
-            str(len(view.blocking_exceptions)),
+            str(len(open_blockers)),
             "exceptions a human must clear",
             ico="user",
         )
@@ -1143,7 +1157,6 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
         for label in _stage_labels(view)
     )
 
-    state = review.state(run_id, runs_dir)
     rows = []
     for item in view.exceptions:
         exc = item.exception
@@ -1181,7 +1194,9 @@ def close_page(request: Request, run_id: str, user: User = CURRENT_USER) -> Resp
     )
 
     # --- sign-off: the terminal human decision -----------------------------
-    open_blockers = review.blockers([e.exception for e in view.exceptions], state)
+    # `open_blockers` is computed once, at the top, because the metric card and
+    # this panel are the same question and two computations of one fact is how
+    # a control over one copy goes quietly dead.
     if state.signed_off:
         signoff = (
             f"<div class='panel' style='padding:1.3rem 1.4rem;margin-bottom:1.6rem'>"

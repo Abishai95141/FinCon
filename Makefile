@@ -11,7 +11,10 @@ GREEN_GATES := 0 1 2 3 4 5 6 7 8 9 10 11 13 14 15
 # pytest-collection trap from P1 in a new costume.
 LIVE_GATES := 12 12b 12c
 
-.PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status
+# `demo` and `demo/` collide: the directory exists, so without .PHONY make
+# reports the target up to date and silently records nothing.
+.PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status \
+        demo demo-seed demo-motion demo-cut demo-film logo shots
 
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
@@ -244,7 +247,10 @@ demo-motion:
 demo-cut:
 	uv run python -m tools.demo_assemble
 
-demo-film: demo-motion demo demo-cut
+# Seeds first, deliberately: the recording closes a period, disposes an item
+# and signs the close, so a second take over the first take's state is
+# refused by the product rather than silently producing a worse film.
+demo-film: demo-seed demo-motion demo demo-cut
 	@echo "picture cut is in demo/. Record the voiceover against cut-timecoded.mp4."
 
 # Screenshots for the README and the landing page. Needs a local server with a
