@@ -123,7 +123,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if total_secs:
         print(
-            f"\n  {total_words:.0f} words over {total_secs / 60:.0f}:{total_secs % 60:04.1f}"
+            # `:.0f` on the minutes ROUNDS: 285.7s printed as 5:45.7 rather than
+            # 4:45.7. Truncate.
+            f"\n  {total_words:.0f} words over {int(total_secs // 60)}:{total_secs % 60:04.1f}"
             f" — {total_words / total_secs * 60:.0f} wpm overall (target {TARGET:.0f})"
         )
 

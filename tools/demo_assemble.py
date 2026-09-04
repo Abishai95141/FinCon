@@ -75,8 +75,11 @@ FILM: list[dict] = [
         "to": "agent",
         "title": "sign off, and the pack",
     },
-    # shot 9 is the terminal capture, dropped in by hand if present
-    {"shot": 9, "kind": "optional", "src": "verify.mp4", "title": "check it without us"},
+    # Rendered like the other comps, from a transcript of two real requests
+    # against the deployed endpoint. It was "optional, dropped in by hand if
+    # present" and was therefore the only shot that never got made — a shot the
+    # pipeline cannot re-make goes stale, and then goes absent.
+    {"shot": 9, "kind": "motion", "src": "Verify.mp4", "title": "check it without us"},
     {
         "shot": 10,
         "kind": "capture",

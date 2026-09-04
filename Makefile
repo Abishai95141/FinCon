@@ -14,7 +14,7 @@ LIVE_GATES := 12 12b 12c
 # `demo` and `demo/` collide: the directory exists, so without .PHONY make
 # reports the target up to date and silently records nothing.
 .PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status \
-        demo demo-seed demo-motion demo-cut demo-film script-check logo shots
+        demo demo-seed demo-verify demo-motion demo-cut demo-film script-check logo shots
 
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
@@ -239,11 +239,17 @@ demo:
 	uv run --with playwright python -m tools.demo \
 	  $(if $(BASE),--base $(BASE),) $(if $(SCALE),--scale $(SCALE),)
 
-demo-motion:
+# Shot 9 first: its transcript is a real round-trip to the deployed endpoint,
+# and the Verify composition reads it at render time.
+demo-verify:
+	uv run python -m tools.demo_verify_capture $(if $(BASE),--base $(BASE),)
+
+demo-motion: demo-verify
 	cd motion && npx remotion render ThePlug out/ThePlug.mp4
 	cd motion && npx remotion render SolvedAndNotSolved out/SolvedAndNotSolved.mp4
 	cd motion && npx remotion render Fence out/Fence.mp4
 	cd motion && npx remotion render Card out/Card.mp4
+	cd motion && npx remotion render Verify out/Verify.mp4
 
 demo-cut:
 	uv run python -m tools.demo_assemble

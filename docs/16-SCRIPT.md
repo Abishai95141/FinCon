@@ -7,8 +7,8 @@ Read it against picture, not against this page. The burnt-in strip shows the
 shot number and **seconds left in the shot**, so when a line runs out of room
 you can see it happen rather than discover it in the mix.
 
-**Pace.** 548 words over 4:23 — **125 words a minute**, plus 52 more for shot 9
-when it is recorded. Slow for narration, deliberately: every sentence here
+**Pace.** 600 words over 4:46 — **126 words a minute**. Slow for narration,
+deliberately: every sentence here
 carries a number or a claim, and a listener needs the gap between them.
 
 Don't count words by hand. `make script-check` reads the block and the real
@@ -52,7 +52,7 @@ wants a beat before shot 3 cuts in.
 
 ---
 
-## 3 · 0:50 – 1:07 · sign in, and what this is
+## 3 · 0:50 – 1:06 · sign in, and what this is
 
 > This is FinCon.
 >
@@ -65,7 +65,7 @@ Tight shot, 16.9s. Don't add to it.
 
 ---
 
-## 4 · 1:07 – 1:36 · close a period
+## 4 · 1:06 – 1:36 · close a period
 
 > A period is one month of one reconciliation. Press close.
 >
@@ -152,7 +152,7 @@ The pack scrolls for six seconds. Narrate the list over the scroll.
 
 ---
 
-## 9 · check it without us  *(not yet recorded)*
+## 9 · 3:48 – 4:10 · check it without us
 
 > Here is the part that matters.
 >
@@ -162,13 +162,14 @@ The pack scrolls for six seconds. Narrate the list over the scroll.
 > Change one number by a single rupee, and it refuses. Naming the leg whose
 > subtotal stopped adding up.
 
-Budget about 24s. Record `tools/demo_verify_shot.sh` full-screen,
-save to `demo/verify.mp4`, then `make demo-cut` — the assembler slots it here
-and every timecode after this point shifts by its length.
+22.7s. The transcript is two real round-trips to the deployed endpoint —
+`make demo-verify` runs them and `motion/src/Verify.tsx` renders what came
+back, so the `proven: false` on screen is a refusal the live server actually
+issued. Let the refutation line sit; it is the payoff of the whole film.
 
 ---
 
-## 10 · 3:48 – 4:09 · point an assistant at it
+## 10 · 4:10 – 4:31 · point an assistant at it
 
 > And you can point an assistant at this.
 >
@@ -182,7 +183,7 @@ other side — first that it does real work, now that it's fenced.
 
 ---
 
-## 11 · 4:09 – 4:23 · the card
+## 11 · 4:31 – 4:45 · the card
 
 > Close the books with a proof, not a plug.
 >

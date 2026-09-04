@@ -6,6 +6,8 @@ import {Fence} from './Fence';
 import {SolvedAndNotSolved} from './SolvedAndNotSolved';
 import {ThePlug} from './ThePlug';
 import {Timecode} from './Timecode';
+import {Verify, seconds as verifySeconds} from './Verify';
+import session from '../../demo/verify-session.json';
 
 /**
  * Two audiences, one project.
@@ -44,6 +46,16 @@ export const Root: React.FC = () => (
     />
     <Composition id="Fence" component={Fence} durationInFrames={10 * 60} {...FILM} />
     <Composition id="Card" component={Card} durationInFrames={14 * 60} {...FILM} />
+
+    {/* Shot 9. Duration follows the transcript: two commands typed at 42
+        characters a second, two responses, and a beat on each. */}
+    <Composition
+      id="Verify"
+      component={Verify}
+      durationInFrames={Math.round(verifySeconds(session) * 60)}
+      {...FILM}
+      defaultProps={{session}}
+    />
 
     {/* The overlay the picture cut is timecoded with. Duration and shot list
         arrive as props from tools/demo_assemble.py, which is the only thing

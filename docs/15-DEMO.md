@@ -1,6 +1,6 @@
 # The demo film
 
-*Eleven shots, 4:23. The voiceover is recorded last, against picture.*
+*Eleven shots, 4:46. The voiceover is recorded last, against picture.*
 
 **The script is [16-SCRIPT.md](16-SCRIPT.md)** — a line per shot, timed against
 the real cut. `make script-check` fails on any line that no longer fits its
@@ -74,7 +74,7 @@ would fight the voiceover for the same attention.
 | `tools/demo_seed.py` | The starting state. Wipes the demo tenant so shot 3 shows somebody *loading* the sample rather than finding it already there, regenerates batches, signs the authority bundles, and burns the first-close import cost on a throwaway close nobody films. |
 | `tools/demo.py` | Shots 3–8 and 10, in one continuous capture. Logs where each beat landed. |
 | `motion/src/*.tsx` | Shots 1, 2 and 11, plus a `Fence` inset for shot 6. Remotion, 1080p60. |
-| `tools/demo_verify_shot.sh` | Shot 9, in a terminal. Points at the **deployed** host on purpose. |
+| `tools/demo_verify_capture.py` | Shot 9's transcript — two real requests to the **deployed** endpoint, kept verbatim. `motion/src/Verify.tsx` renders it. |
 | `tools/demo_assemble.py` | Cuts the capture at the logged beats, normalises geometry, concatenates, and overlays the timecode strip. |
 
 ---
