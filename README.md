@@ -8,6 +8,7 @@
 ### Close the books with a proof, not a plug. 
 ### [fincon.astutecomputer.com](https://fincon.astutecomputer.com)
 
+
 FinCon reconciles what your payment gateway says it paid out against what the
 bank actually received, writes the double entry, and hands back what is left —
 ranked, priced and routed to a desk. Every match carries arithmetic an auditor
