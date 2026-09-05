@@ -30,7 +30,7 @@ SHOTS = Path("demo/shots.json")
 
 #: The pace the script is written for. Slow, and deliberately: every sentence
 #: carries a number or a claim, and a listener needs the gap between them.
-TARGET = 125.0
+TARGET = 135.0
 
 #: Above this, fitting the line means rushing it. A demo whose narrator sounds
 #: hurried is arguing against its own thesis.

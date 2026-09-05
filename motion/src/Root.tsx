@@ -37,11 +37,11 @@ export const Root: React.FC = () => (
     />
 
     {/* demo film — durations are the shot list in docs/15-DEMO.md */}
-    <Composition id="ThePlug" component={ThePlug} durationInFrames={18 * 60} {...FILM} />
+    <Composition id="ThePlug" component={ThePlug} durationInFrames={21 * 60} {...FILM} />
     <Composition
       id="SolvedAndNotSolved"
       component={SolvedAndNotSolved}
-      durationInFrames={32 * 60}
+      durationInFrames={35 * 60}
       {...FILM}
     />
     <Composition id="Fence" component={Fence} durationInFrames={10 * 60} {...FILM} />

@@ -1,208 +1,229 @@
 # The voiceover script
 
-*Timed against `demo/cut-timecoded.mp4`. Every timecode below is read from
-`demo/shots.json`, which the assembler writes — not from the plan.*
+*Timed against `demo/cut-timecoded.mp4`. Every timecode is read from
+`demo/shots.json`, which the assembler writes.*
 
 Read it against picture, not against this page. The burnt-in strip shows the
-shot number and **seconds left in the shot**, so when a line runs out of room
-you can see it happen rather than discover it in the mix.
+shot number and how many seconds are left in the shot.
 
-**Pace.** 600 words over 4:46 — **126 words a minute**. Slow for narration,
-deliberately: every sentence here
-carries a number or a claim, and a listener needs the gap between them.
+## How this is written
 
-Don't count words by hand. `make script-check` reads the block and the real
-shot length and prints the rate and the slack for each — the first version of
-this page asserted a count per shot and every one of the ten was wrong, which
-is what a hand-maintained number beside a computable one always comes to.
-It fails on any line that cannot be read at 150 wpm.
+The first draft opened nearly every paragraph with a line that sounded good and
+explained nothing — *"That's a plug"*, *"What didn't match is the work"*,
+*"Here is the part that matters"* — and then moved on before saying what the
+thing actually was. Shot 5 used five undefined terms in seventy-five words.
+Somebody who has never done a reconciliation would have finished the film
+impressed and none the wiser.
 
-**Every figure is real.** They come from `make replay` on batch A and from the
-recording itself. If you improvise a number, it stops being true.
+So the rules for this draft:
 
----
+**Say what is on screen.** Not what it signifies. If the shot shows a list, the
+line says what is in the list.
 
-## 1 · 0:00 – 0:18 · the plug
+**Define a word before using it, or don't use it.** *Plug*, *close*, *proof*
+and *unexplained* each get one plain sentence the first time. `T0`, `P0`,
+*residual*, *tolerance* and *blocking recall* are on screen and are never
+spoken — a viewer can read a label; they cannot decode a term they have not
+been given.
 
-> One line on a bank statement.
->
-> Not one sale — forty charges, minus the gateway's fee, two refunds, and a
-> chargeback that arrived after the period closed.
->
-> The books have to tie tonight. So the difference goes… here.
+**No arguing with the audience.** *"Because a headline rate on its own is
+gameable"* is a rebuttal to a sceptic who is not in the room. Show the number,
+say what it means, move on.
 
-Land "here" as the **Suspense : Unreconciled** row appears, about
-14 seconds in. The stamp that says *plug* follows it — let it sit silent.
+**Numbers keep their meaning attached.** "Twenty of the twenty-three bank
+deposits" rather than "twenty of twenty-three".
 
----
+**Pace.** 664 words over 4:54 — about **135 words a minute**. Explaining
+costs words: this draft is 11% longer than the one full of hooks, and three
+of the rendered shots were widened to hold it rather than the sentences being
+compressed back into slogans. Run `make script-check` after any edit; it
+reads each block against the real shot length and fails anything that cannot
+be read at 150 wpm.
 
-## 2 · 0:18 – 0:50 · the match is not the problem
-
-> That's a plug. Every controller knows it, and every reconciliation tool leaves
-> room for one.
->
-> Not because matching is hard. Matching is solved — Trintech publishes
-> ninety-nine per cent, and the industry bar is ninety.
->
-> What nobody solved is the remainder. It comes back as a flat queue with no
-> reason attached. And it's the same queue every month.
-
-The two columns build left then right. "The same queue every month"
-wants a beat before shot 3 cuts in.
+**Every figure is real**, from `make replay` and from the recording. Improvising
+a number makes it false.
 
 ---
 
-## 3 · 0:50 – 1:06 · sign in, and what this is
+## 1 · 0:00 – 0:21 · the plug
 
-> This is FinCon.
+> A payment gateway pays you in batches.
 >
-> Sign in, and the first screen says what a reconciliation actually is: two
-> independent records of the same money.
+> This one deposit covers forty sales, less the gateway's fee, less two
+> refunds, less a chargeback that came in late.
 >
-> Load the worked example — real files, whose answers are already known.
+> The amounts don't line up — so the accountant parks the difference in a
+> holding account and moves on.
 
-Tight shot, 16.9s. Don't add to it.
+Land "parks the difference" as the **Suspense : Unreconciled** row appears,
+around 14 seconds. Let the last four seconds run silent.
 
 ---
 
-## 4 · 1:06 – 1:36 · close a period
+## 2 · 0:21 – 0:56 · the match is not the problem
 
-> A period is one month of one reconciliation. Press close.
+> That holding account is called a plug, and it hides real problems — money that
+> never arrived, a fee charged twice, a refund against the wrong sale.
 >
-> Six stages — read the rows, narrow the candidates, match, re-derive every
-> match, write the journal, seal the record.
+> Most accounting software already matches the easy transactions, ninety to
+> ninety-nine percent of them. That part is solved.
 >
-> And read the receipt: **no model ran.** Not one call, at any stage. Every
-> match in here is arithmetic over raw rows, which is the only kind of number a
-> controller can defend.
+> The problem is the rest. When something doesn't match, the software lists it
+> and stops. No reason, no ranking. Somebody works through them by hand, and the
+> same ones come back next month.
 
-The stages fill in sequence. "No model ran" should land while that
-line is on screen.
+The two columns build left then right. Pause before shot 3.
 
 ---
 
-## 5 · 1:36 – 2:11 · the scorecard, and a proof
+## 3 · 0:56 – 1:12 · sign in, and what this is
 
-> Twenty of twenty-three matched. Eighty-seven per cent — with the split beside
-> it, always, because a headline rate on its own is gameable.
+> FinCon does that second part.
 >
-> Nineteen rest on arithmetic; one on a declared gap, and it says so.
+> You sign in, and the first screen explains the job: compare your bank
+> statement against what the payment gateway says it sent you.
 >
-> Blocking recall reads *absent*, not zero. We haven't measured it, so we don't
-> claim it.
->
-> Open any match and this is the proof: both sides, the residual closing to
-> zero, the tolerance spent. Not a confidence score — arithmetic.
+> This button loads a worked example, so you can run one now.
 
-The longest line in the film against 35.5s. The *absent* sentence
-is the one to slow down on.
+16.9 seconds and the tightest in the film at 142 wpm. Nothing can be added
+here without widening the beat and re-recording.
 
 ---
 
-## 6 · 2:11 – 2:50 · the tail, and the model
+## 4 · 1:12 – 1:42 · close a period
 
-> What didn't match is the work.
+> A period is one month. Closing it means proving those two records agree.
 >
-> Seven items, ranked by cash impact times age, each routed to a desk. Three of
-> them say **E14 — unexplained**: the engine cannot say why, and it says that
-> rather than guessing.
+> Six steps: read both files, work out which rows could pair up, pair them,
+> re-check every pair by recalculating it, write the accounting entries, and
+> save a record of every decision made.
 >
-> Open one. Eighty-four thousand rupees. No near miss — nothing on the other
-> side agrees on any key component.
->
-> This is where the model belongs: the place the arithmetic ran out. One call,
-> one exception. It sees the amounts, the dates and the keys — and it cannot
-> write anything.
+> It takes about a second. And no AI was involved in any of it — that line on
+> screen is the receipt saying so.
 
-38.8s, the longest shot. The model call takes about two seconds on
-screen; let it happen in silence rather than talking over it.
+The stages fill in sequence. "No AI was involved" should land while that line
+is visible.
 
 ---
 
-## 7 · 2:50 – 3:15 · four endings
+## 5 · 1:42 – 2:17 · the scorecard, and a proof
 
-> Its answer goes through the same checker before you're shown it. And it
-> moves nothing — a proposal stays a proposal.
+> Twenty of the twenty-three bank deposits matched. Seventeen exactly; three
+> took more working out.
 >
-> You decide. Four endings: book it, carry it forward, chase it, write it off.
+> Nineteen of those matches are pure arithmetic — anyone can recheck them from
+> the original files. One rests on a stated assumption, and it's labelled as
+> one.
 >
-> Chase needs an owner and a date, because a receivable with no date is never
-> late.
+> The books balance.
+>
+> Open any match and you see the working: which rows on each side, and the
+> difference between them coming to zero. That's a proof, not a score. The
+> software isn't telling you it's confident. It's showing you the sum.
 
-That last clause is the product's own refusal text, verbatim. It is
-worth saying exactly.
+The longest line, against 35.5 seconds. Slow down on the last two sentences.
 
 ---
 
-## 8 · 3:15 – 3:48 · sign off, and the pack
+## 6 · 2:17 – 2:56 · the tail, and the model
 
-> Each ending writes double entry, under your name.
+> Three deposits didn't match. With four other problems it found, that's seven
+> things to deal with — sorted by how much money is involved, and sent to
+> whoever handles that kind.
 >
-> Now sign off. Nothing outstanding — and sign-off refuses while any item is
-> untaken, which is the entire point of having one.
+> Three of them say "unexplained". That means it compared this deposit against
+> everything on the other side and found nothing close enough. So it says it
+> doesn't know, instead of guessing.
 >
-> Signed, by a named person, in a record chained separately from the engine's:
-> what the machine decided and what a person decided are two different
-> statements.
->
-> And the close pack — the seal, the figures, every source file with its hash,
-> the journal, and the tail.
+> This is where the AI is used. It gets the amounts, the dates and the reference
+> numbers for this one item, and it's asked what it thinks happened.
 
-The pack scrolls for six seconds. Narrate the list over the scroll.
+The longest shot, 38.8 seconds. The AI call takes about two seconds on screen —
+stay silent through it.
 
 ---
 
-## 9 · 3:48 – 4:10 · check it without us
+## 7 · 2:56 – 3:21 · four endings
 
-> Here is the part that matters.
+> Its answer is checked before you're shown it, and it changes nothing by
+> itself. You decide.
 >
-> An auditor doesn't have to trust us. Post the proof to a public endpoint — no
-> account, none of our state — and it re-derives the arithmetic itself.
+> There are four ways to finish an item: record it as a cost, expect it in next
+> month's statement, chase someone for the money, or write it off.
 >
-> Change one number by a single rupee, and it refuses. Naming the leg whose
-> subtotal stopped adding up.
+> Chasing needs a name and a date — otherwise nobody ever follows it up.
 
-22.7s. The transcript is two real round-trips to the deployed endpoint —
-`make demo-verify` runs them and `motion/src/Verify.tsx` renders what came
-back, so the `proven: false` on screen is a refusal the live server actually
-issued. Let the refutation line sit; it is the payoff of the whole film.
+That last clause is why the product refuses a chase without a date. Say it as
+the reason it is.
 
 ---
 
-## 10 · 4:10 – 4:31 · point an assistant at it
+## 8 · 3:21 – 3:54 · sign off, and the pack
 
-> And you can point an assistant at this.
+> Whichever you choose writes a real accounting entry with your name on it.
 >
-> Twenty-one tools over MCP. It can close a period, resolve an item, even sign
-> off — as you, because it's holding a token you issued.
+> Then you sign off. It won't let you sign until every item has been looked at.
 >
-> What it can't do is act without the record saying an assistant did it.
+> Your signature is stored separately from the software's own record, so it's
+> always clear which decisions the machine made and which ones you made.
+>
+> And this is what you hand your auditor: the source files with their
+> checksums, the entries, and anything still open.
 
-20.9s. This is the AI claim landing for the second time, from the
-other side — first that it does real work, now that it's fenced.
+The pack scrolls for six seconds. Read the last list over the scroll.
 
 ---
 
-## 11 · 4:31 – 4:45 · the card
+## 9 · 3:54 – 4:19 · check it without us
 
-> Close the books with a proof, not a plug.
+> Your auditor doesn't have to take any of this on trust.
 >
-> FinCon. It's live, and the whole thing is open.
+> They send one of these proofs to a public web address — no login, nothing of
+> ours involved — and it recalculates the sum.
+>
+> Change one number by a single rupee, and it comes back rejected, naming the
+> exact total that stopped adding up.
 
-Deliberately short. The card holds for fourteen seconds; let the
-last four run silent under the URL.
+22.7 seconds. The transcript is two real requests to the deployed service,
+captured by `make demo-verify` — the rejection on screen is one the live server
+actually returned. Let it sit.
+
+---
+
+## 10 · 4:19 – 4:40 · point an assistant at it
+
+> You can also connect an AI assistant to this.
+>
+> It can run a close, work through an item, even sign off — acting as you, using
+> a key you gave it.
+>
+> And every action it takes is recorded as having come from an assistant, so you
+> can always tell afterwards.
+
+20.9 seconds. This is the second time the AI comes up, from the other side:
+shot 6 showed what it does, this shows what is written down when it does it.
+
+---
+
+## 11 · 4:40 – 4:54 · the card
+
+> FinCon. Every match shows its working, and everything left over comes with a
+> reason.
+>
+> It's live now, and the code is public.
+
+Short on purpose. The card holds fourteen seconds — let the last four run
+silent under the address.
 
 ---
 
 ## If a line doesn't fit
 
-Change the number, not the sentence. Every dwell is an entry in `BEATS` in
-[tools/demo.py](../tools/demo.py) — widen the one that's tight and re-run
-`make demo && make demo-cut`. That is the whole reason the footage is scripted:
-retiming costs three minutes, and re-shooting a four-minute take by hand costs
-an afternoon and never quite matches.
+Change the timing, not the sentence. Every pause is a number in `BEATS` in
+[tools/demo.py](../tools/demo.py); widen the tight one and re-run
+`make demo && make demo-cut`. Re-timing takes about three minutes, which is the
+reason the footage is scripted rather than hand-recorded.
 
-**What not to do:** speed up to fit. At 125 words a minute this reads as
-somebody who knows the system. At 160 it reads as somebody selling it, which is
-the opposite of the argument the film is making — and shot 7 was at 159 until
-the checker said so.
+**Don't speed up to fit.** At 135 words a minute this sounds like someone
+explaining their work. At 160 it sounds like someone selling something, and
+the film is making the opposite case.

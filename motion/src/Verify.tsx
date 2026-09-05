@@ -39,8 +39,8 @@ const CPS = 42;
  *  total and computing it twice is how the composition comes to be a different
  *  length from the thing inside it.
  *
- *  Sized from the narration, not from taste: the line is 52 words, and at the
- *  125 wpm the rest of the film reads at that is 25 seconds. The first render
+ *  Sized from the narration, not from taste: the line is 55 words, and at the
+ *  135 wpm the rest of the film reads at that is 25 seconds. The first render
  *  came in at 14.2s, which would have needed 220 wpm — the two long holds are
  *  where a viewer reads `proven: true` and then reads the refusal. */
 export const BEATS = {
@@ -48,7 +48,7 @@ export const BEATS = {
   settle: 0.45,
   readOk: 6.0,
   beforeBent: 2.0,
-  tail: 9.5,
+  tail: 12.0,
 };
 
 export const seconds = (session: Session): number =>
