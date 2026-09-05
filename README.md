@@ -5,7 +5,7 @@
   <img src="docs/media/logo-light.svg" alt="FinCon" width="260">
 </picture>
 
-### Close the books with a proof, not a plug.
+### Close the books with a proof, not a plug. - fincon.astutecomputer.com
 
 FinCon reconciles what your payment gateway says it paid out against what the
 bank actually received, writes the double entry, and hands back what is left —
