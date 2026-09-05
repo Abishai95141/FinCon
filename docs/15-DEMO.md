@@ -1,6 +1,6 @@
 # The demo film
 
-*Eleven shots, 4:54. The voiceover is recorded last, against picture.*
+*Eleven shots, 5:05. The voiceover is recorded last, against picture.*
 
 **The script is [16-SCRIPT.md](16-SCRIPT.md)** — a line per shot, timed against
 the real cut. `make script-check` fails on any line that no longer fits its

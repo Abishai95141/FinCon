@@ -48,9 +48,9 @@ BEATS: dict[str, float] = {
     "scorecard": 17.0,
     "proof": 16.0,
     "worklist": 13.0,
-    "ask-model": 15.0,
-    "ledger-unmoved": 5.0,
-    "dispose": 16.0,
+    "ask-model": 20.0,
+    "ledger-unmoved": 6.0,
+    "dispose": 22.0,
     "signoff": 9.0,
     "pack": 7.0,
     "agent": 20.0,
@@ -209,6 +209,22 @@ def signed_closes(page, base: str) -> list[str]:
     )
 
 
+def _pick() -> dict:
+    """The item `make demo-pick` chose for shot 6, and why.
+
+    A file rather than a flag: the choice needs a model call to make, and the
+    recorder should not be spending one while the camera is rolling.
+    """
+    path = OUT / "ai-item.json"
+    if not path.exists():
+        raise RuntimeError(
+            "demo/ai-item.json is absent. Run `make demo-pick` first — it asks the "
+            "model which unexplained item it can actually name, so shot 6 does not "
+            "land on one where the answer is 'I do not know either'."
+        )
+    return json.loads(path.read_text(encoding="utf-8"))["pick"]
+
+
 def blocking_items(page, base: str, run_id: str) -> list[str]:
     """Exception ids the close page lists as still needing a human.
 
@@ -316,33 +332,49 @@ def film(st: Stage, email: str, password: str) -> None:
     st.go("/worklist")
     st.rest("#worklist-table", BEATS["worklist"])
 
-    # Deliberately an E14, not simply the top row.
+    # The item `make demo-pick` chose, not the first E14 on the list.
     #
-    # The worklist ranks by cash impact x age, and the heaviest item here is an
-    # `E06` the engine *derived* — so the model is correctly not offered on it
-    # and the first take recorded a shot with nothing to show. E14 is where the
-    # arithmetic ran out, which is the only place a model belongs, so the film
-    # should be standing on one when it says so.
-    e14 = "#worklist-table tr:has-text('E14') a[href*='/items/']"
-    if page.query_selector(e14) is None:
-        raise RuntimeError(
-            "no E14 on the worklist — shot 6 has nothing to demonstrate. Every item "
-            "carries a derived code, so the model would be refused on all of them."
-        )
-    st.click(e14)
-    page.wait_for_load_state("networkidle")
-    st.clean()
+    # Both are E14 — the model is only offered exceptions the arithmetic could
+    # not name, which is the right class. But *which* E14 decides whether this
+    # shot shows anything: the first cut landed on one where the model returned
+    # E14 again, agreeing it could not say why. Honest, and the single most
+    # important shot in the film spent thirty seconds on the AI doing nothing.
+    #
+    # Which instance helps is not something a selector can know, so the picker
+    # asks the real classifier first and writes the winner here.
+    pick = _pick()
+    st.go(f"/periods/{run_id}/items/{pick['exception_id']}")
 
     st.mark("ask-model")
     ask = "form[action*='/classify'] button[type=submit]"
     if page.query_selector(ask) is None:
         raise RuntimeError(
-            "this item offers no model call. It is an E14, so that is a product "
-            "change rather than a bad pick — look at it before re-recording."
+            f"{pick['exception_id']} offers no model call. It carries "
+            f"{pick['from_code']}, so that is a product change rather than a bad "
+            f"pick — look at it before re-recording."
         )
     st.click(ask)
     page.wait_for_load_state("networkidle", timeout=90000)
     st.clean()
+
+    # The call on camera is a fresh one and the model is not deterministic, so
+    # the answer that lands here may not be the answer the picker got. Assert
+    # it named something rather than echoing the code back — otherwise the shot
+    # quietly reverts to the version this whole change exists to fix.
+    proposed = page.evaluate(
+        "() => { const m = document.body.innerText.match(/Proposed:\\s*([A-Z0-9-]+)/);"
+        " return m ? m[1] : ''; }"
+    )
+    if not proposed:
+        raise RuntimeError("no proposal rendered — the model call failed or the page moved")
+    if proposed == pick["from_code"]:
+        raise RuntimeError(
+            f"the model proposed {proposed} for {pick['exception_id']}, the same code "
+            f"the engine already had — this take would show the AI saying 'I don't "
+            f"know either', which is the shot this picker exists to avoid. Re-run: "
+            f"the call is not deterministic and the picker saw {pick['to_code']}."
+        )
+    print(f"     model named {pick['from_code']} -> {proposed}", flush=True)
     st.hold("ask-model")
 
     # The beat the whole film turns on: a proposal arrived and the ledger did

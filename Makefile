@@ -14,7 +14,8 @@ LIVE_GATES := 12 12b 12c
 # `demo` and `demo/` collide: the directory exists, so without .PHONY make
 # reports the target up to date and silently records nothing.
 .PHONY: help setup verify gate eval gen test e2e lint serve mcp graph status \
-        demo demo-seed demo-verify demo-motion demo-cut demo-film script-check logo shots
+        demo demo-seed demo-pick demo-verify demo-motion demo-cut demo-film \
+        script-check logo shots
 
 help:
 	@echo "Read CLAUDE.md, then STATUS.md, then run 'make verify'."
@@ -233,6 +234,12 @@ logo:
 demo-seed:
 	uv run python -m tools.demo_seed
 
+# Which unexplained item can the model actually name? Asked before the camera
+# rolls, because the first cut spent the film's most important shot on one
+# where the answer was 'I do not know either'.
+demo-pick:
+	uv run python -m tools.demo_pick_item
+
 # Scripted, so it cannot fumble. SCALE=0.25 rehearses the whole path in a
 # quarter of the time — enough to prove every selector still resolves.
 demo:
@@ -263,7 +270,7 @@ script-check:
 # Seeds first, deliberately: the recording closes a period, disposes an item
 # and signs the close, so a second take over the first take's state is
 # refused by the product rather than silently producing a worse film.
-demo-film: demo-seed demo-motion demo demo-cut
+demo-film: demo-seed demo-pick demo-motion demo demo-cut
 	@echo "picture cut is in demo/. Record the voiceover against cut-timecoded.mp4."
 
 # Screenshots for the README and the landing page. Needs a local server with a

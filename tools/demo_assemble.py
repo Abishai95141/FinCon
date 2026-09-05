@@ -281,8 +281,6 @@ def main(argv: list[str] | None = None) -> int:
                 str(Path("..") / strip),
                 "--props",
                 str(Path("..") / props),
-                "--frames",
-                f"0-{max(0, round(total * 60) - 1)}",
                 "--codec",
                 "h264",
                 "--log",

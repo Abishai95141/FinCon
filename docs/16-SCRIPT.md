@@ -30,15 +30,22 @@ been given.
 gameable"* is a rebuttal to a sceptic who is not in the room. Show the number,
 say what it means, move on.
 
+**Lead with what the AI does, not what it is stopped from doing.** The second
+draft mentioned AI four times and three of those were limits — it can't post,
+can't overwrite, isn't used in the close. All true, none of it a reason to
+want the product. Shot 6 now shows an answer: an item nobody could account
+for, named as a fee variance. The limits still appear, once, where they
+belong — after the thing they are protecting.
+
 **Numbers keep their meaning attached.** "Twenty of the twenty-three bank
 deposits" rather than "twenty of twenty-three".
 
-**Pace.** 664 words over 4:54 — about **135 words a minute**. Explaining
-costs words: this draft is 11% longer than the one full of hooks, and three
-of the rendered shots were widened to hold it rather than the sentences being
-compressed back into slogans. Run `make script-check` after any edit; it
-reads each block against the real shot length and fails anything that cannot
-be read at 150 wpm.
+**Pace.** 684 words over 5:05 — about **135 words a minute**. Explaining costs
+words, and the AI shots cost the most: 6 and 7 carry the argument and were
+widened by six seconds each rather than having their sentences compressed back
+into slogans. Run `make script-check` after any edit; it reads each block
+against the real shot length and fails anything that cannot be read at
+150 wpm.
 
 **Every figure is real**, from `make replay` and from the recording. Improvising
 a number makes it false.
@@ -76,7 +83,7 @@ The two columns build left then right. Pause before shot 3.
 
 ---
 
-## 3 · 0:56 – 1:12 · sign in, and what this is
+## 3 · 0:56 – 1:13 · sign in, and what this is
 
 > FinCon does that second part.
 >
@@ -90,7 +97,7 @@ here without widening the beat and re-recording.
 
 ---
 
-## 4 · 1:12 – 1:42 · close a period
+## 4 · 1:13 – 1:43 · close a period
 
 > A period is one month. Closing it means proving those two records agree.
 >
@@ -98,15 +105,16 @@ here without widening the beat and re-recording.
 > re-check every pair by recalculating it, write the accounting entries, and
 > save a record of every decision made.
 >
-> It takes about a second. And no AI was involved in any of it — that line on
-> screen is the receipt saying so.
+> It takes about a second, and every pairing there is arithmetic — no AI
+> involved, which is what that line on screen is confirming.
 
-The stages fill in sequence. "No AI was involved" should land while that line
-is visible.
+The stages fill in sequence. Keep this one brisk — the AI is the next two
+shots, and dwelling here on what it *doesn't* do sets the wrong expectation
+for them.
 
 ---
 
-## 5 · 1:42 – 2:17 · the scorecard, and a proof
+## 5 · 1:43 – 2:19 · the scorecard, and a proof
 
 > Twenty of the twenty-three bank deposits matched. Seventeen exactly; three
 > took more working out.
@@ -125,40 +133,51 @@ The longest line, against 35.5 seconds. Slow down on the last two sentences.
 
 ---
 
-## 6 · 2:17 – 2:56 · the tail, and the model
+## 6 · 2:19 – 3:03 · the tail, and the model
 
-> Three deposits didn't match. With four other problems it found, that's seven
-> things to deal with — sorted by how much money is involved, and sent to
-> whoever handles that kind.
+> Seven things to deal with, sorted by how much money is at stake.
 >
-> Three of them say "unexplained". That means it compared this deposit against
-> everything on the other side and found nothing close enough. So it says it
-> doesn't know, instead of guessing.
+> Some say "unexplained" — the arithmetic found nothing close enough on the
+> other side, so it won't guess.
 >
-> This is where the AI is used. It gets the amounts, the dates and the reference
-> numbers for this one item, and it's asked what it thinks happened.
+> This is what the AI is for. Nearly forty thousand rupees nobody could
+> account for. Ask, and it reads the twelve rows underneath and answers:
+> Razorpay settled this batch on one set of fee terms, but these fee rows
+> disagree with the others. A fee variance — and it says a person has to
+> decide which side is wrong.
+>
+> That's a lead, out of a line that said nothing.
 
-The longest shot, 38.8 seconds. The AI call takes about two seconds on screen —
-stay silent through it.
+The longest shot. The call takes about two seconds on screen — stay silent
+through it, then read the answer off the panel as it appears.
+
+**The item is chosen by `make demo-pick`, which asks the model first.** The
+first cut used the top unexplained item and the model returned "unexplained"
+again — a true answer, and thirty seconds of the AI doing nothing in the shot
+that carries the whole argument. The recorder now refuses to film an item
+where the answer echoes the code back.
 
 ---
 
-## 7 · 2:56 – 3:21 · four endings
+## 7 · 3:03 – 3:34 · four endings
 
-> Its answer is checked before you're shown it, and it changes nothing by
-> itself. You decide.
+> It won't always have an answer, and it says so when it doesn't. About half
+> the time it names something the arithmetic couldn't.
 >
-> There are four ways to finish an item: record it as a cost, expect it in next
-> month's statement, chase someone for the money, or write it off.
+> It only ever proposes. Nothing moves until you agree.
 >
-> Chasing needs a name and a date — otherwise nobody ever follows it up.
+> Four ways to finish an item: record it as a cost, expect it next month,
+> chase someone for the money, or write it off. Chasing needs a name and a
+> date, or nobody follows it up.
 
-That last clause is why the product refuses a chase without a date. Say it as
-the reason it is.
+"About half the time" is the measured figure — `make replay` reports
+classification at 50%. Say it plainly rather than skipping it: a viewer who
+suspects the demo was cherry-picked stops believing the rest, and this is the
+sentence that answers them.
 
 ---
 
-## 8 · 3:21 – 3:54 · sign off, and the pack
+## 8 · 3:34 – 4:07 · sign off, and the pack
 
 > Whichever you choose writes a real accounting entry with your name on it.
 >
@@ -174,7 +193,7 @@ The pack scrolls for six seconds. Read the last list over the scroll.
 
 ---
 
-## 9 · 3:54 – 4:19 · check it without us
+## 9 · 4:07 – 4:32 · check it without us
 
 > Your auditor doesn't have to take any of this on trust.
 >
@@ -190,7 +209,7 @@ actually returned. Let it sit.
 
 ---
 
-## 10 · 4:19 – 4:40 · point an assistant at it
+## 10 · 4:32 – 4:53 · point an assistant at it
 
 > You can also connect an AI assistant to this.
 >
@@ -205,7 +224,7 @@ shot 6 showed what it does, this shows what is written down when it does it.
 
 ---
 
-## 11 · 4:40 – 4:54 · the card
+## 11 · 4:53 – 5:04 · the card
 
 > FinCon. Every match shows its working, and everything left over comes with a
 > reason.

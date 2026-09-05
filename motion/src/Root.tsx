@@ -45,7 +45,7 @@ export const Root: React.FC = () => (
       {...FILM}
     />
     <Composition id="Fence" component={Fence} durationInFrames={10 * 60} {...FILM} />
-    <Composition id="Card" component={Card} durationInFrames={14 * 60} {...FILM} />
+    <Composition id="Card" component={Card} durationInFrames={11 * 60} {...FILM} />
 
     {/* Shot 9. Duration follows the transcript: two commands typed at 42
         characters a second, two responses, and a beat on each. */}
@@ -63,11 +63,20 @@ export const Root: React.FC = () => (
     <Composition
       id="Timecode"
       component={Timecode}
-      durationInFrames={300 * 60}
+      durationInFrames={60}
       fps={60}
       width={1920}
       height={72}
       defaultProps={{shots: [] as {n: number; title: string; from: number; to: number}[]}}
+      // Length comes from the shot list, not a constant. It was 300 seconds,
+      // which silently became a ceiling: the film reached 304.8s and the render
+      // failed asking for frames past the end of its own composition.
+      calculateMetadata={({props}) => ({
+        durationInFrames: Math.max(
+          60,
+          Math.ceil(Math.max(0, ...props.shots.map((s) => s.to)) * 60),
+        ),
+      })}
     />
   </>
 );
